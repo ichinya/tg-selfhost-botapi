@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+
+  botapi:
+    image: aiogram/telegram-bot-api:latest
+    container_name: tg_botapi
+
+    restart: always
+
+    ports:
+      - "18081:8081"
+
+    environment:
+      TELEGRAM_API_ID: ${API_ID}
+      TELEGRAM_API_HASH: ${API_HASH}
+
+    volumes:
+      - ./data:/var/lib/telegram-bot-api
