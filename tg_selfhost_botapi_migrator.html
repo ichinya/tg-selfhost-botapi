@@ -255,7 +255,7 @@
 
       if (state.mode === 'official-to-self') {
         els.oldApi.value = officialApi;
-        els.oldApi.parentElement.style.display = 'block';
+        els.oldApi.parentElement.style.display = 'none'; // Скрываем старый API, он не нужен
         els.newApi.parentElement.style.display = 'block';
         els.oldApi.readOnly = true;
         els.newApi.readOnly = false;
@@ -285,7 +285,7 @@
     function currentConfig() {
       return {
         token: els.botToken.value.trim(),
-        oldApi: norm(els.oldApi.value),
+        oldApi: state.mode === 'official-to-self' ? officialApi : norm(els.oldApi.value),
         newApi: norm(els.newApi.value),
         webhook: els.webhookUrl.value.trim(),
         dropPending: !!els.dropPending.checked,
@@ -452,8 +452,18 @@
         log(`getMe → ${apiForRead}`, 'info');
         const me = await fetchJson(`${apiForRead}/bot${cfg.token}/getMe`);
         if (!me.json || me.json.ok !== true) {
-          log(`getMe не дал ok=true. Возможен CORS или ошибка API.`, 'warning');
-          setSummary('<div class="warning">Проверка getMe из браузера не удалась. Ниже всё равно есть точный curl-план.</div>');
+          const errorMsg = me.text || 'неизвестная ошибка';
+          // Проверяем, не вышел ли бот из системы
+          if (me.text && me.text.includes('Logged out')) {
+            log(`getMe вернул ошибку: Logged out (это нормально для миграции)`, 'info');
+            setSummary('<div class="warning">Бот уже выведен из системы (Logged out). Это нормально для миграции с Official на Self-Hosted. Используйте curl-план ниже.</div>');
+          } else if (me.json && me.json.description) {
+            log(`getMe вернул ошибку API: ${me.json.description}`, 'warning');
+            setSummary(`<div class="warning">Ошибка API: ${escapeHtml(me.json.description)}. Ниже есть curl-план.</div>`);
+          } else {
+            log(`getMe не дал ok=true: ${errorMsg}`, 'warning');
+            setSummary('<div class="warning">Проверка getMe из браузера не удалась. Ниже всё равно есть точный curl-план.</div>');
+          }
         } else {
           state.currentBotId = me.json.result.id || '';
           state.currentBotName = me.json.result.first_name || '';
@@ -461,23 +471,40 @@
           log(`Бот: ${state.currentBotName} (@${state.currentBotUsername})`, 'success');
         }
 
-        log(`getWebhookInfo → ${apiForRead}`, 'info');
-        const hook = await fetchJson(`${apiForRead}/bot${cfg.token}/getWebhookInfo`);
-        if (hook.json && hook.json.ok === true) {
-          state.currentWebhookFromCheck = hook.json.result.url || '';
-          if (!cfg.webhook && state.currentWebhookFromCheck) els.webhookUrl.value = state.currentWebhookFromCheck;
-          log(`Текущий webhook: ${state.currentWebhookFromCheck || '(не установлен)'}`, 'info');
+        // Пытаемся получить webhook info, но если бот выведен, пропускаем
+        const isLoggedOut = me.text && me.text.includes('Logged out');
+        if (!isLoggedOut) {
+          log(`getWebhookInfo → ${apiForRead}`, 'info');
+          const hook = await fetchJson(`${apiForRead}/bot${cfg.token}/getWebhookInfo`);
+          if (hook.json && hook.json.ok === true) {
+            state.currentWebhookFromCheck = hook.json.result.url || '';
+            if (!cfg.webhook && state.currentWebhookFromCheck) els.webhookUrl.value = state.currentWebhookFromCheck;
+            log(`Текущий webhook: ${state.currentWebhookFromCheck || '(не установлен)'}`, 'info');
+          } else {
+            const errorMsg = hook.json && hook.json.description ? hook.json.description : 'неизвестная ошибка';
+            log(`getWebhookInfo вернул ошибку: ${errorMsg}`, 'warning');
+          }
         } else {
-          log('getWebhookInfo не дал читаемый ответ. Возможен CORS.', 'warning');
+          log('Пропускаем getWebhookInfo (бот уже выведен)', 'info');
         }
 
         const tlsCheck = await checkWebhookReachability(els.webhookUrl.value.trim() || state.currentWebhookFromCheck);
         setCheck(els.chkHookTls, `Сертификат: ${tlsCheck.message}`, tlsCheck.status);
-        setSummary(`
-          <div><strong>Бот:</strong> ${escapeHtml(state.currentBotName || '—')} ${state.currentBotUsername ? `(@${escapeHtml(state.currentBotUsername)})` : ''}</div>
-          <div><strong>Текущий webhook:</strong> <span>${escapeHtml(state.currentWebhookFromCheck || '(не установлен)')}</span></div>
-          <div><strong>Режим:</strong> ${escapeHtml(cfg.mode)}</div>
-        `);
+        
+        let summaryHtml = '';
+        if (state.currentBotName) {
+          summaryHtml = `
+            <div><strong>Бот:</strong> ${escapeHtml(state.currentBotName)} ${state.currentBotUsername ? `(@${escapeHtml(state.currentBotUsername)})` : ''}</div>
+            <div><strong>Текущий webhook:</strong> <span>${escapeHtml(state.currentWebhookFromCheck || '(не установлен)')}</span></div>
+            <div><strong>Режим:</strong> ${escapeHtml(cfg.mode)}</div>
+          `;
+        } else {
+          summaryHtml = `
+            <div><strong>Режим:</strong> ${escapeHtml(cfg.mode)}</div>
+            <div class="warning">Бот не идентифицирован (возможно, выведен из системы). Используйте curl-план ниже.</div>
+          `;
+        }
+        setSummary(summaryHtml);
       } catch (e) {
         log(`Ошибка проверки: ${e.message}`, 'error');
         setSummary('<div class="error">Браузер не смог дочитать ответы. Это часто связано с CORS. Используй curl-план ниже.</div>');
@@ -523,13 +550,20 @@
       }
 
       // Пытаемся выполнить getMe
+      let loggedOut = false;
       try {
         log(`getMe → ${api}`, 'info');
         const me = await fetchJson(`${api}/bot${cfg.token}/getMe`);
         if (me.json && me.json.ok === true) {
           log(`✓ Бот: ${me.json.result.first_name} (@${me.json.result.username})`, 'success');
         } else {
-          log(`✗ getMe не удался: ${me.text}`, 'error');
+          const errorMsg = me.json && me.json.description ? me.json.description : me.text;
+          log(`✗ getMe не удался: ${errorMsg}`, 'error');
+          // Проверяем, не вышел ли бот из системы (только для official API в режиме official-to-self)
+          if (cfg.mode === 'official-to-self' && me.text && me.text.includes('Logged out')) {
+            loggedOut = true;
+            log('Бот уже выведен из системы (Logged out). Продолжаем миграцию...', 'warning');
+          }
         }
       } catch (e) {
         log(`✗ Ошибка при выполнении getMe: ${e.message} (возможно CORS)`, 'error');
@@ -546,7 +580,8 @@
           log(`✓ Текущий webhook: ${url}`, 'success');
           state.currentWebhookFromCheck = hook.json.result.url || '';
         } else {
-          log(`✗ getWebhookInfo не удался: ${hook.text}`, 'error');
+          const errorMsg = hook.json && hook.json.description ? hook.json.description : hook.text;
+          log(`✗ getWebhookInfo не удался: ${errorMsg}`, 'error');
         }
       } catch (e) {
         log(`✗ Ошибка при выполнении getWebhookInfo: ${e.message}`, 'error');
@@ -568,7 +603,8 @@
             if (setJson.ok) {
               log(`✓ Webhook установлен: ${webhookTarget}`, 'success');
             } else {
-              log(`✗ setWebhook не удался: ${setText}`, 'error');
+              const errorMsg = setJson.description || setText;
+              log(`✗ setWebhook не удался: ${errorMsg}`, 'error');
             }
           } catch (e) {
             log(`✗ Ошибка при установке webhook: ${e.message}`, 'error');
@@ -586,7 +622,8 @@
             if (delJson.ok) {
               log('✓ Webhook удален', 'success');
             } else {
-              log(`✗ deleteWebhook не удался: ${delText}`, 'error');
+              const errorMsg = delJson.description || delText;
+              log(`✗ deleteWebhook не удался: ${errorMsg}`, 'error');
             }
           } catch (e) {
             log(`✗ Ошибка при удалении webhook: ${e.message}`, 'error');
@@ -616,54 +653,62 @@
           return;
         }
 
-        // deleteWebhook
-        try {
-          log(`deleteWebhook → ${api}`, 'info');
-          const del = await fetch(`${api}/bot${cfg.token}/deleteWebhook`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `drop_pending_updates=${cfg.dropPending ? 'true' : 'false'}`
-          });
-          const delText = await del.text();
-          const delJson = JSON.parse(delText);
-          if (delJson.ok) {
-            log('✓ Webhook удален', 'success');
-          } else {
-            log(`✗ deleteWebhook не удался: ${delText}`, 'error');
-          }
-        } catch (e) {
-          log(`✗ Ошибка при удалении webhook: ${e.message}`, 'error');
-        }
-
-        // logOut или close
-        if (cfg.mode === 'official-to-self') {
+        // deleteWebhook и logOut/close только если бот не выведен из системы
+        if (!loggedOut) {
+          // deleteWebhook
           try {
-            log(`logOut → ${api}`, 'info');
-            const out = await fetch(`${api}/bot${cfg.token}/logOut`, { method: 'POST' });
-            const outText = await out.text();
-            const outJson = JSON.parse(outText);
-            if (outJson.ok) {
-              log('✓ Выход из official выполнен', 'success');
+            log(`deleteWebhook → ${api}`, 'info');
+            const del = await fetch(`${api}/bot${cfg.token}/deleteWebhook`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: `drop_pending_updates=${cfg.dropPending ? 'true' : 'false'}`
+            });
+            const delText = await del.text();
+            const delJson = JSON.parse(delText);
+            if (delJson.ok) {
+              log('✓ Webhook удален', 'success');
             } else {
-              log(`✗ logOut не удался: ${outText}`, 'error');
+              const errorMsg = delJson.description || delText;
+              log(`✗ deleteWebhook не удался: ${errorMsg}`, 'error');
             }
           } catch (e) {
-            log(`✗ Ошибка при выходе: ${e.message}`, 'error');
+            log(`✗ Ошибка при удалении webhook: ${e.message}`, 'error');
+          }
+
+          // logOut или close
+          if (cfg.mode === 'official-to-self') {
+            try {
+              log(`logOut → ${api}`, 'info');
+              const out = await fetch(`${api}/bot${cfg.token}/logOut`, { method: 'POST' });
+              const outText = await out.text();
+              const outJson = JSON.parse(outText);
+              if (outJson.ok) {
+                log('✓ Выход из official выполнен', 'success');
+              } else {
+                const errorMsg = outJson.description || outText;
+                log(`✗ logOut не удался: ${errorMsg}`, 'error');
+              }
+            } catch (e) {
+              log(`✗ Ошибка при выходе: ${e.message}`, 'error');
+            }
+          } else {
+            try {
+              log(`close → ${api}`, 'info');
+              const close = await fetch(`${api}/bot${cfg.token}/close`, { method: 'POST' });
+              const closeText = await close.text();
+              const closeJson = JSON.parse(closeText);
+              if (closeJson.ok) {
+                log('✓ Сессия закрыта', 'success');
+              } else {
+                const errorMsg = closeJson.description || closeText;
+                log(`✗ close не удался: ${errorMsg}`, 'error');
+              }
+            } catch (e) {
+              log(`✗ Ошибка при закрытии сессии: ${e.message}`, 'error');
+            }
           }
         } else {
-          try {
-            log(`close → ${api}`, 'info');
-            const close = await fetch(`${api}/bot${cfg.token}/close`, { method: 'POST' });
-            const closeText = await close.text();
-            const closeJson = JSON.parse(closeText);
-            if (closeJson.ok) {
-              log('✓ Сессия закрыта', 'success');
-            } else {
-              log(`✗ close не удался: ${closeText}`, 'error');
-            }
-          } catch (e) {
-            log(`✗ Ошибка при закрытии сессии: ${e.message}`, 'error');
-          }
+          log('Пропускаем deleteWebhook и logOut/close (бот уже выведен)', 'info');
         }
 
         // getMe на целевом API
@@ -694,7 +739,8 @@
             if (setJson.ok) {
               log(`✓ Webhook установлен: ${webhookTarget}`, 'success');
             } else {
-              log(`✗ setWebhook не удался: ${setText}`, 'error');
+              const errorMsg = setJson.description || setText;
+              log(`✗ setWebhook не удался: ${errorMsg}`, 'error');
             }
           } catch (e) {
             log(`✗ Ошибка при установке webhook: ${e.message}`, 'error');
