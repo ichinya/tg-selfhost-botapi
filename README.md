@@ -164,6 +164,43 @@ curl "https://api.telegram.org/bot<TOKEN>/getMe"
 
 ---
 
+## Скрипт миграции: `migrate_off_to_self.sh`
+
+В репозитории есть утилита `migrate_off_to_self.sh`, которая автоматизирует переход:
+* **Official (`api.telegram.org`) → Self-hosted**
+* **Polling без webhook** (если `WEBHOOK_URL` не указан)
+* **Учитывает `drop_pending_updates`** для удаления накопленных апдейтов
+
+> **Требуется:** `jq` (скрипт использует его для разбора JSON). Если хотите, можно создать `.env` рядом со скриптом — тогда переменные будут автоматически загружены.
+
+### Пример запуска (polling)
+```bash
+SELF_BOT_URL="https://tg.ie0.ru" \
+  ./migrate_off_to_self.sh "$BOT_TOKEN"
+```
+
+### Пример запуска (с webhook)
+```bash
+SELF_BOT_URL="https://tg.ie0.ru" \
+  ./migrate_off_to_self.sh "$BOT_TOKEN" "https://mysite/updates"
+```
+
+### Пример запуска с очисткой накопившихся апдейтов
+```bash
+DROP_PENDING_UPDATES=true \
+  SELF_BOT_URL="https://tg.ie0.ru" \
+  ./migrate_off_to_self.sh "$BOT_TOKEN"
+```
+
+### Переменные окружения
+* `BOT_TOKEN` — обязательный (аргумент 1)
+* `SELF_BOT_URL` — адрес self-hosted Bot API (аргумент 2 или env)
+* `WEBHOOK_URL` — URL webhook (аргумент 3 или env); если не задан, используется polling
+* `DROP_PENDING_UPDATES` — `true/false` (по умолчанию `false`)
+* `.env` — при наличии в директории загружается автоматически (конфиденциальные переменные можно хранить здесь)
+
+---
+
 ## Ссылки и материалы
 
 * [Telegram Bot API — Официальная документация](https://core.telegram.org/bots/api)
