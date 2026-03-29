@@ -4,6 +4,12 @@
 
 ## Быстрый старт
 
+### Требования
+
+- Docker (рекомендуется Docker Engine 20.10+)
+- Docker Compose (v2.x)
+- `jq` (для запуска `migrate_off_to_self.sh`)
+
 1. Создайте `.env` на основе примера:
 ```bash
 cp .env.example .env
@@ -15,11 +21,68 @@ docker compose up -d
 ```
 Сервис поднимется на `http://localhost:18081` и будет использовать директорию `./data` для постоянного хранения состояния.
 
+## Обращение к API
+
+После запуска замените базовый URL:
+- Официальный: `https://api.telegram.org/bot<TOKEN>/...`
+- Self-hosted: `http://localhost:18081/bot<TOKEN>/...`
+
+### Примеры
+
+**getMe**
+```bash
+curl http://localhost:18081/bot<TOKEN>/getMe
+```
+
+**sendMessage**
+```bash
+curl -X POST http://localhost:18081/bot<TOKEN>/sendMessage \
+  -d "chat_id=123456789" \
+  -d "text=Hello from self-hosted API"
+```
+
+**getWebhookInfo**
+```bash
+curl http://localhost:18081/bot<TOKEN>/getWebhookInfo
+```
+
+## Работа с файлами
+
+Файлы скачиваются с вашего сервера, а не с `api.telegram.org`.
+
+1) Получите `file_path`:
+```bash
+FILE_PATH=$(curl -s http://localhost:18081/bot<TOKEN>/getFile \
+  -d "file_id=AgACAgIAAxkBAAI..." | jq -r '.result.file_path')
+```
+
+2) Скачайте файл:
+```bash
+curl -o photo.jpg "http://localhost:18081/file/bot<TOKEN>/$FILE_PATH"
+```
+
+> Если не хотите передавать токен в URL, используйте заголовок `X-Telegram-Bot-Token`:
+> ```bash
+> curl -H "X-Telegram-Bot-Token: <TOKEN>" \
+>   "http://localhost:18081/file/path/to/file.jpg" \
+>   -o photo.jpg
+> ```
+
 ---
 
 ## Архитектура и термины
 
 Этот проект работает как прокси-совместимый Bot API сервер, который полностью заменяет официальное облако `https://api.telegram.org` для вашего бота. 
+
+### Роль nginx
+
+В `docker-compose.yml` поднят контейнер с `nginx`, который служит обратным прокси между внешним портом `80` и внутренним Bot API (`botapi:8081`). Файл `nginx.conf`:
+
+- перенаправляет `/file/` на локальную файловую директорию `/var/lib/telegram-bot-api/`, где хранятся файлы (документы, фото и т.п.);
+- проксирует все остальные запросы на `http://botapi:8081`;
+- сохраняет заголовки `Host` и `X-Real-IP` для корректной работы.
+
+Это даёт удобный внешний адрес и изоляцию сервиса.
 
 Важно различать две настройки:
 * **`TELEGRAM_BOT_URL`** — это адрес (endpoint) самого Bot API сервера, к которому вы обращаетесь для вызова методов (`getMe`, `setWebhook`, `sendMessage`).
