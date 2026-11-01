@@ -4,3 +4,5 @@
 /data
 /logs
 __pycache__/
+/_site/
+/.jekyll-cache/

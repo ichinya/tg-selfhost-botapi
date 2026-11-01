@@ -1,0 +1,57 @@
+title: TG Selfhost Bot API
+description: Self-hosted Telegram Bot API with Docker images and migration tools.
+url: https://ichinya.github.io
+baseurl: /tg-selfhost-botapi
+markdown: kramdown
+highlighter: rouge
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: false
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+      lang: en
+  - scope:
+      path: docs/ru
+    values:
+      lang: ru
+exclude:
+  - README.md
+  - Dockerfile
+  - docker-compose.yml
+  - docker-compose.build.yml
+  - docker-entrypoint.sh
+  - migrate_off_to_self.sh
+  - nginx.conf
+  - patches
+  - tools
+  - data
+  - logs
+  - .site-check
+navigation:
+  en:
+    - title: Overview
+      url: /docs/en/
+    - title: Getting started
+      url: /docs/en/getting-started.html
+    - title: Configuration
+      url: /docs/en/configuration.html
+    - title: Migration
+      url: /docs/en/migration.html
+    - title: Maintenance
+      url: /docs/en/maintenance.html
+  ru:
+    - title: Обзор
+      url: /docs/ru/
+    - title: Установка
+      url: /docs/ru/getting-started.html
+    - title: Настройки
+      url: /docs/ru/configuration.html
+    - title: Миграция
+      url: /docs/ru/migration.html
+    - title: Обслуживание
+      url: /docs/ru/maintenance.html

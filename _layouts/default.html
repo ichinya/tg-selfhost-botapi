@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="{{ page.lang | default: 'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title | escape }} · {{ site.title | escape }}</title>
+  <meta name="description" content="{{ page.description | default: site.description | escape }}">
+  <link rel="icon" type="image/svg+xml" href="{{ '/assets/favicon.svg' | relative_url }}">
+  <link rel="stylesheet" href="{{ '/assets/css/docs.css' | relative_url }}">
+</head>
+<body>
+  {% assign language = page.lang | default: 'en' %}
+  <a class="skip" href="#content">{% if language == 'ru' %}К содержанию{% else %}Skip to content{% endif %}</a>
+  <header class="header">
+    <a class="brand" href="{{ '/' | relative_url }}">TG <span>Selfhost Bot API</span></a>
+    <nav class="header-links" aria-label="{% if language == 'ru' %}Проект{% else %}Project{% endif %}">
+      {% if page.translation %}<a lang="{% if language == 'ru' %}en{% else %}ru{% endif %}" href="{{ page.translation | relative_url }}">{% if language == 'ru' %}English{% else %}Русский{% endif %}</a>{% endif %}
+      <a href="{{ '/tg_selfhost_botapi_migrator.html' | relative_url }}">{% if language == 'ru' %}Мигратор{% else %}Migrator{% endif %}</a>
+      <a href="https://github.com/ichinya/tg-selfhost-botapi">GitHub ↗</a>
+    </nav>
+  </header>
+  <div class="shell">
+    <aside class="sidebar">
+      <p class="eyebrow">{% if language == 'ru' %}Документация{% else %}Documentation{% endif %}</p>
+      <nav aria-label="{% if language == 'ru' %}Разделы{% else %}Guides{% endif %}">
+        {% for item in site.navigation[language] %}
+        <a href="{{ item.url | relative_url }}"{% if page.url == item.url %} aria-current="page"{% endif %}>{{ item.title }}</a>
+        {% endfor %}
+      </nav>
+      <p class="sidebar-note">{% if language == 'ru' %}Официальный сервер.<br>Своя Docker-упаковка.{% else %}Official server.<br>Independent Docker packaging.{% endif %}</p>
+    </aside>
+    <main id="content" tabindex="-1">{{ content }}</main>
+  </div>
+  <footer>
+    <span>TG Selfhost Bot API</span>
+    <a href="https://github.com/ichinya/tg-selfhost-botapi/edit/main/{{ page.path }}">{% if language == 'ru' %}Исправить страницу{% else %}Edit this page{% endif %}</a>
+  </footer>
+</body>
+</html>

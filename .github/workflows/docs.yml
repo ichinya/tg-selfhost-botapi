@@ -1,0 +1,43 @@
+name: Documentation
+
+on:
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'index.md'
+      - '_config.yml'
+      - '_layouts/**'
+      - 'assets/**'
+      - 'docs/**'
+      - 'tg_selfhost_botapi_migrator.html'
+      - 'tools/check_docs.py'
+      - '.github/workflows/docs.yml'
+  push:
+    branches: [main]
+    paths:
+      - '**.md'
+      - '_config.yml'
+      - '_layouts/**'
+      - 'assets/**'
+      - 'tg_selfhost_botapi_migrator.html'
+      - 'tools/check_docs.py'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the GitHub Pages site
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./.site-check
+      - name: Check rendered links and the original migrator URL
+        run: python3 tools/check_docs.py .site-check
