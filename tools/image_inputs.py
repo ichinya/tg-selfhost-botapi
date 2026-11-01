@@ -8,8 +8,9 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 RECIPE = (
-    "Dockerfile", ".dockerignore", "patches/webhook-user-agent.patch",
-    "tools/image_inputs.py", "tools/test_image_inputs.py", ".github/workflows/image.yml",
+    "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
+    "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
+    ".github/workflows/image.yml",
 )
 
 
@@ -43,8 +44,6 @@ def build_key(inputs, files):
 def resolve():
     inputs = {
         "bot_api_revision": revision("tdlib/telegram-bot-api"),
-        "aiogram_revision": revision("aiogram/telegram-bot-api"),
-        "aiogram_image_digest": digest("aiogram/telegram-bot-api:latest"),
         "alpine_image": "alpine:3.22@" + digest("alpine:3.22"),
     }
     inputs["build_key"] = build_key(inputs, {name: (ROOT / name).read_bytes() for name in RECIPE})

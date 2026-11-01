@@ -74,15 +74,13 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
-            AIOGRAM_REVISION=${{ steps.inputs.outputs.aiogram_revision }}
-            AIOGRAM_IMAGE_DIGEST=${{ steps.inputs.outputs.aiogram_image_digest }}
             ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
             BUILD_KEY=${{ steps.inputs.outputs.build_key }}
             BUILD_JOBS=2
       - name: Smoke-test built binary
         if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
         run: |
-          docker run --rm --entrypoint telegram-bot-api botapi-candidate:check --version
+          docker run --rm botapi-candidate:check --version
           docker run --rm --entrypoint sh botapi-candidate:check -ec \
             'grep -aq "TelegramBotWebhook/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
       - name: Publish tested build then promote latest

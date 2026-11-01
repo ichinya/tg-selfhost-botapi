@@ -6,7 +6,7 @@ from image_inputs import build_key, digest, revision
 
 class BuildInputsTest(unittest.TestCase):
     def test_any_upstream_change_invalidates_published_build(self):
-        inputs = dict(source="a", entrypoint="b", aiogram_digest="c", base="d")
+        inputs = dict(source="a", base="b")
         files = {"Dockerfile": b"recipe", "patch": b"header"}
         original = build_key(inputs, files)
         for key in inputs:
@@ -32,7 +32,7 @@ class BuildInputsTest(unittest.TestCase):
     def test_network_failure_does_not_produce_new_inputs(self):
         with patch("image_inputs.command", side_effect=TimeoutError("registry timeout")):
             with self.assertRaises(TimeoutError):
-                digest("aiogram/telegram-bot-api:latest")
+                digest("alpine:3.22")
 
 
 if __name__ == "__main__":
