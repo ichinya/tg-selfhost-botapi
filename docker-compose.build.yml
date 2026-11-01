@@ -1,0 +1,5 @@
+# Optional local build: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  botapi:
+    image: tg-selfhost-botapi:local
+    build: .

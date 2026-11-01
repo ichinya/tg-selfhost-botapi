@@ -1,4 +1,6 @@
 /.*/
+!/.github/
 /.env
 /data
 /logs
+__pycache__/

@@ -1,6 +1,6 @@
 # tg_gateway
 
-Лёгкий шлюз для запуска локального Telegram Bot API сервера (`aiogram/telegram-bot-api`) в Docker и удобной смены `Bot API URL` и `webhook` при миграции между серверами.
+Лёгкий шлюз для запуска локального Telegram Bot API сервера в Docker и удобной смены `Bot API URL` и `webhook` при миграции между серверами. Образ собирается из исходников `tdlib/telegram-bot-api` с entrypoint от `aiogram/telegram-bot-api` и заголовком User-Agent для webhook.
 
 ## Быстрый старт
 
@@ -17,33 +17,117 @@ cp .env.example .env
 2. Укажите `API_ID` и `API_HASH` (их можно получить на [my.telegram.org](https://my.telegram.org)).
 3. Запустите контейнер:
 ```bash
+docker compose pull
 docker compose up -d
 ```
-Сервис поднимется на `http://localhost:18081` и будет использовать директорию `./data` для постоянного хранения состояния.
+Сервис поднимется на `http://localhost:18080` и будет использовать директорию `./data` для постоянного хранения состояния.
 
 ## Обращение к API
 
+### User-Agent при доставке webhook
+
+Готовый образ `ghcr.io/ichinya/tg-selfhost-botapi` собирается в GitHub Actions
+из закреплённой для каждой сборки ревизии исходников Telegram с патчем
+`patches/webhook-user-agent.patch`. Все исходящие POST-запросы с обновлениями
+содержат `User-Agent: TelegramBotWebhook/1.0`, чтобы защита хостинга не
+блокировала VPS из-за отсутствующего заголовка.
+
+Заголовок добавляется в самом отправщике webhook (`WebhookActor.cpp`).
+Настройки входящего nginx и заголовки запроса `setWebhook` на него не влияют.
+
+Для обновления существующего сервера:
+
+```bash
+docker compose pull botapi
+docker compose up -d --no-deps botapi
+```
+
+На VPS компиляция не нужна. Публикация образа начинается после включения
+workflow в основной ветке; до первой успешной публикации используйте локальную
+сборку:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+Локальная сборка компилирует TDLib и может занять продолжительное время.
+По умолчанию используется один поток для ограничения потребления памяти.
+Каталог `./data` сохраняет сессии и настройки webhook; повторная миграция ботов
+не требуется. После перезапуска отправьте сообщение боту и проверьте в журнале
+принимающего сайта, что POST к webhook содержит `TelegramBotWebhook/1.0`.
+
+При обновлении ревизии Bot API патч проверяется перед сборкой: несовместимое
+изменение исходника остановит сборку, а не уберёт заголовок незаметно.
+
+### Свой образ и обновления
+
+`tdlib/telegram-bot-api` содержит официальный C++ сервер. Репозиторий
+`aiogram/telegram-bot-api` упаковывает этот же сервер в Docker, добавляя Alpine,
+entrypoint, переменные окружения и сборку для нескольких архитектур. Это не
+отдельная реализация протокола. Их workflow получает исходники tdlib напрямую:
+[официальный сервер](https://github.com/tdlib/telegram-bot-api),
+[сборка aiogram](https://github.com/aiogram/telegram-bot-api/blob/master/.github/workflows/multiarch.yml).
+
+| Вариант | Последствия |
+| --- | --- |
+| Готовый образ aiogram | Минимум сопровождения, но сейчас нет нашего User-Agent |
+| Официальный бинарник без Docker | Нужно самостоятельно обеспечить сборку, пользователя, параметры запуска и обновления; User-Agent всё равно требует патча |
+| Свой Docker-образ из официальных исходников | Контроль над патчем и публикацией; сохраняем совместимые переменные, UID/GID 101 и каталог данных |
+
+Выбран третий вариант: официальный исходник, закреплённый entrypoint aiogram и
+собственная публикация в GHCR. Бинарник из образа aiogram не модифицируется.
+Его digest используется как сигнал обновления, а в метаданных собственного
+образа отдельно записываются настоящие ревизии исходников и entrypoint.
+
+Workflow `.github/workflows/image.yml`:
+
+- Ежедневно около **04:37 Asia/Yekaterinburg** (23:37 UTC), при изменениях основной
+  ветки и вручную проверяет tdlib, aiogram, digest `aiogram/telegram-bot-api:latest`
+  и digest Alpine 3.22. Расписание GitHub может задерживаться.
+- Создаёт ключ из этих входных данных и файлов сборки. Если такой образ уже
+  опубликован, повторная компиляция пропускается; при недоступности проверки
+  registry сборка повторяется, успешная публикация не предполагается.
+- Проверяет применимость патча, компилирует весь сервер, выполняет `--version`,
+  проверяет наличие User-Agent в бинарнике и синтаксис entrypoint. Проверка
+  бинарника не заменяет интеграционную доставку webhook тестовому боту.
+- После проверок публикует `build-<key>` и продвигает `latest`. Ошибка патча,
+  компиляции или smoke-проверки оставляет прежний `latest`. В PR публикация
+  отключена. Первая версия собственного образа поддерживает **linux/amd64**.
+
+Расписание работает только после попадания workflow в основную ветку. Для GHCR
+используется `GITHUB_TOKEN` с `packages: write`, дополнительный пароль не нужен.
+Первый package может оказаться приватным: для скачивания без входа нужно явно
+выбрать Public в настройках пакета GitHub либо настроить доступ к GHCR на VPS.
+
+На production рекомендуется указать проверенный `build-<key>` или digest через
+`BOTAPI_IMAGE` в `.env`. Обновление образа в registry **не перезапускает VPS**.
+Перед сменой версии остановите сервис, сделайте согласованную резервную копию
+`./data`, затем выполните pull и запуск. Откат бинарника требует проверки
+совместимости сохранённых данных. При замене упаковки на том же сервере
+сохраняются volume, endpoint, UID/GID и local mode; параллельно два процесса с
+одним каталогом состояния запускать нельзя.
+
 После запуска замените базовый URL:
 - Официальный: `https://api.telegram.org/bot<TOKEN>/...`
-- Self-hosted: `http://localhost:18081/bot<TOKEN>/...`
+- Self-hosted: `http://localhost:18080/bot<TOKEN>/...`
 
 ### Примеры
 
 **getMe**
 ```bash
-curl http://localhost:18081/bot<TOKEN>/getMe
+curl http://localhost:18080/bot<TOKEN>/getMe
 ```
 
 **sendMessage**
 ```bash
-curl -X POST http://localhost:18081/bot<TOKEN>/sendMessage \
+curl -X POST http://localhost:18080/bot<TOKEN>/sendMessage \
   -d "chat_id=123456789" \
   -d "text=Hello from self-hosted API"
 ```
 
 **getWebhookInfo**
 ```bash
-curl http://localhost:18081/bot<TOKEN>/getWebhookInfo
+curl http://localhost:18080/bot<TOKEN>/getWebhookInfo
 ```
 
 ## Работа с файлами
@@ -52,19 +136,19 @@ curl http://localhost:18081/bot<TOKEN>/getWebhookInfo
 
 1) Получите `file_path`:
 ```bash
-FILE_PATH=$(curl -s http://localhost:18081/bot<TOKEN>/getFile \
+FILE_PATH=$(curl -s http://localhost:18080/bot<TOKEN>/getFile \
   -d "file_id=AgACAgIAAxkBAAI..." | jq -r '.result.file_path')
 ```
 
 2) Скачайте файл:
 ```bash
-curl -o photo.jpg "http://localhost:18081/file/bot<TOKEN>/$FILE_PATH"
+curl -o photo.jpg "http://localhost:18080/file/bot<TOKEN>/$FILE_PATH"
 ```
 
 > Если не хотите передавать токен в URL, используйте заголовок `X-Telegram-Bot-Token`:
 > ```bash
 > curl -H "X-Telegram-Bot-Token: <TOKEN>" \
->   "http://localhost:18081/file/path/to/file.jpg" \
+>   "http://localhost:18080/file/path/to/file.jpg" \
 >   -o photo.jpg
 > ```
 
