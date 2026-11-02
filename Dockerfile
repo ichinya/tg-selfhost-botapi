@@ -25,11 +25,12 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/l
 
 FROM ${ALPINE_IMAGE}
 ARG BOT_API_REVISION=e3e9dd8e5b3d7ab8537cd5a10dc31d5ffa8f82d1
-ARG BUILD_KEY=local
+# Public recipe fingerprint, stored in image metadata.
+ARG BUILD_FINGERPRINT=local
 LABEL org.opencontainers.image.source="https://github.com/ichinya/tg-selfhost-botapi" \
       org.opencontainers.image.licenses="BSL-1.0" \
       io.tg-selfhost.bot-api-revision="${BOT_API_REVISION}" \
-      io.tg-selfhost.build-key="${BUILD_KEY}"
+      io.tg-selfhost.build-key="${BUILD_FINGERPRINT}"
 ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
     TELEGRAM_TEMP_DIR="/tmp/telegram-bot-api"
 RUN apk add --no-cache openssl libstdc++ \
