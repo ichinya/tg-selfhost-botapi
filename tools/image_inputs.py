@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RECIPE = (
     "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
     "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
+    "tools/test_webhook_user_agent.py",
     ".github/workflows/image.yml",
 )
 

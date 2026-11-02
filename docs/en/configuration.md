@@ -67,7 +67,8 @@ requires updating nginx.
 ## Webhook User-Agent
 
 The build applies `patches/webhook-user-agent.patch` to the official server.
-Outgoing updates include `User-Agent: TelegramBotWebhook/1.0`. Incoming nginx
+Outgoing updates include `User-Agent: WebhookDelivery/1.0`. The neutral name avoids
+recipient-side crawler filters that reject User-Agents containing `bot`. Incoming nginx
 headers or a header on `setWebhook` do not configure this outgoing header.
 
 ## Files in local mode

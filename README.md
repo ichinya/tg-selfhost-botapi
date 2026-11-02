@@ -23,7 +23,7 @@ available, use `docker compose pull && docker compose up -d`.
 See [installation](docs/en/getting-started.md) for networking and verification.
 
 - Official server source; independent Docker entrypoint.
-- `User-Agent: TelegramBotWebhook/1.0` on outgoing webhooks.
+- `User-Agent: WebhookDelivery/1.0` on outgoing webhooks.
 - Checked image builds and nightly upstream checks.
 - Bash migration helper and browser-based migration planner.
 
