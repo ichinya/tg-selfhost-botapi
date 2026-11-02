@@ -1,0 +1,99 @@
+name: Bot API image
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # 04:37 Asia/Yekaterinburg; Actions may delay scheduled runs.
+    - cron: '37 23 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: botapi-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Test build input handling
+        run: python3 -m unittest discover -s tools -p 'test_*.py' -v
+      - name: Check Compose
+        env:
+          API_ID: '12345'
+          API_HASH: test-placeholder
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve immutable upstream inputs
+        id: inputs
+        run: python3 tools/image_inputs.py >> "$GITHUB_OUTPUT"
+      - name: Check previously published build
+        id: existing
+        env:
+          BUILD_KEY: ${{ steps.inputs.outputs.build_key }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "$image:build-$BUILD_KEY" > /dev/null 2>registry-error.txt; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            # A missing/private package also fails inspection on the first build.
+            # Never treat an unconfirmed registry response as a successful build.
+            cat registry-error.txt >&2
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build candidate (patch must apply)
+        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: botapi-candidate:check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
+            ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
+            BUILD_KEY=${{ steps.inputs.outputs.build_key }}
+            BUILD_JOBS=2
+      - name: Smoke-test built binary
+        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
+        run: |
+          docker run --rm botapi-candidate:check --version
+          docker run --rm --entrypoint sh botapi-candidate:check -ec \
+            'grep -aq "TelegramBotWebhook/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
+      - name: Publish tested build then promote latest
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          IMAGE: ${{ steps.existing.outputs.image }}
+          BUILD_KEY: ${{ steps.inputs.outputs.build_key }}
+          EXISTS: ${{ steps.existing.outputs.exists }}
+        run: |
+          if [ "$EXISTS" != true ]; then
+            docker tag botapi-candidate:check "$IMAGE:build-$BUILD_KEY"
+            docker push "$IMAGE:build-$BUILD_KEY"
+          fi
+          # Existing immutable builds have already passed the same checks.
+          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:build-$BUILD_KEY"
+          echo "Published $IMAGE:build-$BUILD_KEY" >> "$GITHUB_STEP_SUMMARY"

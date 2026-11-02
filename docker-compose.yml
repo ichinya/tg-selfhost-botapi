@@ -1,6 +1,6 @@
 services:
   botapi:
-    image: aiogram/telegram-bot-api:latest
+    image: ${BOTAPI_IMAGE:-ghcr.io/ichinya/tg-selfhost-botapi:latest}
     container_name: tg_botapi
     restart: always
     environment:

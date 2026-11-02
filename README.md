@@ -1,271 +1,34 @@
-# tg_gateway
+# TG Selfhost Bot API
 
-Лёгкий шлюз для запуска локального Telegram Bot API сервера (`aiogram/telegram-bot-api`) в Docker и удобной смены `Bot API URL` и `webhook` при миграции между серверами.
+Self-hosted Telegram Bot API in Docker, built directly from the official
+[tdlib server](https://github.com/tdlib/telegram-bot-api).
+Includes a webhook User-Agent patch and migration tools.
 
-## Быстрый старт
+[English docs](docs/en/README.md) · [Документация на русском](docs/ru/README.md) ·
+[Documentation website](https://ichinya.github.io/tg-selfhost-botapi/) ·
+[Migration tool](https://ichinya.github.io/tg-selfhost-botapi/tg_selfhost_botapi_migrator.html)
 
-### Требования
+## Quick start
 
-- Docker (рекомендуется Docker Engine 20.10+)
-- Docker Compose (v2.x)
-- `jq` (для запуска `migrate_off_to_self.sh`)
+Requires Docker with Compose v2. Review the [networking limitations](docs/en/configuration.md#current-limitations)
+before starting on a public host. Create `.env` and fill in `API_ID` / `API_HASH`:
 
-1. Создайте `.env` на основе примера:
-```bash
+```sh
 cp .env.example .env
-```
-2. Укажите `API_ID` и `API_HASH` (их можно получить на [my.telegram.org](https://my.telegram.org)).
-3. Запустите контейнер:
-```bash
-docker compose up -d
-```
-Сервис поднимется на `http://localhost:18081` и будет использовать директорию `./data` для постоянного хранения состояния.
-
-## Обращение к API
-
-После запуска замените базовый URL:
-- Официальный: `https://api.telegram.org/bot<TOKEN>/...`
-- Self-hosted: `http://localhost:18081/bot<TOKEN>/...`
-
-### Примеры
-
-**getMe**
-```bash
-curl http://localhost:18081/bot<TOKEN>/getMe
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
-**sendMessage**
-```bash
-curl -X POST http://localhost:18081/bot<TOKEN>/sendMessage \
-  -d "chat_id=123456789" \
-  -d "text=Hello from self-hosted API"
-```
+Local builds work before the first GHCR release. Once a published image is
+available, use `docker compose pull && docker compose up -d`.
+See [installation](docs/en/getting-started.md) for networking and verification.
 
-**getWebhookInfo**
-```bash
-curl http://localhost:18081/bot<TOKEN>/getWebhookInfo
-```
+- Official server source; independent Docker entrypoint.
+- `User-Agent: TelegramBotWebhook/1.0` on outgoing webhooks.
+- Checked image builds and nightly upstream checks.
+- Bash migration helper and browser-based migration planner.
 
-## Работа с файлами
+The gateway currently exposes the data directory through `/file/`; restrict access
+before starting it on a public host. See [current limitations](docs/en/configuration.md#current-limitations)
+and the [work plan](https://github.com/ichinya/tg-selfhost-botapi/issues/19).
 
-Файлы скачиваются с вашего сервера, а не с `api.telegram.org`.
-
-1) Получите `file_path`:
-```bash
-FILE_PATH=$(curl -s http://localhost:18081/bot<TOKEN>/getFile \
-  -d "file_id=AgACAgIAAxkBAAI..." | jq -r '.result.file_path')
-```
-
-2) Скачайте файл:
-```bash
-curl -o photo.jpg "http://localhost:18081/file/bot<TOKEN>/$FILE_PATH"
-```
-
-> Если не хотите передавать токен в URL, используйте заголовок `X-Telegram-Bot-Token`:
-> ```bash
-> curl -H "X-Telegram-Bot-Token: <TOKEN>" \
->   "http://localhost:18081/file/path/to/file.jpg" \
->   -o photo.jpg
-> ```
-
----
-
-## Архитектура и термины
-
-Этот проект работает как прокси-совместимый Bot API сервер, который полностью заменяет официальное облако `https://api.telegram.org` для вашего бота. 
-
-### Роль nginx
-
-В `docker-compose.yml` поднят контейнер с `nginx`, который служит обратным прокси между внешним портом `80` и внутренним Bot API (`botapi:8081`). Файл `nginx.conf`:
-
-- перенаправляет `/file/` на локальную файловую директорию `/var/lib/telegram-bot-api/`, где хранятся файлы (документы, фото и т.п.);
-- проксирует все остальные запросы на `http://botapi:8081`;
-- сохраняет заголовки `Host` и `X-Real-IP` для корректной работы.
-
-Это даёт удобный внешний адрес и изоляцию сервиса.
-
-Важно различать две настройки:
-* **`TELEGRAM_BOT_URL`** — это адрес (endpoint) самого Bot API сервера, к которому вы обращаетесь для вызова методов (`getMe`, `setWebhook`, `sendMessage`).
-* **`WEB_HOOK`** — это HTTPS-адрес вашего приложения, на который Telegram будет отправлять входящие апдейты после успешной установки.
-
-> ℹ️ **Примечание:** Для смены webhook на новый не требуется знать его старый адрес — метод `setWebhook` просто перезапишет его. Метод `deleteWebhook` аналогично удалит хук без привязки к конкретному URL.
-
----
-
-## Миграция бота (Смена Bot API сервера)
-
-Для надёжной и бесперебойной миграции бота архитектуру обновления необходимо строить вокруг перехода от старого к новому серверу: **`OLD_BOT_API_URL` → `NEW_BOT_API_URL`**.
-
-> ⚠️ **Важно:** Если бот уже запущен на локальном Bot API сервере, для корректного переноса **необходимо** знать адрес старого сервера. Это требуется для вызова метода `close`, который корректно завершает сессию. Без вызова `close` Telegram может заблокировать подключение на новом сервере (ошибка `429 Too Many Requests`).
-
-Рекомендуемая модель хранения состояния (например, в БД или `.env`):
-```text
-LAST_BOT_API_URL
-LAST_WEBHOOK_URL
-LAST_APPLIED_AT
-```
-
-### Универсальный алгоритм миграции (с известным состоянием)
-
-В зависимости от текущего (старого) сервера и целевого (нового), алгоритм действий отличается. Ниже представлена визуальная схема и сводная таблица.
-
-#### Визуальная схема алгоритма
-
-```text
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                      АЛГОРИТМ МИГРАЦИИ                              │
-  └─────────────────────────────────────────────────────────────────────┘
-
-                      ┌─────────────────┐
-                      │  OLD == NEW ?   │
-                      └────────┬────────┘
-                               │
-                ┌──────────────┴──────────────┐
-                │                             │
-                ▼                             ▼
-               ДА                            НЕТ
-                │                             │
-                ▼                             ▼
-      ┌─────────────────┐           ┌─────────────────┐
-      │  Сценарий А:    │           │  OLD это        │
-      │  Только webhook │           │  api.telegram   │
-      │                 │           │  .org?          │
-      │  setWebhook     │           └────────┬────────┘
-      └─────────────────┘                    │
-                                     ┌───────┴───────┐
-                                     │               │
-                                     ▼               ▼
-                                    ДА              НЕТ
-                                     │               │
-                                     ▼               ▼
-                           ┌──────────────┐  ┌──────────────┐
-                           │ Сценарий Б:  │  │ NEW это      │
-                           │ Official →   │  │ api.telegram │
-                           │ Self-Hosted  │  │ .org?        │
-                           │              │  └──────┬───────┘
-                           │ 1. logOut    │         │
-                           │ 2. setWebhook│  ┌──────┴───────┐
-                           └──────────────┘  │              │
-                                             ▼              ▼
-                                            ДА             НЕТ
-                                             │              │
-                                             ▼              ▼
-                                   ┌──────────────┐ ┌──────────────┐
-                                   │ Сценарий Г:  │ │ Сценарий В:  │
-                                   │ Self-Hosted  │ │ Self-Hosted  │
-                                   │ → Official   │ │ → Self-Hosted│
-                                   │              │ │              │
-                                   │ 1. close     │ │ 1. close     │
-                                   │ 2. setWebhook│ │ 2. setWebhook│
-                                   └──────────────┘ └──────────────┘
-```
-
-#### Сводная таблица сценариев
-
-| Сценарий | Старый сервер (OLD) | Новый сервер (NEW) | Основные шаги |
-| :---: | :--- | :--- | :--- |
-| **А** | Любой *( `OLD == NEW` )* | *(Тот же самый)* | Просто сделать `setWebhook` |
-| **Б** | `api.telegram.org` (Облако) | `self-hosted` | `logOut` на OLD → `setWebhook` на NEW |
-| **В** | `self-hosted` | `self-hosted` | `close` на OLD → `setWebhook` на NEW |
-| **Г** | `self-hosted` | `api.telegram.org` (Облако) | `close` на OLD → `setWebhook` на NEW |
-
----
-
-### Детальное описание шагов
-
-#### Сценарий А. Смена только Webhook
-`OLD_BOT_API_URL == NEW_BOT_API_URL` — меняется лишь адрес доставки апдейтов.
-1. `NEW_BOT_API_URL/getMe`
-2. `NEW_BOT_API_URL/setWebhook(url=NEW_WEB_HOOK)`
-3. `NEW_BOT_API_URL/getWebhookInfo`
-
-#### Сценарий Б. Переход Official → Self-Hosted
-`OLD = api.telegram.org`, `NEW = локальный сервер`.
-1. `api.telegram.org/deleteWebhook`
-2. `api.telegram.org/logOut` *(Необходим перед запуском локального сервера. Блокирует возврат в облако на 10 минут)*.
-3. `NEW_BOT_API_URL/getMe`
-4. `NEW_BOT_API_URL/setWebhook(url=NEW_WEB_HOOK)`
-
-#### Сценарий В. Переход Self-Hosted → Self-Hosted
-Переезд между двумя приватными локальными серверами.
-1. `OLD_BOT_API_URL/deleteWebhook`
-2. `OLD_BOT_API_URL/close` *(Обязательно закрываем сессию на старом локальном сервере)*.
-3. `NEW_BOT_API_URL/getMe`
-4. `NEW_BOT_API_URL/setWebhook(url=NEW_WEB_HOOK)`
-
-#### Сценарий Г. Возврат Self-Hosted → Official
-1. `OLD_BOT_API_URL/deleteWebhook`
-2. `OLD_BOT_API_URL/close` *(Только `close`, метод `logOut` здесь не применяется)*.
-3. `api.telegram.org/getMe`
-4. `api.telegram.org/setWebhook(url=NEW_WEB_HOOK)`
-
----
-
-## Автоматическое определение (Best-effort миграция)
-
-Если старый `Bot API URL` **неизвестен** (например, при утере базы данных), полностью гарантировать корректный перенос `local → local` технически невозможно. В этом случае применяется логика *best-effort* с проверкой статуса бота через официальное облако:
-
-```bash
-curl "https://api.telegram.org/bot<TOKEN>/getMe"
-```
-
-1. **Если получен ответ `ok=true`:**
-   Значит бот работает через облако. Смело применяем **Сценарий Б** (штатный переезд Official → Self-Hosted с предварительным `logOut` в облаке).
-   
-2. **Если получена ошибка вида `Logged out`:**
-   Значит бот отвязан от облака и работает на каком-то неизвестном `local`-сервере. Поскольку вызвать `close` на старом сервере нельзя, делаем перенос втупую:
-   * `NEW_BOT_API_URL/getMe`
-   * `NEW_BOT_API_URL/setWebhook(url=NEW_WEB_HOOK)`
-   *(Учитывайте, что такой перенос не гарантирует моментальную чистую работу, так как старый сервер не был закрыт должным образом).*
-
----
-
-## Важные нюансы
-
-* **Очередь сообщений (`drop_pending_updates`):** При миграции накопившиеся за время простоя апдейты будут доставлены на новый сервер. Если они больше не актуальны, используйте флаг `drop_pending_updates=true` в запросах `setWebhook` / `deleteWebhook`.
-* **Fix the loop:** Обязательно сохраняйте `NEW_BOT_API_URL` в качестве `LAST_BOT_API_URL` после каждого успешного старта, чтобы в следующий раз миграция пошла по надежному (универсальному) алгоритму.
-
----
-
-## Скрипт миграции: `migrate_off_to_self.sh`
-
-В репозитории есть утилита `migrate_off_to_self.sh`, которая автоматизирует переход:
-* **Official (`api.telegram.org`) → Self-hosted**
-* **Polling без webhook** (если `WEBHOOK_URL` не указан)
-* **Учитывает `drop_pending_updates`** для удаления накопленных апдейтов
-
-> **Требуется:** `jq` (скрипт использует его для разбора JSON). Если хотите, можно создать `.env` рядом со скриптом — тогда переменные будут автоматически загружены.
-
-### Пример запуска (polling)
-```bash
-SELF_BOT_URL="https://tg.ie0.ru" \
-  ./migrate_off_to_self.sh "$BOT_TOKEN"
-```
-
-### Пример запуска (с webhook)
-```bash
-SELF_BOT_URL="https://tg.ie0.ru" \
-  ./migrate_off_to_self.sh "$BOT_TOKEN" "https://mysite/updates"
-```
-
-### Пример запуска с очисткой накопившихся апдейтов
-```bash
-DROP_PENDING_UPDATES=true \
-  SELF_BOT_URL="https://tg.ie0.ru" \
-  ./migrate_off_to_self.sh "$BOT_TOKEN"
-```
-
-### Переменные окружения
-* `BOT_TOKEN` — обязательный (аргумент 1)
-* `SELF_BOT_URL` — адрес self-hosted Bot API (аргумент 2 или env)
-* `WEBHOOK_URL` — URL webhook (аргумент 3 или env); если не задан, используется polling
-* `DROP_PENDING_UPDATES` — `true/false` (по умолчанию `false`)
-* `.env` — при наличии в директории загружается автоматически (конфиденциальные переменные можно хранить здесь)
-
----
-
-## Ссылки и материалы
-
-* [Telegram Bot API — Официальная документация](https://core.telegram.org/bots/api)
-* [TDLib Bot API — Особенности работы с Local Server](https://tdlib.github.io/telegram-bot-api/)
-* [Метод logOut — Документация (GramIO)](https://gramio.dev/telegram/methods/logOut)
+[Contributing](CONTRIBUTING.md) · [Issues](https://github.com/ichinya/tg-selfhost-botapi/issues)
