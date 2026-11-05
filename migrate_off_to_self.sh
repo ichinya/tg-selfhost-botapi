@@ -2,22 +2,44 @@
 set -euo pipefail
 
 # =========================
-# Load .env if exists
+# Load a trusted shell file without overriding process configuration.
 # =========================
 
-if [[ -f .env ]]; then
-  echo "Loading environment variables from .env"
-  set -a
-  source .env
-  set +a
+process_self="${SELF_BOT_URL:-${TELEGRAM_BOT_URL:-}}"
+process_hook="${WEBHOOK_URL:-${WEB_HOOK:-}}"
+process_drop="${DROP_PENDING_UPDATES:-}"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ${ENV_FILE+x} ]]; then
+  env_path="$ENV_FILE"
+  [[ -n "$env_path" && -f "$env_path" && -r "$env_path" && -s "$env_path" ]] || {
+    echo "Error: invalid ENV_FILE" >&2; exit 1;
+  }
+else
+  env_path="$script_dir/.env"
+fi
+file_self= file_hook= file_drop=
+if [[ -e "$env_path" ]]; then
+  [[ -f "$env_path" && -r "$env_path" ]] && bash -n "$env_path" 2>/dev/null || {
+    echo "Error: cannot load environment file" >&2; exit 1;
+  }
+  # The file is trusted Bash. Capture only supported helper settings.
+  if ! file_values="$(bash -e -c '
+    unset SELF_BOT_URL TELEGRAM_BOT_URL WEBHOOK_URL WEB_HOOK DROP_PENDING_UPDATES
+    source "$1" >/dev/null 2>&1
+    printf "file_self=%q\nfile_hook=%q\nfile_drop=%q\n" \
+      "${SELF_BOT_URL:-${TELEGRAM_BOT_URL:-}}" "${WEBHOOK_URL:-${WEB_HOOK:-}}" "${DROP_PENDING_UPDATES:-}"
+  ' _ "$env_path")"; then
+    echo "Error: cannot load environment file" >&2; exit 1
+  fi
+  eval "$file_values"
 fi
 
 OFFICIAL_BOT_URL="https://api.telegram.org"
 
 BOT_TOKEN="${1:-}"
-SELF_BOT_URL="${2:-${SELF_BOT_URL:-${TELEGRAM_BOT_URL:-}}}"
-WEBHOOK_URL_ARG="${3:-${WEBHOOK_URL:-${WEB_HOOK:-}}}"
-DROP_PENDING_UPDATES="${DROP_PENDING_UPDATES:-false}"
+SELF_BOT_URL="${2:-${process_self:-$file_self}}"
+WEBHOOK_URL_ARG="${3:-${process_hook:-$file_hook}}"
+DROP_PENDING_UPDATES="${process_drop:-${file_drop:-false}}"
 
 # =========================
 # checks

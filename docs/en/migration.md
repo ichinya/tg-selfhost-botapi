@@ -50,8 +50,16 @@ or guarantee continuity.
 
 ## Bash helper
 
-The current script supports **cloud → local**. Run it from the repository root:
-it reads `.env` from the **current working directory**.
+The current script supports **cloud → local**. It loads `.env` beside the script,
+or the file selected by `ENV_FILE` (relative paths are relative to the caller's
+working directory). An absent default file is allowed; an invalid explicit file
+stops execution. This is trusted shell code, not a sandbox. Arguments take
+precedence over process environment, then file values, then defaults. Within a
+source, `SELF_BOT_URL` and `WEBHOOK_URL` take precedence over legacy
+`TELEGRAM_BOT_URL` and `WEB_HOOK`; process aliases override file values.
+Empty webhook values retain the legacy fallback described below. For example,
+from another directory use `ENV_FILE="/path/to/settings.env" bash
+/path/to/migrate_off_to_self.sh "$BOT_TOKEN"`.
 
 Arguments are `BOT_TOKEN`, `SELF_BOT_URL`, then `WEBHOOK_URL`:
 
