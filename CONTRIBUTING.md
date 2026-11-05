@@ -15,7 +15,14 @@ For runtime changes, run:
 
 ```sh
 python3 -m unittest discover -s tools -p 'test_*.py' -v
+python3 tools/fixtures/issue21/test_runtime_permissions.py
+sh -n docker-entrypoint.sh
 API_ID=12345 API_HASH=test-placeholder docker compose config --quiet
+API_ID=12345 API_HASH=test-placeholder BOTAPI_UID=1000 BOTAPI_GID=2000 \
+  BOTAPI_TEMP_SOURCE=/tmp/issue21-temp docker compose -f docker-compose.yml \
+  -f docker-compose.nonroot.yml config --quiet
+# Loaded candidate, on Linux rootful Docker with POSIX storage:
+python3 tools/check_runtime_permissions.py --image botapi-candidate:check
 ```
 
 Entrypoint tests require a POSIX environment. For image changes, check the patch
@@ -32,3 +39,7 @@ and internal-link check in CI; the existing migrator URL must keep working.
 образа, ожидаемое и фактическое поведение, шаги воспроизведения. Используйте
 тестовые токены, очищайте журналы от секретов. Для кода выполните проверки выше;
 для изменения поведения обновите обе версии документации.
+
+Проверка runtime выше требует Linux rootful Docker и POSIX-хранилище. Она создаёт
+только собственные временные volumes/каталоги, использует synthetic credentials
+и отключает сеть. Локальные controller-тесты не заменяют запуск реального образа.

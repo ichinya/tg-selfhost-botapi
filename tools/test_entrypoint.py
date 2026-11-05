@@ -9,6 +9,7 @@ import unittest
 ENTRYPOINT = Path(__file__).resolve().parents[1] / "docker-entrypoint.sh"
 
 
+@unittest.skipUnless(os.name == "posix", "entrypoint contract requires POSIX")
 class EntrypointTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -21,9 +22,15 @@ class EntrypointTest(unittest.TestCase):
         binary.chmod(0o755)
         # Avoid real ownership changes; verify only the entrypoint's invocation contract.
         chown = self.root / "chown"
-        chown.write_text("#!/bin/sh\nexit 0\n")
+        chown.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CHOWN_LOG"\n'
+                         '[ "$TEST_UID" = 0 ]\n')
         chown.chmod(0o755)
+        identity = self.root / "id"
+        identity.write_text('#!/bin/sh\ncase "$1" in -u) echo "$TEST_UID" ;; '
+                            '-g) echo "$TEST_GID" ;; *) exit 1 ;; esac\n')
+        identity.chmod(0o755)
         self.env = {**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}",
+                    "TEST_UID": "0", "TEST_GID": "0", "CHOWN_LOG": str(self.root / "chown.log"),
                     "TELEGRAM_WORK_DIR": str(self.root / "state with spaces"),
                     "TELEGRAM_TEMP_DIR": str(self.root / "temp"),
                     "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "synthetic-secret"}
@@ -68,6 +75,63 @@ class EntrypointTest(unittest.TestCase):
         result = self.run_script("--version")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["args"], ["--version"])
+
+    def test_identity_branch_and_chown(self):
+        for uid, gid in (("0", "0"), ("101", "101"), ("1000", "1000"), ("1000", "2000")):
+            with self.subTest(uid=uid, gid=gid):
+                self.env.update(TEST_UID=uid, TEST_GID=gid)
+                log = Path(self.env["CHOWN_LOG"])
+                log.unlink(missing_ok=True)
+                result = self.run_script()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                args = json.loads(result.stdout)["args"]
+                self.assertEqual("--username=telegram-bot-api" in args, uid == "0")
+                self.assertEqual("--groupname=telegram-bot-api" in args, uid == "0")
+                if uid == "0":
+                    self.assertEqual(log.read_text().splitlines(), [
+                        "telegram-bot-api:telegram-bot-api " + self.env["TELEGRAM_WORK_DIR"],
+                        "telegram-bot-api:telegram-bot-api " + self.env["TELEGRAM_TEMP_DIR"]])
+                else:
+                    self.assertFalse(log.exists())
+
+    def test_root_creates_searchable_parents_and_private_final_directories(self):
+        work = self.root / "nested with spaces" / "more" / "state"
+        temp = self.root / "other parent" / "temp"
+        self.env.update(TELEGRAM_WORK_DIR=str(work), TELEGRAM_TEMP_DIR=str(temp))
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for parent in (work.parent.parent, work.parent, temp.parent):
+            self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
+        for directory in (work, temp):
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o750)
+        self.assertEqual(Path(self.env["CHOWN_LOG"]).read_text().splitlines(), [
+            "telegram-bot-api:telegram-bot-api " + str(work),
+            "telegram-bot-api:telegram-bot-api " + str(temp)])
+        work.chmod(0o700)
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertEqual(work.stat().st_mode & 0o777, 0o700)
+
+    def test_cli_bypasses_preparation(self):
+        self.env.pop("TELEGRAM_API_ID")
+        self.env.pop("TELEGRAM_API_HASH")
+        for flag in ("--version", "--help"):
+            result = self.run_script(flag)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(Path(self.env["TELEGRAM_WORK_DIR"]).exists())
+            self.assertFalse(Path(self.env["CHOWN_LOG"]).exists())
+
+    def test_directory_creation_failure_names_path_and_identity(self):
+        self.env.update(TEST_UID="1000", TEST_GID="2000")
+        for key in ("TELEGRAM_WORK_DIR", "TELEGRAM_TEMP_DIR"):
+            with self.subTest(path=key):
+                parent = self.root / (key + " file")
+                parent.write_text("not a directory")
+                self.env[key] = str(parent / "child")
+                result = self.run_script()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(self.env[key], result.stderr)
+                self.assertIn("1000:2000", result.stderr)
+                self.env[key] = str(self.root / (key + " restored"))
 
 
 if __name__ == "__main__":

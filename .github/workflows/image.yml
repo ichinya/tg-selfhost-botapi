@@ -27,14 +27,21 @@ jobs:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       - name: Test build input handling
-        run: python3 -m unittest discover -s tools -p 'test_*.py' -v
+        run: |
+          python3 -m unittest discover -s tools -p 'test_*.py' -v
+          python3 tools/fixtures/issue21/test_runtime_permissions.py
       - name: Check Compose
         env:
           API_ID: '12345'
           API_HASH: test-placeholder
+          BOTAPI_UID: '1000'
+          BOTAPI_GID: '2000'
+          BOTAPI_TEMP_SOURCE: /tmp/issue21-config-only
         run: |
-          docker compose config --quiet
-          docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          docker compose --env-file /dev/null -f docker-compose.yml config --quiet
+          docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.nonroot.yml config --quiet
+          docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.nonroot.yml config --quiet
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
@@ -53,8 +60,10 @@ jobs:
         run: |
           image="ghcr.io/${REPOSITORY,,}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
-          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT" > /dev/null 2>registry-error.txt; then
+          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT" --format '{{json .Manifest}}' > registry-manifest.json 2>registry-error.txt; then
+            digest="$(python3 -c 'import json,re; value=json.load(open("registry-manifest.json"))["digest"]; assert re.fullmatch("sha256:[0-9a-f]{64}", value); print(value)')"
             echo 'exists=true' >> "$GITHUB_OUTPUT"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
           else
             # A missing/private package also fails inspection on the first build.
             # Never treat an unconfirmed registry response as a successful build.
@@ -77,23 +86,54 @@ jobs:
             ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
             BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
             BUILD_JOBS=2
-      - name: Smoke-test built binary
-        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
+      - name: Load reused candidate by digest
+        if: steps.existing.outputs.exists == 'true' && github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ steps.existing.outputs.image }}
+          DIGEST: ${{ steps.existing.outputs.digest }}
         run: |
-          docker run --rm botapi-candidate:check --version
-          docker run --rm --entrypoint sh botapi-candidate:check -ec \
+          docker pull --platform linux/amd64 "$IMAGE@$DIGEST"
+          docker tag "$IMAGE@$DIGEST" botapi-candidate:check
+      - name: Verify candidate metadata
+        id: candidate
+        env:
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+          BOT_API_REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+          ALPINE_IMAGE: ${{ steps.inputs.outputs.alpine_image }}
+        run: |
+          test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' botapi-candidate:check)" = "$BUILD_FINGERPRINT"
+          test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.bot-api-revision"}}' botapi-candidate:check)" = "$BOT_API_REVISION"
+          image_id="$(docker image inspect --format '{{.Id}}' botapi-candidate:check)"
+          echo "image_id=$image_id" >> "$GITHUB_OUTPUT"
+          echo "Candidate $image_id; Bot API $BOT_API_REVISION; base $ALPINE_IMAGE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Smoke-test built binary
+        run: |
+          docker run --rm --network none botapi-candidate:check --version
+          docker run --rm --network none botapi-candidate:check --help
+          docker run --rm --network none --entrypoint sh botapi-candidate:check -ec \
             'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
+      - name: Check runtime permissions
+        timeout-minutes: 20
+        run: python3 tools/check_runtime_permissions.py --image botapi-candidate:check
       - name: Publish tested build then promote latest
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
           IMAGE: ${{ steps.existing.outputs.image }}
           BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
           EXISTS: ${{ steps.existing.outputs.exists }}
+          REUSED_DIGEST: ${{ steps.existing.outputs.digest }}
+          TESTED_IMAGE_ID: ${{ steps.candidate.outputs.image_id }}
         run: |
+          test "$(docker image inspect --format '{{.Id}}' botapi-candidate:check)" = "$TESTED_IMAGE_ID"
           if [ "$EXISTS" != true ]; then
-            docker tag botapi-candidate:check "$IMAGE:build-$BUILD_FINGERPRINT"
+            docker tag "$TESTED_IMAGE_ID" "$IMAGE:build-$BUILD_FINGERPRINT"
             docker push "$IMAGE:build-$BUILD_FINGERPRINT"
+            docker buildx imagetools inspect "$IMAGE:build-$BUILD_FINGERPRINT" --format '{{json .Manifest}}' > published-manifest.json
+            digest="$(python3 -c 'import json,re; value=json.load(open("published-manifest.json"))["digest"]; assert re.fullmatch("sha256:[0-9a-f]{64}", value); print(value)')"
+          else
+            digest="$REUSED_DIGEST"
           fi
-          # Existing immutable builds have already passed the same checks.
-          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:build-$BUILD_FINGERPRINT"
-          echo "Published $IMAGE:build-$BUILD_FINGERPRINT" >> "$GITHUB_STEP_SUMMARY"
+          docker pull --platform linux/amd64 "$IMAGE@$digest"
+          test "$(docker image inspect --format '{{.Id}}' "$IMAGE@$digest")" = "$TESTED_IMAGE_ID"
+          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$digest"
+          echo "Published tested $IMAGE@$digest (build-$BUILD_FINGERPRINT)" >> "$GITHUB_STEP_SUMMARY"

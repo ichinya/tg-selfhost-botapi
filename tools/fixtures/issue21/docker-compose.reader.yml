@@ -1,0 +1,24 @@
+services:
+  botapi:
+    user: "1000:2000"
+  reader:
+    image: ${BOTAPI_IMAGE:?Set BOTAPI_IMAGE}
+    user: "3000:3000"
+    group_add: ["2000"]
+    network_mode: none
+    entrypoint: ["/bin/sh", "/reader-probe.sh"]
+    environment:
+      MEDIA_PATH: ${ISSUE21_MEDIA_PATH:?Set ISSUE21_MEDIA_PATH}
+    volumes:
+      - type: bind
+        source: ${ISSUE21_MEDIA_PATH:?Set ISSUE21_MEDIA_PATH}
+        target: ${ISSUE21_MEDIA_PATH:?Set ISSUE21_MEDIA_PATH}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./tools/fixtures/issue21/reader-probe.sh
+        target: /reader-probe.sh
+        read_only: true
+        bind:
+          create_host_path: false

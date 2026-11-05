@@ -32,3 +32,5 @@ before starting it on a public host. See [current limitations](docs/en/configura
 and the [work plan](https://github.com/ichinya/tg-selfhost-botapi/issues/19).
 
 [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/ichinya/tg-selfhost-botapi/issues)
+
+See the [runtime identity contract](docs/en/configuration.md#runtime-identity) for non-root deployments.

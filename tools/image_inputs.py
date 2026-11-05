@@ -11,6 +11,12 @@ RECIPE = (
     "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
     "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
     "tools/test_webhook_user_agent.py",
+    "docker-compose.yml", "docker-compose.build.yml", "docker-compose.nonroot.yml",
+    "tools/check_runtime_permissions.py",
+    "tools/fixtures/issue21/entrypoint-probe.sh",
+    "tools/fixtures/issue21/docker-compose.reader.yml",
+    "tools/fixtures/issue21/reader-probe.sh",
+    "tools/fixtures/issue21/test_runtime_permissions.py",
     ".github/workflows/image.yml",
 )
 
