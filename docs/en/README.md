@@ -26,7 +26,7 @@ a webhook User-Agent patch, and migration helpers.
 | This project's image | Builds the server, applies the webhook patch and starts it from environment variables |
 | nginx gateway | Forwards HTTP requests to the server |
 | Bash helper | Automates cloud → local migration with a confirmation step |
-| Browser tool | Reads API state, creates curl plans and can attempt requests from the browser |
+| Browser tool | Reads an explicitly selected source with consent; executes cloud → local or webhook-only; gives manual stages for local transitions |
 
 The build does not depend on aiogram. Their project packages the same official
 server; this repository maintains its own Docker packaging.

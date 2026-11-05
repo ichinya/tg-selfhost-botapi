@@ -96,7 +96,10 @@ esac
 
 request() {
   local response status
-  response="$(curl -sS --connect-timeout 5 --max-time 30 -w '\n%{http_code}' "$@")" || return 1
+  response="$(curl -q -sS --connect-timeout 5 --max-time 30 -w '\n%{http_code}' "$@" 2>/dev/null)" || {
+    echo 'Request failed; a mutation may have an UNKNOWN outcome. Stop and reconcile before retrying.' >&2
+    return 1
+  }
   status="${response##*$'\n'}"
   [[ "$status" =~ ^2[0-9][0-9]$ ]] || return 1
   printf '%s' "${response%$'\n'*}"
@@ -132,7 +135,7 @@ assert_ok() {
 # =========================
 
 echo "== 0/7 Token-free target probe =="
-if ! PREFLIGHT="$(curl -sS --connect-timeout 5 --max-time 10 -w '\n%{http_code}' "$SELF_BOT_URL/" 2>/dev/null)" ||
+if ! PREFLIGHT="$(curl -q -sS --connect-timeout 5 --max-time 10 -w '\n%{http_code}' "$SELF_BOT_URL/" 2>/dev/null)" ||
    [[ "${PREFLIGHT##*$'\n'}" != 404 ]] ||
    ! jq -e '.ok == false and .error_code == 404 and .description == "Not Found"' >/dev/null 2>&1 <<<"${PREFLIGHT%$'\n'*}"; then
   echo "Target did not return the expected Bot API response; stopped before token requests." >&2
@@ -156,6 +159,7 @@ echo "== 1/7 Official getMe =="
 
 GETME="$(api_get "$OFFICIAL_BOT_URL" getMe)"
 assert_ok "$GETME" "getMe official"
+jq -e '.result.id | type == "number"' >/dev/null <<<"$GETME" || exit 1
 
 BOT_ID="$(jq -r '.result.id' <<<"$GETME")"
 BOT_NAME="$(jq -r '.result.first_name' <<<"$GETME")"
@@ -176,6 +180,7 @@ echo "== 2/7 Webhook official =="
 
 HOOK_INFO="$(api_get "$OFFICIAL_BOT_URL" getWebhookInfo)"
 assert_ok "$HOOK_INFO" "getWebhookInfo official"
+jq -e '.result.url | type == "string"' >/dev/null <<<"$HOOK_INFO" || exit 1
 
 CURRENT_WEBHOOK="$(jq -r '.result.url' <<<"$HOOK_INFO")"
 
@@ -264,6 +269,7 @@ echo "== 5/7 self getMe =="
 
 SELF_GETME="$(api_get "$SELF_BOT_URL" getMe)"
 assert_ok "$SELF_GETME" "getMe self"
+jq -e '.result.id | type == "number"' >/dev/null <<<"$SELF_GETME" || exit 1
 
 echo "$SELF_GETME"
 
@@ -304,6 +310,7 @@ echo "== 7/7 check =="
 
 FINAL="$(api_get "$SELF_BOT_URL" getWebhookInfo)"
 assert_ok "$FINAL" final
+jq -e '.result.url | type == "string"' >/dev/null <<<"$FINAL" || exit 1
 
 echo "$FINAL"
 

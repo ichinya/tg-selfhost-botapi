@@ -26,8 +26,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install migration test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash curl jq
       - name: Test build input handling
-        run: python3 -m unittest discover -s tools -p 'test_*.py' -v
+        timeout-minutes: 4
+        run: timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Check Compose
         env:
           API_ID: '12345'

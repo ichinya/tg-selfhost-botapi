@@ -9,6 +9,7 @@ import unittest
 ENTRYPOINT = Path(__file__).resolve().parents[1] / "docker-entrypoint.sh"
 
 
+@unittest.skipIf(os.name == "nt", "POSIX entrypoint tests require WSL or CI")
 class EntrypointTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
