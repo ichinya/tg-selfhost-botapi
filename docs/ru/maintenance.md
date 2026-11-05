@@ -35,6 +35,11 @@ runtime gates. Если registry не подтвердил образ, выпо�
 
 ## Обновление установки
 
+Если запуск использовал `docker-compose.nonroot.yml`, добавляйте
+`-f docker-compose.yml -f docker-compose.nonroot.yml` в каждую команду
+обновления из registry ниже. Для локальной сборки добавляйте
+`-f docker-compose.nonroot.yml` после build override в каждую команду.
+
 Публикация в registry не перезапускает VPS. Выберите проверенный тег/digest через
 `BOTAPI_IMAGE` в `.env`, затем:
 

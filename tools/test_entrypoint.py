@@ -94,6 +94,23 @@ class EntrypointTest(unittest.TestCase):
                 else:
                     self.assertFalse(log.exists())
 
+    def test_root_creates_searchable_parents_and_private_final_directories(self):
+        work = self.root / "nested with spaces" / "more" / "state"
+        temp = self.root / "other parent" / "temp"
+        self.env.update(TELEGRAM_WORK_DIR=str(work), TELEGRAM_TEMP_DIR=str(temp))
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for parent in (work.parent.parent, work.parent, temp.parent):
+            self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
+        for directory in (work, temp):
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o750)
+        self.assertEqual(Path(self.env["CHOWN_LOG"]).read_text().splitlines(), [
+            "telegram-bot-api:telegram-bot-api " + str(work),
+            "telegram-bot-api:telegram-bot-api " + str(temp)])
+        work.chmod(0o700)
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertEqual(work.stat().st_mode & 0o777, 0o700)
+
     def test_cli_bypasses_preparation(self):
         self.env.pop("TELEGRAM_API_ID")
         self.env.pop("TELEGRAM_API_HASH")

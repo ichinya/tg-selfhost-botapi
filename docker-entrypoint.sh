@@ -33,13 +33,24 @@ uid="$(id -u)"
 gid="$(id -g)"
 umask 0027
 for dir in "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"; do
-    if ! mkdir -p "$dir"; then
+    created=false
+    if [ "$uid" = 0 ]; then
+        [ -d "$dir" ] || created=true
+        (umask 0022 && mkdir -p "$dir") && prepared=true || prepared=false
+    else
+        mkdir -p "$dir" && prepared=true || prepared=false
+    fi
+    if [ "$prepared" = false ]; then
         echo "Cannot prepare directory $dir as $uid:$gid" >&2
         exit 1
     fi
     if [ "$uid" = 0 ]; then
         if ! chown telegram-bot-api:telegram-bot-api "$dir"; then
             echo "Cannot change ownership of $dir as $uid:$gid" >&2
+            exit 1
+        fi
+        if [ "$created" = true ] && ! chmod 0750 "$dir"; then
+            echo "Cannot change permissions of $dir as $uid:$gid" >&2
             exit 1
         fi
     elif [ ! -w "$dir" ] || [ ! -x "$dir" ]; then

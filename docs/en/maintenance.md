@@ -36,6 +36,11 @@ visibility or client authentication after the first publication.
 
 ## Update an installation
 
+If you started with `docker-compose.nonroot.yml`, include
+`-f docker-compose.yml -f docker-compose.nonroot.yml` in every registry update
+command below. For a local build, include `-f docker-compose.nonroot.yml` after
+the build override in every command.
+
 Registry publication does not restart your VPS. Select a tested tag/digest with
 `BOTAPI_IMAGE` in `.env`, then:
 
