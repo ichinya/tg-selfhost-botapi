@@ -153,6 +153,10 @@ async function tests() {
     assert(!p.calls.some(c => ['logOut','close','probe'].includes(c.method)));
     assert(p.logs().includes('Конфигурация проверена')); count++;
   }
+  p = page({mode:'hook-only',hook:'https://sink.test/webhook',fail:'source:setWebhook',failure:'lost'});
+  await p.run('executeInBrowser()');
+  assert(p.elements.get('btnCopyCurl').disabled);
+  assert(!p.plan().includes('выход из source'), 'Webhook-only must not require logout'); count++;
   p = page({oldHook:'https://previous.test/path'}); await p.run('checkCurrentState()');
   p.elements.get('newApi').value = 'https://target.test/changed';
   p.elements.get('newApi').events.input();

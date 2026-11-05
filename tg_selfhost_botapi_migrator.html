@@ -382,7 +382,7 @@
       const cfg = currentConfig();
       if (state.needsReconcile || (state.completedMigration && cfg.mode === 'official-to-self')) {
         els.curlPlan.textContent = state.needsReconcile
-          ? '# Сначала вручную сверьте исход предыдущей операции. Не обращайтесь с токеном к target, пока выход из source не подтверждён; повторное выполнение заблокировано.'
+          ? '# Сначала вручную сверьте исход предыдущей операции; повторное выполнение заблокировано.'
           : '# Сверьте состояние через getWebhookInfo на целевом API. Повторные запросы с токеном к source заблокированы.';
         return;
       }
