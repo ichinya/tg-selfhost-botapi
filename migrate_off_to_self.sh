@@ -73,7 +73,7 @@ for endpoint in "$SELF_BOT_URL" "$OFFICIAL_BOT_URL"; do
     echo "Invalid API endpoint" >&2; exit 1
   fi
 done
-if [[ -n "$WEBHOOK_URL_ARG" && ! "$WEBHOOK_URL_ARG" =~ ^https?://[^/@?#[:space:]]+([^[:space:]]*)?$ ]]; then
+if [[ -n "$WEBHOOK_URL_ARG" && ! "$WEBHOOK_URL_ARG" =~ ^https?://[^/@?#[:space:]]+([^@[:space:]]*)?$ ]]; then
   echo "Invalid webhook URL" >&2; exit 1
 fi
 
@@ -101,7 +101,10 @@ request() {
     return 1
   }
   status="${response##*$'\n'}"
-  [[ "$status" =~ ^2[0-9][0-9]$ ]] || return 1
+  [[ "$status" =~ ^2[0-9][0-9]$ ]] || {
+    echo "Request failed with HTTP $status; stopping before dependent actions." >&2
+    return 1
+  }
   printf '%s' "${response%$'\n'*}"
 }
 

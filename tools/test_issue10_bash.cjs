@@ -34,7 +34,7 @@ const watchdog = setTimeout(() => {
       if (scenario.fail === `${role}:${method}`) {
         if (scenario.failure === 'lost') return req.socket.destroy();
         if (scenario.failure === 'redirect') { res.writeHead(302, {Location:urls[2]}); return res.end(); }
-        res.writeHead(scenario.failure === 'http' ? 500 : 200, {'Content-Type':'application/json'});
+        res.writeHead(scenario.failure === 'unauthorized' ? 401 : scenario.failure === 'http' ? 500 : 200, {'Content-Type':'application/json'});
         return res.end(scenario.failure === 'malformed' ? '{' : JSON.stringify(
           scenario.failure === 'false-result' ? {ok:true,result:false} : {ok:false,error_code:429}));
       }
@@ -66,20 +66,25 @@ const watchdog = setTimeout(() => {
         env: {...baseEnv, OFFICIAL_BOT_URL:urls[0], SELF_BOT_URL:urls[1], NO_PROXY:'127.0.0.1', no_proxy:'127.0.0.1'},
         stdio:['pipe','pipe','pipe']
       });
-      let output = '';
+      let output = '', stderr = '';
       const timer = setTimeout(() => {
         stopChild(child);
         reject(new Error('Child deadline expired after 12s'));
       }, 12000);
       child.stdout.on('data', d => output += d);
-      child.stderr.on('data', d => output += d);
+      child.stderr.on('data', d => { stderr += d; output += d; });
       child.on('error', error => { clearTimeout(timer); activeChild = null; reject(error); });
-      child.on('close', code => { clearTimeout(timer); activeChild = null; resolve({code, output}); });
+      child.on('close', code => { clearTimeout(timer); activeChild = null; resolve({code, output, stderr}); });
       child.stdin.on('error', () => {});
       child.stdin.end(answer);
     });
   }
   try {
+    let unauthorized = await run('y\n', urls[1], {fail:'source:getMe', failure:'unauthorized'});
+    assert.notStrictEqual(unauthorized.code, 0);
+    assert(unauthorized.stderr.includes('Request failed with HTTP 401'));
+    assert(!unauthorized.stderr.includes('error_code'));
+    assert(!events.some(([role,url]) => role === 'target' && url.includes('/bot')));
     let result = await run('n\n', urls[1]);
     assert.strictEqual(result.code, 0, result.output);
     assert.deepStrictEqual(events.map(e => e.slice(0, 2)), [['target','/']]);

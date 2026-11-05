@@ -165,17 +165,15 @@
       busy:false, needsReconcile:false, completedMigration:false};
     const norm = value => (value || '').trim().replace(/\/$/, '');
     const tokenLooksValid = value => /^\d+:[A-Za-z0-9_-]{20,}$/.test(value || '');
-    const escapeHtml = value => String(value).replace(/[&<>"']/g, c =>
-      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
     function apiUrlValid(value) {
       try {
         const u = new URL(value);
         return ['http:','https:'].includes(u.protocol) && !u.username && !u.password && !u.search && !u.hash;
       } catch { return false; }
     }
-    function hookUrlValid(value) {
+    function hookUrlValid(value, targetIsCloud) {
       if (!value) return true;
-      try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && !u.hash; }
+      try { const u = new URL(value); return (u.protocol === 'https:' || (!targetIsCloud && u.protocol === 'http:')) && !u.username && !u.password && !u.hash; }
       catch { return false; }
     }
     function currentConfig() {
@@ -184,6 +182,7 @@
         newApi:state.mode === 'self-to-official' ? officialApi : norm(els.newApi.value),
         webhook:els.webhookUrl.value.trim(), dropPending:!!els.dropPending.checked};
     }
+    const targetIsCloud = cfg => (cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi) === officialApi;
     const fingerprint = cfg => JSON.stringify(cfg);
     const isManual = cfg => ['self-to-self','self-to-official'].includes(cfg.mode);
     function validate(cfg) {
@@ -193,7 +192,7 @@
         throw new Error('Укажите отдельный целевой Bot API.');
       }
       if (cfg.mode.startsWith('self-to-') && cfg.oldApi === officialApi) throw new Error('Укажите исходный local API.');
-      if (!hookUrlValid(cfg.webhook)) throw new Error('Webhook должен быть HTTPS URL.');
+      if (!hookUrlValid(cfg.webhook, targetIsCloud(cfg))) throw new Error(targetIsCloud(cfg) ? 'Для облачного Bot API webhook должен быть HTTPS URL без credentials и fragment.' : 'Для local Bot API webhook должен быть HTTP или HTTPS URL без credentials и fragment.');
     }
     function log(message, type = 'info') {
       if (els.logBox.dataset.initialized !== 'true') { els.logBox.textContent = ''; els.logBox.dataset.initialized = 'true'; }
@@ -209,7 +208,7 @@
       setCheck(els.chkToken, 'Формат токена: ' + (tokenLooksValid(cfg.token) ? 'корректен' : 'проверьте'), tokenLooksValid(cfg.token));
       setCheck(els.chkOldApi, 'Исходный API: URL проверяется локально; автоматического определения нет', apiUrlValid(cfg.oldApi));
       setCheck(els.chkNewApi, 'Целевой API: проверка адреса не авторизует бота', cfg.mode === 'hook-only' || apiUrlValid(cfg.newApi));
-      setCheck(els.chkHook, cfg.webhook ? 'Webhook: HTTPS обязателен' : 'Пусто: наследовать прежний webhook, если он задан', hookUrlValid(cfg.webhook));
+      setCheck(els.chkHook, cfg.webhook ? (targetIsCloud(cfg) ? 'Webhook: для cloud обязателен HTTPS' : 'Webhook: для local допускаются HTTP и HTTPS') : 'Пусто: наследовать прежний webhook, если он задан', hookUrlValid(cfg.webhook, targetIsCloud(cfg)));
       setCheck(els.chkHookTls, 'Доставка и TLS проверяются отдельно; запросы на webhook не отправляются', false);
       setCheck(els.chkCors, 'CORS может скрыть ответ уже выполненной операции', false);
     }

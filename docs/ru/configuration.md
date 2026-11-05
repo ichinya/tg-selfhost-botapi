@@ -37,6 +37,10 @@ BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
 Вместо тега можно указать digest. Локальный build override использует образ
 `tg-selfhost-botapi:local` независимо от `BOTAPI_IMAGE`.
 
+## Окружение помощника миграции
+
+Bash-помощник миграции считывает из доверенного файла `.env` только `SELF_BOT_URL`, `TELEGRAM_BOT_URL`, `WEBHOOK_URL`, `WEB_HOOK` и `DROP_PENDING_UPDATES`; остальные значения из файла не экспортируются в окружение помощника. `OFFICIAL_BOT_URL` — расширенная настройка для тестовой подмены исходного endpoint; она читается из окружения процесса, а не из файла.
+
 ## Переменные контейнера
 
 Они настраивают entrypoint образа. В текущем Compose переменные

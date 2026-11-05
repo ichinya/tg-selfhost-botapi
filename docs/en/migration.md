@@ -17,6 +17,8 @@ Prepare the new service without authorizing this bot, back up state and record
 the webhook profile. `getWebhookInfo` does not return the previous
 `secret_token`; keep it in your own configuration.
 
+A local Bot API running with `--local` accepts HTTP or HTTPS webhook URLs; the official cloud Bot API requires HTTPS.
+
 ## Choose a scenario
 
 | Scenario | Approach |

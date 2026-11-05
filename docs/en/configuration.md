@@ -37,6 +37,10 @@ BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
 An image digest can be used instead. The local build override uses
 `tg-selfhost-botapi:local`, independently of `BOTAPI_IMAGE`.
 
+## Migration helper environment
+
+The Bash migration helper reads only `SELF_BOT_URL`, `TELEGRAM_BOT_URL`, `WEBHOOK_URL`, `WEB_HOOK` and `DROP_PENDING_UPDATES` from its trusted `.env` file; other values there are not exported to the helper. `OFFICIAL_BOT_URL` is an advanced testing override for the source endpoint and is read from the process environment, not from that file.
+
 ## Container environment
 
 These variables configure the image's entrypoint. Compose currently maps

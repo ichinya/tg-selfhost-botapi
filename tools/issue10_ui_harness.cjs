@@ -151,6 +151,18 @@ async function tests() {
   const plan = p.plan(); assert(!plan.includes(token));
   assert(plan.includes('set -euo pipefail')); assert(plan.includes('UNKNOWN'));
   assert(plan.indexOf(' logOut -X POST') < plan.indexOf("'http://target.test/prefix' getMe")); count++;
+  for (const mode of ['official-to-self', 'hook-only']) {
+    p = page({mode, hook:'http://sink.test/webhook'});
+    await p.run('checkCurrentState()');
+    assert.equal(p.calls[0]?.method, 'getMe', `${mode}: HTTP webhook must reach the first request`); count++;
+  }
+  for (const mode of ['self-to-official', 'hook-only']) {
+    p = page({mode, hook:'http://sink.test/webhook'});
+    if (mode === 'hook-only') p.elements.get('oldApi').value = 'https://api.telegram.org';
+    await p.run('checkCurrentState()'); assert.equal(p.calls.length, 0, `${mode}: cloud requires HTTPS`); count++;
+    p.elements.get('webhookUrl').value = 'https://sink.test/webhook';
+    await p.run('checkCurrentState()'); assert.equal(p.calls[0]?.method, 'getMe'); count++;
+  }
   console.log(`${count} HTML VM/fetch scenarios passed`);
 }
 module.exports = {page, tests};

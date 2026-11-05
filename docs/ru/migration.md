@@ -17,6 +17,8 @@ translation: /docs/en/migration.html
 webhook. `getWebhookInfo` не возвращает прежний `secret_token`; храните его в своей
 конфигурации.
 
+Локальный Bot API с `--local` допускает HTTP- и HTTPS-адреса webhook; официальный облачный Bot API требует HTTPS.
+
 ## Выбор сценария
 
 | Сценарий | Подход |
