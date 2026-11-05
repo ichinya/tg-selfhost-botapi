@@ -105,3 +105,7 @@ the same non-root path. New directories created by the entrypoint use mode
 secrets must be readable and the parent of `TELEGRAM_LOG_FILE` writable and
 searchable by the effective server identity. Explicit command arguments bypass
 service defaults and volume preparation.
+
+The optional `docker-compose.nonroot.yml` sets Docker user from `BOTAPI_UID` and
+`BOTAPI_GID` and mounts the pre-created `BOTAPI_TEMP_SOURCE` directory. See
+[Getting started](getting-started.md#optional-non-root-compose).

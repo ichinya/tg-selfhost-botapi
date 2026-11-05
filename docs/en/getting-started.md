@@ -87,3 +87,15 @@ These command examples use Bash. A token expanded into curl's URL can be visible
 in process arguments and access logs; run diagnostics in a trusted environment.
 
 [Configure the service](configuration.md) · [Move an existing bot](migration.md)
+## Optional non-root Compose
+
+Prepare `./data` and a separate disk directory outside the checkout and state
+tree, owned by the selected UID:GID, normally mode `0700`. Set `BOTAPI_UID`,
+`BOTAPI_GID` and `BOTAPI_TEMP_SOURCE` in your private environment. Apply files in
+order: `docker compose -f docker-compose.yml -f docker-compose.build.yml -f
+docker-compose.nonroot.yml up -d botapi` (omit the build file for a published
+image). The temp source must already exist. A secrets overlay, if used, is applied
+last and still requires readable secret files. UID 0 uses the normal root
+bootstrap, which drops to 101. API proxying is separate from the legacy `/file/`
+alias, whose availability and safety with custom users are not guaranteed; see
+issues #3 and #5.
