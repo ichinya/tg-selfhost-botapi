@@ -78,9 +78,10 @@ argument 2: that argument is the Bot API endpoint.
 
 ### Current helper limitations
 
-- A failed target preflight only warns; the script can still disable the old route.
-- It makes token-bearing calls before confirmation and does not implement resume
-  after an ambiguous `logOut` result. Do not blindly rerun after a lost response.
+- The token-free target probe checks a characteristic error response, not the
+  host's identity or bot readiness. Verify the endpoint before confirmation.
+- Token-bearing calls start only after confirmation; the helper does not implement
+  resume after an ambiguous `logOut` result. Do not blindly rerun after a lost response.
 - An empty webhook argument reuses the old webhook when present. It does not
   explicitly request polling.
 - The helper does not transfer `secret_token`, certificates or the full delivery
