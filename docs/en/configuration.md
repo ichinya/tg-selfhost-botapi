@@ -90,8 +90,9 @@ A remote authenticated file handler is tracked in
 - The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`
   only if remote clients, such as a webhook receiver, must reach it; protect external
   access with HTTPS and appropriate network controls.
-- Access logs redact bot tokens and omit query strings. nginx error logs can still
-  contain secrets: keep their level at `warn` or higher and filter container logs
-  before exporting them. Do not share unredacted diagnostics.
+- Access logs redact bot tokens and omit query strings. nginx error logs use the
+  `crit` threshold to suppress request-bearing errors; warning and error diagnostics
+  are not logged. Critical messages can still contain secrets: filter logs before
+  exporting them and do not share unredacted diagnostics.
 
 [Getting started](getting-started.md) · [Maintenance](maintenance.md)
