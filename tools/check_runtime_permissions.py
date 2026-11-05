@@ -102,7 +102,11 @@ class Matrix:
         return self.docker("exec", "--user", user, name, "sh", "-ec", script, check=check)
 
     def prepare(self, mounts, uid, gid):
-        self.run(mounts, f"chown {uid}:{gid} {STATE} {TEMP}; chmod 700 {STATE} {TEMP}")
+        self.run(mounts, f"chown {uid}:{gid} {STATE} {TEMP}; chmod 700 {STATE} {TEMP}; "
+                 f"touch {STATE}/.issue21-prepared {TEMP}/.issue21-prepared")
+        self.run(mounts, f'for dir in {STATE} {TEMP}; do '
+                 f'test "$(stat -c %u:%g:%a "$dir")" = {uid}:{gid}:700 || '
+                 '{ echo "Preparation failed on remount: $dir" >&2; exit 1; }; done')
 
     def start(self, mounts, user=None, environment=None):
         name = self.name()
