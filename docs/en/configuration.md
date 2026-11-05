@@ -106,6 +106,15 @@ secrets must be readable and the parent of `TELEGRAM_LOG_FILE` writable and
 searchable by the effective server identity. Explicit command arguments bypass
 service defaults and volume preparation.
 
+New files belong to the effective server UID; their group comes from its primary
+GID or an existing setgid directory. Umask `0027` limits ordinary `0666` file
+creation to `0640`; explicit upstream `0600` remains private. It does not make old
+data readable. When replacing the state bind with a named volume, initialize a
+new dedicated volume offline with the chosen owner/mode before direct non-root
+startup. The default root bootstrap only changes the two top directories; it
+does not migrate nested old files. Verify create/read/rename under the writer's
+actual identity; adapt existing volumes through the [offline runbook](maintenance.md#changing-storage-identity).
+
 The optional `docker-compose.nonroot.yml` sets Docker user from `BOTAPI_UID` and
 `BOTAPI_GID` and mounts the pre-created `BOTAPI_TEMP_SOURCE` directory. See
 [Getting started](getting-started.md#optional-non-root-compose).
@@ -114,3 +123,57 @@ Ports 8081 and 8082 are unprivileged; a custom UID needs no extra capabilities
 to bind them. File-sourced Compose secrets retain host-source permissions:
 prepare them for the effective UID, because YAML `uid`, `gid` and `mode` do not
 change those host permissions.
+
+## Shared media reader
+
+The runnable synthetic example below uses writer `1000:2000` and reader
+`3000:3000` with supplementary group `2000`. Store `ISSUE21_MEDIA_PATH` in private
+configuration: it is an administrator-approved absolute media leaf for one bot,
+mounted at the same absolute path returned by trusted `getFile.file_path`. A path
+may contain a bot token; do not print it in diagnostics. Never mount the bot root,
+state root or temp into the reader, and never accept an arbitrary client path.
+
+Prepare only the approved leaf as `0750` and its shared files as `0640`, owned by
+writer `1000:2000`; private state/temp roots stay `0700`. Primary writer GID 2000
+keeps the group after a create in temp followed by rename. Existing `0600` files
+stay private. This is a read-only contract, not group write access. The example's
+probe expects synthetic files created by the runtime gate; a production reader
+uses its own application command and verified media layout.
+
+```yaml
+services:
+  botapi:
+    user: "1000:2000"
+  reader:
+    image: ${BOTAPI_IMAGE:?Set BOTAPI_IMAGE}
+    user: "3000:3000"
+    group_add: ["2000"]
+    network_mode: none
+    entrypoint: ["/bin/sh", "/reader-probe.sh"]
+    environment:
+      MEDIA_PATH: ${ISSUE21_MEDIA_PATH:?Set ISSUE21_MEDIA_PATH}
+    volumes:
+      - type: bind
+        source: ${ISSUE21_MEDIA_PATH:?Set ISSUE21_MEDIA_PATH}
+        target: ${ISSUE21_MEDIA_PATH:?Set ISSUE21_MEDIA_PATH}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./tools/fixtures/issue21/reader-probe.sh
+        target: /reader-probe.sh
+        read_only: true
+        bind:
+          create_host_path: false
+```
+
+From the repository root, set `BOTAPI_IMAGE` and the private `ISSUE21_MEDIA_PATH`,
+then run `docker compose -f docker-compose.yml -f
+ tools/fixtures/issue21/docker-compose.reader.yml run --rm --no-deps reader` for the
+synthetic probe. The fixture checks both shared-group access and the read-only
+mount, with no neighbouring bot/private storage visible. It models filesystem
+create/rename, not an actual Telegram download. It does not prepare existing
+storage recursively. Shared access excludes private migration state. After #5
+introduces a separate media root, apply the same restricted mapping there.
+Nginx worker processes may discard supplementary groups; adding a group to the
+master does not prove worker access. HTTP file serving remains tracked in #3/#5.

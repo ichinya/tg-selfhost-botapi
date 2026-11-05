@@ -99,3 +99,70 @@ secrets overlay применяется последним, а файлы сек�
 UID 0 включает обычный root bootstrap со сбросом до 101. Проксирование API не
 гарантирует доступность и безопасность старого alias `/file/` при другом UID;
 см. задачи #3 и #5.
+
+Только для нового пустого хранилища пример точечной подготовки:
+`sudo install -d -m 0700 -o 1000 -g 2000 ./data /srv/tg-selfhost-botapi/temp`.
+Сначала проверьте оба пути; существующие данные готовьте по [offline-инструкции](maintenance.md#смена-пользователя-хранилища).
+Для опубликованного образа команда запуска только сервиса:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml up -d botapi
+```
+
+До запуска задайте все три переменные, включая путь дискового temp. Они задают
+интерполяцию override, а не environment API образа. Для тех же UID/GID нужны
+читаемые секреты и доступный для записи и прохода родитель файла журнала.
+
+## Reader разрешённых медиа
+
+Runnable-пример ниже использует writer `1000:2000` и reader `3000:3000` с
+дополнительной группой `2000`. Храните `ISSUE21_MEDIA_PATH` в приватной
+конфигурации: это одобренный администратором абсолютный media leaf одного бота,
+смонтированный по тому же абсолютному пути, что доверенный `getFile.file_path`.
+Путь может содержать токен бота; не печатайте его при диагностике. Не монтируйте
+в reader корень бота, state или temp и не принимайте произвольный путь клиента.
+
+Подготовьте только разрешённый leaf с режимом `0750` и общие файлы `0640`,
+владелец `1000:2000`; приватные корни state/temp остаются `0700`. Primary GID
+writer 2000 сохраняет группу после создания в temp и rename. Существующие файлы
+`0600` остаются закрытыми. Контракт даёт только чтение. Probe примера ожидает
+синтетические файлы runtime gate; production reader использует команду своего
+приложения и проверенный layout медиа.
+
+```yaml
+services:
+  botapi:
+    user: "1000:2000"
+  reader:
+    image: ${BOTAPI_IMAGE:?Set BOTAPI_IMAGE}
+    user: "3000:3000"
+    group_add: ["2000"]
+    network_mode: none
+    entrypoint: ["/bin/sh", "/reader-probe.sh"]
+    environment:
+      MEDIA_PATH: ${ISSUE21_MEDIA_PATH:?Set ISSUE21_MEDIA_PATH}
+    volumes:
+      - type: bind
+        source: ${ISSUE21_MEDIA_PATH:?Set ISSUE21_MEDIA_PATH}
+        target: ${ISSUE21_MEDIA_PATH:?Set ISSUE21_MEDIA_PATH}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./tools/fixtures/issue21/reader-probe.sh
+        target: /reader-probe.sh
+        read_only: true
+        bind:
+          create_host_path: false
+```
+
+Из корня репозитория задайте `BOTAPI_IMAGE` и приватный `ISSUE21_MEDIA_PATH`,
+затем выполните `docker compose -f docker-compose.yml -f
+ tools/fixtures/issue21/docker-compose.reader.yml run --rm --no-deps reader` для
+синтетического probe. Fixture проверяет общую группу и read-only mount, отсутствие
+соседнего бота и приватного хранилища. Это имитация filesystem create/rename, а не
+реальная загрузка из Telegram. Рекурсивная подготовка старого state не выполняется.
+Общая группа не распространяется на private migration state. После появления
+отдельного media root в #5 примените туда тот же ограниченный mapping.
+Nginx workers могут сбрасывать дополнительные группы: группа master не доказывает
+доступ worker. HTTP-выдача файлов остаётся задачами #3/#5.
