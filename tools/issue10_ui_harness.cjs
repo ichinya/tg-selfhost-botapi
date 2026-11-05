@@ -8,7 +8,7 @@ const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const token = '123:synthetic_token_for_tests_only';
 
 function page(options = {}) {
-  const calls = [], prompts = [], elements = new Map();
+  const calls = [], prompts = [], clipboard = [], elements = new Map();
   function element() {
     return {value:'', checked:false, disabled:false, style:{}, dataset:{}, textContent:'', children:[],
       events:{}, classList:{toggle() {}},
@@ -22,7 +22,7 @@ function page(options = {}) {
   const context = vm.createContext({URL, URLSearchParams, AbortController, setTimeout, clearTimeout,
     document:{getElementById(id) { assert(elements.has(id), `Missing DOM id: ${id}`); return elements.get(id); },
       createElement:element, querySelectorAll:() => modes},
-    navigator:{clipboard:{async writeText() {}}},
+    navigator:{clipboard:{async writeText(text) { clipboard.push(text); }}},
     confirm(message) { prompts.push(message); return options.consent !== false; },
     async fetch(address, request = {}) {
       const url = new URL(address);
@@ -79,7 +79,7 @@ function page(options = {}) {
   if (options.mode && options.mode !== 'official-to-self') elements.get('oldApi').value = 'https://source.test/prefix';
   elements.get('newApi').value = 'http://target.test/prefix';
   elements.get('webhookUrl').value = options.hook || '';
-  return {calls, prompts, elements, run,
+  return {calls, prompts, clipboard, elements, run,
     logs:() => elements.get('logBox').children.map(el => el.textContent).join('\n'),
     plan:() => { run('buildPlan()'); return elements.get('curlPlan').textContent; }};
 }
@@ -134,6 +134,19 @@ async function tests() {
   const completedCalls = p.calls.length;
   await p.run('executeInBrowser()'); await p.run('checkCurrentState()');
   assert.equal(p.calls.length, completedCalls, 'Do not reauthorize the old source after success'); count++;
+  for (const options of [{fail:'source:logOut',failure:'lost'}, {}]) {
+    p = page({...options, hook:'https://sink.test/webhook'});
+    await p.run('executeInBrowser()');
+    assert(p.elements.get('btnCopyCurl').disabled, 'Copy must be disabled after UNKNOWN or migration');
+    assert(!p.elements.get('curlPlan').textContent.includes('curl '), 'Displayed plan must be replaced immediately');
+    await p.run('copyCurlPlan()');
+    const plan = p.plan();
+    assert(!plan.includes('curl '), 'No executable plan may be generated');
+    assert.equal(p.clipboard[0], plan);
+    assert(!plan.includes(' logOut -X POST'));
+    assert(plan.includes('getWebhookInfo'));
+    count++;
+  }
   for (const hook of ['', 'https://sink.test/webhook']) {
     p = page({mode:'hook-only',hook}); await p.run('executeInBrowser()');
     assert(!p.calls.some(c => ['logOut','close','probe'].includes(c.method)));

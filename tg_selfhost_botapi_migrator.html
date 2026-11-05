@@ -226,6 +226,7 @@
       if (state.mode === 'official-to-self') els.oldApi.value = officialApi;
       else if (els.oldApi.value === officialApi) els.oldApi.value = '';
       els.btnExecute.disabled = isManual(currentConfig()) || state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+      els.btnCopyCurl.disabled = state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
       document.getElementById('modeDescription').textContent = {
         'official-to-self':'Остановите старых API-клиентов. После согласия: source logOut, затем первый запрос к target. Очередь не гарантируется.',
         'self-to-self':'Только ручные этапы: detach/close → перенос согласованного state → target. Одношаговое выполнение отключено.',
@@ -282,6 +283,8 @@
         controls.forEach(el => el.disabled = false);
         els.btnExecute.disabled = isManual(currentConfig()) || state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
         els.btnCheck.disabled = state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+        els.btnCopyCurl.disabled = state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+        buildPlan();
       }
     }
     async function checkCurrentState() {
@@ -377,6 +380,10 @@
     }
     function buildPlan() {
       const cfg = currentConfig();
+      if (state.needsReconcile || (state.completedMigration && cfg.mode === 'official-to-self')) {
+        els.curlPlan.textContent = '# Сначала вручную сверьте исход предыдущей операции через getWebhookInfo на целевом API. Повторные запросы с токеном к source заблокированы.';
+        return;
+      }
       const hook = state.checkedConfig === fingerprint(cfg) ? state.currentWebhookFromCheck : '';
       els.curlPlan.textContent = buildCommands(cfg, hook).join('\n');
     }
