@@ -97,6 +97,7 @@ A CORS failure can hide the response to an already executed mutation: check the
 current state before trying another plan. Review generated commands before use.
 
 [Configuration](configuration.md) · [Maintenance](maintenance.md)
+
 When moving storage between servers, adapt UID/GID and permissions offline and
 verify the target before starting the writer. The API and webhook migration
 helpers do not change filesystem ownership; see [maintenance](maintenance.md#changing-storage-identity).

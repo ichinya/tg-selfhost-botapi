@@ -11,16 +11,21 @@ The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
 
-The build key covers the resolved revisions/digests and the recipe, entrypoint,
-patch and image tests. If the corresponding published build exists, compilation
-is skipped. If registry inspection cannot confirm it, the pipeline rebuilds.
+The build key covers the resolved revisions/digests, recipe, entrypoint, patch,
+Compose files, permission runner and all issue-21 acceptance fixtures. If the
+corresponding published build exists, compilation is skipped and that candidate
+is loaded by registry digest. Its build-key and source-revision labels are
+checked, then the same smoke and runtime gates run again. If registry inspection
+cannot confirm it, the pipeline rebuilds.
 
 For a new build it:
 
 1. Checks that the User-Agent patch applies to the selected official revision.
 2. Compiles the entire server.
 3. Runs `--version`, checks the header string in the binary and validates entrypoint syntax.
-4. Publishes `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and promotes `latest`.
+4. Runs the mandatory Linux permission matrix, including the restricted reader.
+5. Publishes `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>`, verifies its digest
+   resolves to the tested local image ID and promotes that digest to `latest`.
 
 Failed checks leave the previously published `latest` in place. Pull requests do
 not publish. A binary string check is not a live webhook-delivery test.
@@ -64,6 +69,23 @@ User-Agent in the receiving service's logs.
 
 ## Diagnostics
 
+For Linux rootful Docker on a POSIX filesystem (`linux/amd64`), qualify a loaded
+candidate with `python3 tools/check_runtime_permissions.py --image
+botapi-candidate:check`. The runner uses only disposable named volumes and bind
+directories outside the checkout, synthetic credentials and isolated Compose
+services with no network or published ports. It checks default/root and direct
+numeric/named users, restarts, existing data, separate write/search/read-only
+failures, secrets and log permissions. It prints candidate metadata and separates
+`REAL_BINARY` startup/HTTP checks from `ENTRYPOINT_FIXTURE` and `GROUP_FILESYSTEM`
+simulations. Missing Docker, timeout or an omitted mandatory case fails the run.
+Rootless/userns-remap, Docker Desktop and ARM64 are not qualified by this gate.
+
+A stray nested file with incompatible ownership does not itself block startup.
+The runner verifies its denied access and unchanged hash/owner/mode separately,
+then adapts only its stopped test copy offline. The server does no recursive
+audit or repair; the unrelated experimental `tools/ci_safety` startup policy is
+not the contract of this gate. No real bot authorization or download is tested.
+
 ```sh
 docker compose ps
 docker compose logs --tail=100 botapi gateway
@@ -89,6 +111,7 @@ existing Pages integration.
 
 [Contribution guide](../../CONTRIBUTING.md) ·
 [Current work](https://github.com/ichinya/tg-selfhost-botapi/issues/19)
+
 ## Changing storage identity
 
 Stop the single writer and all readers, then take a consistent backup preserving

@@ -1,10 +1,24 @@
 import unittest
 from unittest.mock import patch
 
-from image_inputs import build_key, digest, revision
+from image_inputs import ROOT, RECIPE, build_key, digest, revision
 
 
 class BuildInputsTest(unittest.TestCase):
+    def test_every_acceptance_asset_changes_the_build_key(self):
+        assets = {path.relative_to(ROOT).as_posix() for path in
+                  (ROOT / "tools/fixtures/issue21").rglob("*")
+                  if path.is_file() and path.suffix in (".sh", ".yml", ".py")}
+        assets.update(("docker-compose.yml", "docker-compose.build.yml", "docker-compose.nonroot.yml",
+                       "tools/check_runtime_permissions.py"))
+        self.assertGreaterEqual(len(assets), 8)
+        self.assertTrue(assets.issubset(RECIPE), assets.difference(RECIPE))
+        files = {name: (ROOT / name).read_bytes() for name in RECIPE}
+        original = build_key({}, files)
+        for name in assets:
+            with self.subTest(asset=name):
+                self.assertNotEqual(original, build_key({}, {**files, name: files[name] + b"\n"}))
+
     def test_any_upstream_change_invalidates_published_build(self):
         inputs = dict(source="a", base="b")
         files = {"Dockerfile": b"recipe", "patch": b"header"}

@@ -66,7 +66,8 @@ def check(root):
     retained = root / source.name
     if retained.is_file() and retained.read_bytes() != source.read_bytes():
         errors.append("The original migrator must be copied without changes")
-    for private in ("Dockerfile", "nginx.conf", "docker-entrypoint.sh", "migrate_off_to_self.sh", "tools", "data"):
+    for private in ("Dockerfile", "nginx.conf", "docker-entrypoint.sh", "migrate_off_to_self.sh", "tools", "data",
+                    "docker-compose.nonroot.yml"):
         if (root / private).exists():
             errors.append(f"Non-documentation content published: {private}")
     if errors:
