@@ -9,6 +9,7 @@ import unittest
 ENTRYPOINT = Path(__file__).resolve().parents[1] / "docker-entrypoint.sh"
 
 
+@unittest.skipUnless(os.name == "posix", "entrypoint contract requires POSIX")
 class EntrypointTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
