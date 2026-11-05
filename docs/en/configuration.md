@@ -91,3 +91,17 @@ A remote authenticated file handler is tracked in
 - Access logs and token-bearing URLs need care; do not share unredacted diagnostics.
 
 [Getting started](getting-started.md) · [Maintenance](maintenance.md)
+
+## Runtime identity
+
+By default the entrypoint starts as root, changes ownership of the state and
+temporary directory roots to `101:101`, and starts the server as that account.
+It does not recursively repair existing files. With Docker `user` set to a
+non-root identity, the entrypoint keeps that identity and its supplementary
+groups, does not change ownership, and requires both directories to be writable
+and searchable. Numeric users need no passwd entry; a named Docker user follows
+the same non-root path. New directories created by the entrypoint use mode
+`0750` under umask `0027` and belong to the creating identity. Mounted `_FILE`
+secrets must be readable and the parent of `TELEGRAM_LOG_FILE` writable and
+searchable by the effective server identity. Explicit command arguments bypass
+service defaults and volume preparation.

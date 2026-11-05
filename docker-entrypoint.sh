@@ -29,12 +29,30 @@ load_secret TELEGRAM_API_HASH
 
 : "${TELEGRAM_WORK_DIR:?TELEGRAM_WORK_DIR is required}"
 : "${TELEGRAM_TEMP_DIR:?TELEGRAM_TEMP_DIR is required}"
-mkdir -p "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"
-chown telegram-bot-api:telegram-bot-api "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"
+uid="$(id -u)"
+gid="$(id -g)"
+umask 0027
+for dir in "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"; do
+    if ! mkdir -p "$dir"; then
+        echo "Cannot prepare directory $dir as $uid:$gid" >&2
+        exit 1
+    fi
+    if [ "$uid" = 0 ]; then
+        if ! chown telegram-bot-api:telegram-bot-api "$dir"; then
+            echo "Cannot change ownership of $dir as $uid:$gid" >&2
+            exit 1
+        fi
+    elif [ ! -w "$dir" ] || [ ! -x "$dir" ]; then
+        echo "Directory $dir is not writable and searchable as $uid:$gid" >&2
+        exit 1
+    fi
+done
 
 set -- "--dir=$TELEGRAM_WORK_DIR" "--temp-dir=$TELEGRAM_TEMP_DIR" \
-    --username=telegram-bot-api --groupname=telegram-bot-api \
     "--http-port=${TELEGRAM_HTTP_PORT:-8081}"
+if [ "$uid" = 0 ]; then
+    set -- "$@" --username=telegram-bot-api --groupname=telegram-bot-api
+fi
 
 # Quoted argument arrays preserve spaces and never execute environment contents.
 for setting in \
