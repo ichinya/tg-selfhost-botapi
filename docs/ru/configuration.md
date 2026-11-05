@@ -13,7 +13,7 @@ translation: /docs/en/configuration.html
 | Внутренний адрес Bot API | `http://botapi:8081` |
 | Постоянные данные на хосте | `./data` |
 | Каталог данных в контейнере | `/var/lib/telegram-bot-api` |
-| UID/GID пользователя контейнера | `101:101` |
+| Пользователь сервера | Root bootstrap сбрасывает права до `101:101`; Docker `user` задаёт прямой non-root запуск |
 | Local mode | Включён в Compose |
 
 Bot API endpoint принимает вызовы методов. Webhook URL находится в вашем
@@ -108,3 +108,8 @@ umask `0027`, их владелец — создавший их пользова
 Необязательный `docker-compose.nonroot.yml` задаёт Docker user через `BOTAPI_UID`
 и `BOTAPI_GID`, подключая заранее созданный каталог `BOTAPI_TEMP_SOURCE`. См.
 [установку](getting-started.md#необязательный-запуск-compose-без-root).
+
+Порты 8081 и 8082 непривилегированные, дополнительные capabilities для них не
+нужны. Файловые Compose secrets сохраняют права источника на хосте: обеспечьте
+чтение эффективному UID, поскольку `uid`, `gid` и `mode` в YAML эти права не
+меняют.

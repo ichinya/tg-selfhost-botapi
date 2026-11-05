@@ -13,7 +13,7 @@ translation: /docs/ru/configuration.html
 | Internal Bot API endpoint | `http://botapi:8081` |
 | Persistent state on the host | `./data` |
 | State directory inside the container | `/var/lib/telegram-bot-api` |
-| Container user/group IDs | `101:101` |
+| Server identity | Root bootstrap drops to `101:101`; Docker `user` selects a direct non-root identity |
 | Local mode | Enabled by Compose |
 
 The Bot API endpoint receives method calls. The webhook URL belongs to your
@@ -109,3 +109,8 @@ service defaults and volume preparation.
 The optional `docker-compose.nonroot.yml` sets Docker user from `BOTAPI_UID` and
 `BOTAPI_GID` and mounts the pre-created `BOTAPI_TEMP_SOURCE` directory. See
 [Getting started](getting-started.md#optional-non-root-compose).
+
+Ports 8081 and 8082 are unprivileged; a custom UID needs no extra capabilities
+to bind them. File-sourced Compose secrets retain host-source permissions:
+prepare them for the effective UID, because YAML `uid`, `gid` and `mode` do not
+change those host permissions.

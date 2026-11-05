@@ -51,7 +51,9 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
 ```
 
-Preserve `./data`, ownership `101:101`, the API endpoint and local-mode settings.
+Preserve `./data`, its ownership compatible with the selected server identity,
+the API endpoint and local-mode settings. The default root bootstrap uses
+`101:101`; a direct non-root server uses the configured Docker UID:GID.
 Do not run two Bot API processes against one data directory. Restoring an old
 image may also require a compatible state backup; image rollback alone is not
 a guarantee.
@@ -87,3 +89,17 @@ existing Pages integration.
 
 [Contribution guide](../../CONTRIBUTING.md) ·
 [Current work](https://github.com/ichinya/tg-selfhost-botapi/issues/19)
+## Changing storage identity
+
+Stop the single writer and all readers, then take a consistent backup preserving
+owners and modes. Record the old and new UID:GID and the canonical storage root.
+Adapt only the chosen tree offline, without following symlinks or crossing into
+other mounts; inspect nested files and remaining old owners. Do not apply blanket
+recursive permission changes to the state tree. For a new directory, a targeted
+`install -d -m 0700 -o 1000 -g 2000 /srv/tg-selfhost-botapi/temp` is one example.
+Prepare state and temp for the effective identity, ensure `_FILE` secrets are
+readable and the log parent writable and searchable. Check actual create and
+rename behavior; ACLs or setgid alone do not guarantee it. Start one writer and
+verify new writes and old data before starting readers. Rolling back the image or
+user is separate from restoring compatible ownership or a backup; never change
+ownership of live state or run two writers.

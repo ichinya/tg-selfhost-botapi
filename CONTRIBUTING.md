@@ -16,6 +16,9 @@ For runtime changes, run:
 ```sh
 python3 -m unittest discover -s tools -p 'test_*.py' -v
 API_ID=12345 API_HASH=test-placeholder docker compose config --quiet
+API_ID=12345 API_HASH=test-placeholder BOTAPI_UID=1000 BOTAPI_GID=2000 \
+  BOTAPI_TEMP_SOURCE=/tmp/issue21-temp docker compose -f docker-compose.yml \
+  -f docker-compose.nonroot.yml config --quiet
 ```
 
 Entrypoint tests require a POSIX environment. For image changes, check the patch
