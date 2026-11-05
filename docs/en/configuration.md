@@ -25,6 +25,7 @@ application and receives updates sent by the server. They are different addresse
 | --- | --- |
 | `API_ID` | Required application API ID |
 | `API_HASH` | Required application API hash |
+| `GATEWAY_BIND` | Gateway host address; defaults to `127.0.0.1` |
 | `BOTAPI_IMAGE` | Optional image tag or digest; defaults to `ghcr.io/ichinya/tg-selfhost-botapi:latest` |
 
 For a tested build, set:
@@ -83,11 +84,14 @@ A remote authenticated file handler is tracked in
 
 ## Current limitations
 
-- The nginx `/file/` alias exposes the state directory; it is not an authenticated
-  file-download API. Restrict access; [issue #3](https://github.com/ichinya/tg-selfhost-botapi/issues/3).
+- nginx forwards `/file/` requests to the Bot API; it does not serve the state directory.
 - No upload-size override is configured in nginx. Large multipart requests can
   receive HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
-- Compose publishing `18080:80` does not limit access to localhost.
-- Access logs and token-bearing URLs need care; do not share unredacted diagnostics.
+- The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`
+  only if remote clients, such as a webhook receiver, must reach it; protect external
+  access with HTTPS and appropriate network controls.
+- Access logs redact bot tokens and omit query strings. nginx error logs can still
+  contain secrets: keep their level at `warn` or higher and filter container logs
+  before exporting them. Do not share unredacted diagnostics.
 
 [Getting started](getting-started.md) · [Maintenance](maintenance.md)

@@ -219,9 +219,9 @@ cannot be reconstructed from `getWebhookInfo`.
 
 In local mode an absolute `getFile.file_path` names a path on the server/container.
 It requires compatible mounts and application paths; state transfer alone does
-not fix them. The current nginx `/file/` alias exposes the state directory and is
-not a safe authenticated download gateway. Do not publish it as one or invent
-`X-Telegram-Bot-Token` authorization. See [file access](configuration.md).
+not fix them. nginx forwards `/file/` requests to the Bot API instead of exposing
+the state directory. Do not invent `X-Telegram-Bot-Token` authorization. See
+[file access](configuration.md).
 An independent downloads service's port 18081 does not replace API port 18080.
 
 [Configuration](configuration.md) · [Maintenance](maintenance.md)

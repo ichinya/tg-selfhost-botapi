@@ -24,18 +24,9 @@ cp .env.example .env
 
 Fill in `API_ID` and `API_HASH` in `.env`. Keep that file private.
 
-Before starting on a publicly reachable host, restrict gateway access. In
-`docker-compose.yml`, replace the published port with:
-
-```yaml
-ports:
-  - "127.0.0.1:18080:80"
-```
-
-The supplied configuration currently binds all host interfaces and serves the
-data directory under `/file/`. Use a trusted local environment until the
-[file-access issue](https://github.com/ichinya/tg-selfhost-botapi/issues/3)
-is resolved. A remote deployment also needs HTTPS and access controls.
+The gateway binds to `127.0.0.1` by default and does not expose the state directory.
+If remote clients, including a webhook receiver, must reach the Bot API, set
+`GATEWAY_BIND=0.0.0.0` in `.env` and provide HTTPS and network access controls.
 
 ## Start
 

@@ -25,7 +25,7 @@ class ContractTests(unittest.TestCase):
         compose = (ROOT / 'docker-compose.yml').read_text(encoding='utf-8')
         nginx = (ROOT / 'nginx.conf').read_text(encoding='utf-8')
         entrypoint = (ROOT / 'docker-entrypoint.sh').read_text(encoding='utf-8')
-        self.assertIn('"18080:80"', compose)
+        self.assertIn('"${GATEWAY_BIND:-127.0.0.1}:18080:80"', compose)
         self.assertIn('listen 80;', nginx)
         self.assertIn('proxy_pass http://botapi:8081;', nginx)
         self.assertRegex(entrypoint, r'TELEGRAM_HTTP_PORT[^\n]*8081')
