@@ -134,7 +134,7 @@ async function tests() {
   const completedCalls = p.calls.length;
   await p.run('executeInBrowser()'); await p.run('checkCurrentState()');
   assert.equal(p.calls.length, completedCalls, 'Do not reauthorize the old source after success'); count++;
-  for (const options of [{fail:'source:logOut',failure:'lost'}, {}]) {
+  for (const options of [{fail:'source:logOut',failure:'lost'}, {fail:'source:deleteWebhook',failure:'lost'}, {fail:'source:logOut',failure:'api'}, {}]) {
     p = page({...options, hook:'https://sink.test/webhook'});
     await p.run('executeInBrowser()');
     assert(p.elements.get('btnCopyCurl').disabled, 'Copy must be disabled after UNKNOWN or migration');
@@ -144,7 +144,8 @@ async function tests() {
     assert(!plan.includes('curl '), 'No executable plan may be generated');
     assert.equal(p.clipboard[0], plan);
     assert(!plan.includes(' logOut -X POST'));
-    assert(plan.includes('getWebhookInfo'));
+    if (options.fail) assert(!plan.includes('getWebhookInfo на целевом API'), 'Do not advise target authorization before confirmed logout');
+    else assert(plan.includes('getWebhookInfo'));
     count++;
   }
   for (const hook of ['', 'https://sink.test/webhook']) {
