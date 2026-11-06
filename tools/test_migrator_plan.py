@@ -40,19 +40,26 @@ if ('literal' in input) {
   if (input.auto) vm.runInContext('els.webhookUrl.value=input.api; state.webhookFromApiInField=true',context);
   async function run() {
     vm.runInContext('buildPlan()',context);
-    if (input.fetchApi) {
+    if (input.fetchApi || input.apiChecks) {
+      let apiIndex = 0;
       context.fetch = async (url, options={}) => {
         if (url.endsWith('/getMe')) return {ok:true,status:200,text:async()=>JSON.stringify({ok:true,result:{id:1}})};
-        if (url.endsWith('/getWebhookInfo')) return {ok:true,status:200,text:async()=>JSON.stringify({ok:true,result:{url:input.api}})};
+        if (url.endsWith('/getWebhookInfo')) return {ok:true,status:200,text:async()=>JSON.stringify({ok:true,result:{url:input.apiChecks ? input.apiChecks[apiIndex++] : input.api}})};
         if (options.method === 'HEAD') return {ok:true,status:200};
         throw Error('unexpected fetch');
       };
-      await vm.runInContext('checkCurrentState()',context);
+      for (const [index] of (input.apiChecks || [input.api]).entries()) {
+        await vm.runInContext('checkCurrentState()',context);
+        if (index === 0 && input.editAfterFirst !== undefined) {
+          element('webhookUrl').value=input.editAfterFirst; for(const f of listeners.webhookUrlinput) f();
+        }
+      }
     }
     if (input.edit !== undefined) {element('webhookUrl').value=input.edit; for(const f of listeners.webhookUrlinput) f()}
     if (input.badAfter) element('oldApi').value='invalid';
     await context.copyCurlPlan();
-    process.stdout.write(JSON.stringify({plan:element('curlPlan').textContent, copied:context.copied}));
+    process.stdout.write(JSON.stringify({plan:element('curlPlan').textContent, copied:context.copied,
+      field:element('webhookUrl').value, exported:vm.runInContext('exportConfig().webhook',context)}));
   }
   run().catch(e=>{console.error(e);process.exit(1)});
 }
@@ -125,6 +132,26 @@ class MigratorPlanTests(unittest.TestCase):
                                 expected.append(call(new, 'setWebhook', 'url='+chosen, drop_arg))
                             expected.append(call(new, 'getWebhookInfo'))
                         self.assertEqual(actual, expected)
+
+    def test_repeated_api_checks_keep_field_export_and_action_in_sync(self):
+        first = 'https://a.invalid/hook'
+        for second in ('https://b.invalid/hook', ''):
+            with self.subTest(second=second):
+                rendered = self.render(mode='hook-only', apiChecks=[first, second])
+                self.assertEqual(rendered['field'], second)
+                self.assertEqual(rendered['exported'], rendered['field'])
+                result, calls, _ = self.execute(rendered['plan'])
+                self.assertEqual(result.returncode, 0)
+                self.assertTrue(calls[1][calls[1].index('--url') + 1].endswith(
+                    '/setWebhook' if rendered['field'] else '/deleteWebhook'))
+                if rendered['field']:
+                    self.assertIn('url=' + rendered['field'], calls[1])
+        edited = 'https://edited.invalid/hook'
+        rendered = self.render(mode='hook-only', apiChecks=[first, 'https://b.invalid/hook'], editAfterFirst=edited)
+        self.assertEqual((rendered['field'], rendered['exported']), (edited, edited))
+        result, calls, _ = self.execute(rendered['plan'])
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('url=' + edited, calls[1])
 
     def test_literal_raw_api_and_invalid(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -466,9 +466,9 @@
           const hook = await fetchJson(`${apiForRead}/bot${cfg.token}/getWebhookInfo`);
           if (hook.json && hook.json.ok === true) {
             state.currentWebhookFromCheck = hook.json.result.url || '';
-            if (!cfg.webhook && state.currentWebhookFromCheck) {
+            if (state.webhookFromApiInField || (!cfg.webhook && state.currentWebhookFromCheck)) {
               els.webhookUrl.value = state.currentWebhookFromCheck;
-              state.webhookFromApiInField = true;
+              state.webhookFromApiInField = !!state.currentWebhookFromCheck;
             }
             log(`Текущий webhook: ${state.currentWebhookFromCheck || '(не установлен)'}`, 'info');
           } else {
