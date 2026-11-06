@@ -10,6 +10,7 @@ translation: /docs/en/getting-started.html
 - Docker с Compose v2.
 - API ID и API hash приложения Telegram с [my.telegram.org](https://my.telegram.org).
 - Для Bash-мигратора: Bash, curl и jq.
+- Для плана браузерного инструмента: Bash и curl в Linux/WSL; jq не нужен.
 
 API ID/hash приложения и токен бота от BotFather — разные учётные данные.
 
@@ -84,6 +85,7 @@ unset BOT_TOKEN
 ```
 
 Примеры команд рассчитаны на Bash. Токен в URL curl может быть виден в аргументах
-процесса и access logs; выполняйте диагностику в доверенном окружении.
+процесса и access logs, в том числе при использовании экспортированного плана;
+выполняйте диагностику в доверенном окружении.
 
 [Настройки](configuration.md) · [Перенос работающего бота](migration.md)

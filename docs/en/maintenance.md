@@ -10,6 +10,8 @@ translation: /docs/ru/maintenance.html
 The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
+The image workflow also runs the required migrator security tests; see
+[Contributing](../../CONTRIBUTING.md) for their dependencies.
 
 The build key covers the resolved revisions/digests and the recipe, entrypoint,
 patch and image tests. If the corresponding published build exists, compilation
