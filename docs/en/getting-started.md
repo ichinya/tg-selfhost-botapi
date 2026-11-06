@@ -97,6 +97,15 @@ docker run --rm --network none --pull never "$IMAGE_ID" --version
 Expect version output and exit code 0; no working data or credentials are mounted. Entrypoint passthrough bypasses credentials and ownership setup and does not prove readiness. For an exact gateway repeat, on a disposable daemon only, pull the recorded `nginx@sha256:<verified-digest>`, tag that image locally as `nginx:alpine`, and verify its ID matches the recorded ID. Retagging affects all users of that name; an unavailable digest means repeat is unverified. Start the selected mode:
 
 ```sh
+# Substitute the digest recorded above; never use this placeholder literally.
+docker pull 'nginx@sha256:<verified-digest>'
+docker tag 'nginx@sha256:<verified-digest>' nginx:alpine
+docker image inspect --format '{''{.Id}}' nginx:alpine
+```
+
+Compare the printed ID with the recorded gateway ID before continuing.
+
+```sh
 # Published:
 docker compose -f docker-compose.yml up -d --no-build --pull never
 # Local build, instead:

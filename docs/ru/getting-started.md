@@ -96,6 +96,15 @@ docker run --rm --network none --pull never "$IMAGE_ID" --version
 Ожидаются строка версии и код 0; рабочие данные и credentials не монтируются. Entrypoint passthrough обходит проверку credentials и настройку владельца и не доказывает readiness. Для точного повтора gateway только на одноразовом daemon загрузите записанный `nginx@sha256:<verified-digest>`, локально присвойте тег `nginx:alpine` и сверьте ID с записанным. Retag влияет на всех пользователей имени; недоступный digest означает неподтверждённый повтор. Запустите выбранный режим:
 
 ```sh
+# Подставьте записанный выше digest; шаблон не является рабочим значением.
+docker pull 'nginx@sha256:<verified-digest>'
+docker tag 'nginx@sha256:<verified-digest>' nginx:alpine
+docker image inspect --format '{''{.Id}}' nginx:alpine
+```
+
+До продолжения сравните выведенный ID с записанным ID gateway.
+
+```sh
 # Готовый образ:
 docker compose -f docker-compose.yml up -d --no-build --pull never
 # Локальная сборка вместо него:
