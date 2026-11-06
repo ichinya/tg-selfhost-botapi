@@ -9,7 +9,7 @@ translation: /docs/en/getting-started.html
 
 - Docker с Compose v2.
 - API ID и API hash приложения Telegram с [my.telegram.org](https://my.telegram.org).
-- Для Bash-мигратора: Bash, curl и jq.
+- Для проверки готовности и Bash-мигратора: Bash, curl и jq. Для инструкции также нужны `mktemp`, `seq`, `awk` и `grep`.
 
 API ID/hash приложения и токен бота от BotFather — разные учётные данные.
 
@@ -112,16 +112,38 @@ docker inspect --format 'name={''{.Name}} image={''{.Image}} status={''{.State.S
 Для локального режима укажите оба файла `-f` и в `ps`. Не публикуйте полный inspect с environment.
 ## Проверка
 
+Проверьте HTTP-маршрут через gateway без токена бота. Этот ограниченный по времени тест принимает только успешный transport, HTTP 404, JSON Content-Type (возможен charset) и поля JSON `ok=false`, `error_code=404`, `description="Not Found"`; дополнительные поля допустимы. Timeout, отказ соединения, HTML, 502/504 или другой 404 означают ошибку.
+
+Запустите в Bash на Linux: 12 попыток максимум по 10 секунд и 11 пауз по 2 секунды занимают до 142 секунд плюс локальные накладные расходы. Временное тело приватно, ограничено 64 КиБ и не выводится; превышение означает ошибку. Прокси для localhost обходится, redirects не выполняются. Требуется ровно один JSON object; ошибка даёт ненулевой код.
 ```sh
-docker compose ps
-docker compose logs --tail=100 botapi gateway
-curl --connect-timeout 5 --max-time 10 -i http://127.0.0.1:18080/
+(
+  umask 077
+  tmp=$(mktemp -d) || exit 1
+  trap 'rm -rf "$tmp"' EXIT
+  for attempt in $(seq 1 12); do
+    : > "$tmp/body"; : > "$tmp/headers"
+    rc=0
+    status=$(ulimit -f 64; curl --noproxy '*' -sS --connect-timeout 5 --max-time 10 --max-filesize 65536 -o "$tmp/body" -D "$tmp/headers" -w '%{http_code}' http://127.0.0.1:18080/) || rc=$?
+    content_type=$(awk 'BEGIN{IGNORECASE=1} tolower($0) ~ /^content-type:/ {sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$tmp/headers")
+    if [ "$rc" -eq 0 ] && [ "$status" = 404 ] &&
+       printf '%s\n' "$content_type" | grep -Eiq '^application/json([[:space:]]*;[[:space:]]*charset=[^;[:space:]]+)?[[:space:]]*$' &&
+       jq -s -e 'length == 1 and (.[0] | type == "object" and .ok == false and (.error_code | type == "number" and . == 404) and .description == "Not Found")' "$tmp/body" >/dev/null 2>&1; then
+      echo 'HTTP readiness: PASS'
+      exit 0
+    fi
+    printf 'attempt %s: curl=%s HTTP=%s Content-Type=%s\n' "$attempt" "$rc" "$status" "$content_type" >&2
+    [ "$attempt" -eq 12 ] || sleep 2
+  done
+  echo 'HTTP readiness: FAIL; see maintenance diagnostics' >&2
+  exit 1
+)
 ```
+`up`, `ps`, `--version` и `up --wait` без healthcheck не заменяют эту проверку. При ошибке см. [диагностику](maintenance.md). Успех подтверждает только HTTP-маршрут, но не credentials приложения, соединение с Telegram, сессии ботов, доставку webhook или безопасность публичного gateway.
 
-Ответ по маршруту Bot API подтверждает доступность HTTP, даже если сообщает об
-отсутствующем методе или токене. Это не проверка сессии бота и доставки webhook.
+## Последующая проверка назначенного бота
 
-Адрес для приложения:
+Перед запросами с токеном см. [миграцию](migration.md). Адрес для приложения:
+
 
 ```text
 http://127.0.0.1:18080/bot<TOKEN>/<METHOD>

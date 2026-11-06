@@ -9,7 +9,7 @@ translation: /docs/ru/getting-started.html
 
 - Docker with Compose v2.
 - A Telegram application API ID and hash from [my.telegram.org](https://my.telegram.org).
-- For the Bash migration helper: Bash, curl and jq.
+- For the verification probe and Bash migration helper: Bash, curl and jq. The runbook also needs `mktemp`, `seq`, `awk` and `grep`.
 
 The application API ID/hash identify your Telegram application. They are different
 from a bot token issued by BotFather.
@@ -113,16 +113,38 @@ docker inspect --format 'name={''{.Name}} image={''{.Image}} status={''{.State.S
 For local mode use both `-f` files with `ps`. Do not share full inspect output containing environment.
 ## Verify
 
+Check the HTTP path through gateway without a bot token. This bounded probe accepts only successful transport, HTTP 404, JSON Content-Type (optionally with charset), and JSON fields `ok=false`, `error_code=404`, `description="Not Found"`; extra fields are allowed. A timeout, refusal, HTML, 502/504 or another 404 is failure.
+
+Run in Bash on Linux: 12 attempts of at most 10 seconds and 11 pauses of 2 seconds take up to 142 seconds plus local overhead. The private temporary body is capped at 64 KiB and never printed; oversized responses fail. Localhost bypasses proxies; redirects are not followed. Exactly one JSON object is required; failure exits nonzero.
 ```sh
-docker compose ps
-docker compose logs --tail=100 botapi gateway
-curl --connect-timeout 5 --max-time 10 -i http://127.0.0.1:18080/
+(
+  umask 077
+  tmp=$(mktemp -d) || exit 1
+  trap 'rm -rf "$tmp"' EXIT
+  for attempt in $(seq 1 12); do
+    : > "$tmp/body"; : > "$tmp/headers"
+    rc=0
+    status=$(ulimit -f 64; curl --noproxy '*' -sS --connect-timeout 5 --max-time 10 --max-filesize 65536 -o "$tmp/body" -D "$tmp/headers" -w '%{http_code}' http://127.0.0.1:18080/) || rc=$?
+    content_type=$(awk 'BEGIN{IGNORECASE=1} tolower($0) ~ /^content-type:/ {sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$tmp/headers")
+    if [ "$rc" -eq 0 ] && [ "$status" = 404 ] &&
+       printf '%s\n' "$content_type" | grep -Eiq '^application/json([[:space:]]*;[[:space:]]*charset=[^;[:space:]]+)?[[:space:]]*$' &&
+       jq -s -e 'length == 1 and (.[0] | type == "object" and .ok == false and (.error_code | type == "number" and . == 404) and .description == "Not Found")' "$tmp/body" >/dev/null 2>&1; then
+      echo 'HTTP readiness: PASS'
+      exit 0
+    fi
+    printf 'attempt %s: curl=%s HTTP=%s Content-Type=%s\n' "$attempt" "$rc" "$status" "$content_type" >&2
+    [ "$attempt" -eq 12 ] || sleep 2
+  done
+  echo 'HTTP readiness: FAIL; see maintenance diagnostics' >&2
+  exit 1
+)
 ```
+`up`, `ps`, `--version` and `up --wait` without a healthcheck do not replace this probe. On failure see [diagnostics](maintenance.md). A pass confirms this HTTP path only, not Telegram connectivity, application credentials, bot sessions, webhook delivery or public gateway security.
 
-A response from the Bot API path confirms HTTP reachability, even if it reports a
-missing method or token. It does not confirm a bot session or webhook delivery.
+## Subsequent check of an assigned bot
 
-The application endpoint is:
+See [migration](migration.md) before sending token-bearing requests. The application endpoint is:
+
 
 ```text
 http://127.0.0.1:18080/bot<TOKEN>/<METHOD>
