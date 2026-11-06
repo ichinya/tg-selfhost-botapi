@@ -20,7 +20,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 Local builds work before the first GHCR release. Once a published image is
 available, use `docker compose pull && docker compose up -d`.
-See [installation](docs/en/getting-started.md) for networking and verification.
+See [installation and VPS verification](docs/en/getting-started.md#start) for registry access, networking and readiness.
 
 - Official server source; independent Docker entrypoint.
 - `User-Agent: WebhookDelivery/1.0` on outgoing webhooks.

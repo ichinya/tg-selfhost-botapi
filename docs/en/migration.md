@@ -30,7 +30,7 @@ immediate return to the cloud is subject to Telegram's ten-minute restriction.
 
 ### Cloud → local
 
-1. Confirm the target infrastructure is reachable and correctly configured.
+1. Confirm the target infrastructure is reachable and correctly configured using the [image and startup steps](getting-started.md#start), followed by the [token-free readiness check](getting-started.md#verify). Bash and HTML tool preflights use a bot token and are not neutral checks of a new server.
 2. Stop the application using the cloud endpoint.
 3. Record the webhook profile and choose how to handle queued updates.
 4. Call `logOut` on the cloud API, then switch the application's Bot API endpoint.

@@ -71,6 +71,35 @@ docker compose exec botapi telegram-bot-api --version
 Remove tokens, API hashes, webhook secrets and sensitive URLs before sharing
 logs. Separate infrastructure reachability from bot authorization and delivery.
 
+### Registry, build and startup failures
+
+| Symptom | Class | Check / action and expected result |
+| --- | --- | --- |
+| Final `unauthorized` or `denied` | Authentication / permissions | Check registry, reference, package rights and same user/credential store as login; retry the intended pull with authorized access. |
+| Repository, tag or digest missing | Reference | Check spelling and publication/visibility; select an existing reference. |
+| `no matching manifest` | Platform | Compare host architecture with published platforms; select a supported image. |
+| 429 pull rate limit | Pull quota | Check applicable Hub limits and wait for quota recovery; authorized access may change the applicable limit. |
+| 429 abuse limit | Request frequency | Reduce request frequency and use backoff; login does not guarantee a fix. Do not deliberately exhaust limits. |
+| DNS, timeout or TLS error | Network | Check daemon DNS, proxy, routing and trusted CA; host curl and daemon can use different paths. Restore connectivity and trust. Never disable TLS or use insecure registries as a workaround. |
+| Cannot connect to daemon | Docker daemon | Check daemon status and user access; restore daemon access. |
+| Registry 5xx | Registry service | Check registry status and retry later with backoff. |
+| APK/GitHub failure or OOM during build | Build dependencies/resources | Inspect sanitized build output and resources; restore repository access or capacity before rebuilding. Hub login is not the remedy. |
+
+A 401 challenge from registry `/v2/` can be normal; it alone is not an authentication failure. A successful host curl does not prove daemon pull works.
+
+```sh
+curl --connect-timeout 5 --max-time 10 -sS -D - -o /dev/null https://registry-1.docker.io/v2/
+```
+
+HTTP 401 with `WWW-Authenticate` is the expected challenge and indicates shell access to that endpoint, not access to an image. Test the intended pull separately. DNS, TLS, timeout and 5xx follow the network or service branches above; daemon context, DNS, proxy and CA may differ from the shell. No PAT is needed for this request.
+
+For runtime, use `docker compose ps`, `docker compose logs --tail=100 botapi gateway` and `docker inspect --format 'name={''{.Name}} status={''{.State.Status}} exit={''{.State.ExitCode}} restarts={''{.RestartCount}} image={''{.Image}}' tg_botapi tg_gateway`. Check port conflicts, exit codes and restart loops; `TELEGRAM_API_ID is required` on immediate botapi exit indicates missing or unfilled `.env`. Compare container image IDs with the recorded IDs. HTML 404, 502/504 or wrong upstream fail the readiness contract: inspect gateway routing and logs. After replacing botapi repeat the gateway probe; if necessary restart gateway and repeat it, without assuming nginx has refreshed automatically.
+
+Check data directory ownership and application credentials locally if startup fails. View logs locally and redact API hashes, tokens, webhook secrets and URLs before sharing. After recreation, nginx may retain an old upstream address: verify state and identity first, then restart the selected gateway if needed and repeat the probe.
+
+After updating, repeat [binary, identity and readiness checks](getting-started.md#start), retaining the build override for local mode. Delivery to an assigned bot is a separate subsequent check.
+
+A report should contain revision, Docker/Compose versions, architecture, mode, selected reference/digest, container image ID, stage, exit code and sanitized error. Exclude `.env`, Docker config, full container inspect and unredacted logs.
 ## Documentation and contributions
 
 Documentation lives in `docs/en` and `docs/ru`. Update both languages for
