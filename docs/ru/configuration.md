@@ -36,6 +36,10 @@ BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
 Вместо тега можно указать digest. Локальный build override использует образ
 `tg-selfhost-botapi:local` независимо от `BOTAPI_IMAGE`.
 
+
+Есть два набора Compose-файлов, а не profiles: базовый файл использует готовый образ; с `docker-compose.build.yml` собирается `tg-selfhost-botapi:local`. Маршрут: хост `18080` → gateway `80` → `botapi:8081`. См. [запуск и проверку образа](getting-started.md#запуск).
+
+Dockerfile закрепляет ревизию upstream Bot API и digest базового Alpine; по умолчанию используется один поток сборки. CI может переопределять параметры и публикует linux/amd64; опубликованный образ не обязательно идентичен локальному. APK-пакеты не закреплены, а `latest` и `nginx:alpine` изменяемы, поэтому воспроизводимость всего стека не гарантирована. Полное закрепление относится к [issue #12](https://github.com/ichinya/tg-selfhost-botapi/issues/12).
 ## Переменные контейнера
 
 Они настраивают entrypoint образа. В текущем Compose переменные

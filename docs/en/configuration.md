@@ -36,6 +36,10 @@ BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
 An image digest can be used instead. The local build override uses
 `tg-selfhost-botapi:local`, independently of `BOTAPI_IMAGE`.
 
+
+Compose has two file combinations, not profiles: the base file uses the published image; adding `docker-compose.build.yml` builds `tg-selfhost-botapi:local`. The route is host `18080` → gateway `80` → `botapi:8081`. See [startup and image verification](getting-started.md#start).
+
+The Dockerfile pins the upstream Bot API revision and Alpine base digest and defaults to one build job. CI can override build inputs and publishes linux/amd64; a published image is not automatically identical to a local build. APK packages are not pinned, and floating `latest` and `nginx:alpine` do not guarantee a reproducible stack. Full pinning is tracked in [issue #12](https://github.com/ichinya/tg-selfhost-botapi/issues/12).
 ## Container environment
 
 These variables configure the image's entrypoint. Compose currently maps

@@ -58,24 +58,58 @@ docker login --username "$DOCKERHUB_USER" --password-stdin < "$DOCKERHUB_TOKEN_F
 
 ## Запуск
 
-До первой публикации в GHCR используйте локальную сборку:
+На Linux VPS запишите версии Docker Engine и Compose v2 (`docker version`, `docker compose version`), архитектуру (`uname -m`), доступные ресурсы и свободный порт 18080. Проверьте daemon, curl и jq. CI публикует linux/amd64; поддержка ARM не подтверждена. Используйте отдельные данные и отдельный daemon или хост без конфликтующих фиксированных имён контейнеров и порта. До старта ограничьте доступ к gateway. Для config и up нужны `API_ID` и `API_HASH` в `.env` или окружении: синтетические значения подходят для config, для запуска нужны настоящие данные приложения.
+
+Используйте отдельный VPS или одноразовый daemon и изначально пустой `./data`, без production volumes: старый state может восстановить сессии ботов. Имена `tg_botapi`, `tg_gateway` и порт 18080 не изолируются именем Compose-проекта. Штатная публикация открыта на всех интерфейсах, `/file/` раздаёт state: ограничьте ingress до запуска. Сохраняйте рабочий каталог, проект, `--env-file .env`, пользователя, context и `DOCKER_CONFIG`; команды ниже предполагают `.env` по умолчанию в этом каталоге. Используйте только tracked base и build файлы. Проверьте `docker compose config --help`, `docker compose up --help`, `docker run --help` и поддержку `--quiet`, `--images`, `--no-build`, `--pull` и политики `never`. При отсутствии остановитесь и используйте совместимый CLI; не опускайте флаги.
+
+Выберите один режим и сохраняйте один набор Compose-файлов. Для готового образа замените шаблон на проверенный существующий `build-<key>` или `ghcr.io/ichinya/tg-selfhost-botapi@sha256:<verified-digest>`; шаблон digest не является рабочим значением. Экспортируйте переменную для Compose и shell: Compose читает `.env`, но shell не импортирует его автоматически.
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+export BOTAPI_IMAGE='ghcr.io/ichinya/tg-selfhost-botapi:build-<verified-key>'
+export IMAGE="$BOTAPI_IMAGE"
+docker compose -f docker-compose.yml config --quiet
+docker compose -f docker-compose.yml config --images
+docker compose -f docker-compose.yml pull botapi gateway
 ```
 
-Когда готовый образ опубликован:
+Запишите RepoDigest Bot API командой inspect ниже, затем повторите published pull с фактическим `BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi@sha256:<verified-digest>` и обновите `IMAGE`. Шаблон не является digest. Ошибка pull или недоступный digest означают, что точное повторение не подтверждено.
+
+Gateway загружается из Docker Hub на описанных выше условиях. Для локальной сборки вместо этого:
 
 ```sh
-docker compose pull
-docker compose up -d
+export IMAGE=tg-selfhost-botapi:local
+docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.build.yml config --images
+docker compose -f docker-compose.yml -f docker-compose.build.yml pull gateway
+docker pull alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
+docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
 ```
 
-Для приватного пакета GHCR нужен вход под аккаунтом с доступом; для анонимного
-скачивания владелец репозитория должен открыть пакет.
-Локальная компиляция может занять продолжительное время. По умолчанию используется
-один поток компиляции.
+При сборке Alpine загружается из Docker Hub, также нужны GitHub и APK repositories. Запишите inputs Dockerfile и переопределения build args. Сборка TDLib с `BUILD_JOBS=1` может занять десятки минут и больше на малом VPS; обеспечьте запас RAM и диска и непрерывную сессию screen/tmux или SSH. После pull/build запишите reference, ID, OS/architecture, RepoDigests и labels `io.tg-selfhost.bot-api-revision`, `io.tg-selfhost.build-key`, `org.opencontainers.image.source`; у локального образа RepoDigests может отсутствовать. Запишите digest и ID nginx. ID конфигурации образа не равен manifest digest, labels не являются аттестацией. `nginx:alpine` и `latest` изменяемы. При публикации результатов ограничивайтесь нужными полями.
 
+```sh
+docker image inspect --format 'ID={''{.Id}} OS/arch={''{.Os}}/{''{.Architecture}} digests={''{json .RepoDigests}} source={''{index .Config.Labels "org.opencontainers.image.source"}} revision={''{index .Config.Labels "io.tg-selfhost.bot-api-revision"}} build-key={''{index .Config.Labels "io.tg-selfhost.build-key"}}' "$IMAGE"
+docker image inspect --format 'ID={''{.Id}} OS/arch={''{.Os}}/{''{.Architecture}} digests={''{json .RepoDigests}}' nginx:alpine
+IMAGE_ID=$(docker image inspect --format '{''{.Id}}' "$IMAGE")
+docker run --rm --network none --pull never "$IMAGE_ID" --version
+```
+Ожидаются строка версии и код 0; рабочие данные и credentials не монтируются. Entrypoint passthrough обходит проверку credentials и настройку владельца и не доказывает readiness. Для точного повтора gateway только на одноразовом daemon загрузите записанный `nginx@sha256:<verified-digest>`, локально присвойте тег `nginx:alpine` и сверьте ID с записанным. Retag влияет на всех пользователей имени; недоступный digest означает неподтверждённый повтор. Запустите выбранный режим:
+
+```sh
+# Готовый образ:
+docker compose -f docker-compose.yml up -d --no-build --pull never
+# Локальная сборка вместо него:
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --pull never
+```
+
+Проверьте оба сервиса и сравните ID образов контейнеров с записанными ID, включая nginx. Оба должны работать, а RestartCount не должен расти между двумя наблюдениями; несовпадение или цикл перезапусков означает неуспех, даже если HTTP отвечает:
+
+```sh
+docker compose -f docker-compose.yml ps
+docker inspect --format 'name={''{.Name}} image={''{.Image}} status={''{.State.Status}} restarts={''{.RestartCount}}' tg_botapi tg_gateway
+```
+
+Для локального режима укажите оба файла `-f` и в `ps`. Не публикуйте полный inspect с environment.
 ## Проверка
 
 ```sh

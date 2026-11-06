@@ -59,23 +59,58 @@ Use the same Unix user, Docker context and `DOCKER_CONFIG` for login and pull; `
 
 ## Start
 
-Before the first GHCR publication, build locally:
+On a Linux VPS record Docker Engine and Compose v2 versions (`docker version`, `docker compose version`), architecture (`uname -m`), available resources and free port 18080. Ensure the daemon, curl and jq are available. CI publishes linux/amd64; ARM support is not established. Use isolated state and a separate daemon or host without conflicting fixed container names or port. Restrict gateway access before starting. `API_ID` and `API_HASH` must be present in `.env` or the environment for config and up: synthetic values suffice for config validation, but actual application credentials are needed to start.
+
+Use an isolated VPS or disposable daemon with an initially empty `./data`, never production volumes: old state can restore bot sessions. The fixed names `tg_botapi` and `tg_gateway` and port 18080 are not isolated by a different Compose project name. The shipped mapping exposes all interfaces and `/file/` serves state: restrict ingress before starting. Keep the same working directory, project, `--env-file .env`, user, context and `DOCKER_CONFIG` throughout; the commands below assume the default `.env` in this directory. Use only the tracked base and build files. Check `docker compose config --help`, `docker compose up --help`, and `docker run --help` for `--quiet`, `--images`, `--no-build`, `--pull`, and the `never` policy. If unavailable, stop and use a compatible CLI; do not omit these flags.
+
+Choose one mode and keep the same Compose files throughout. For a published candidate, replace the placeholder with a verified existing `build-<key>` tag or `ghcr.io/ichinya/tg-selfhost-botapi@sha256:<verified-digest>`; the placeholder is not a usable digest. Export it for both Compose and shell: Compose reads `.env`, but shell commands do not import it.
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+export BOTAPI_IMAGE='ghcr.io/ichinya/tg-selfhost-botapi:build-<verified-key>'
+export IMAGE="$BOTAPI_IMAGE"
+docker compose -f docker-compose.yml config --quiet
+docker compose -f docker-compose.yml config --images
+docker compose -f docker-compose.yml pull botapi gateway
 ```
 
-Once a published image is available:
+Record the Bot API RepoDigest using the inspect command below, then repeat the published pull with `BOTAPI_IMAGE` set to the actual `ghcr.io/ichinya/tg-selfhost-botapi@sha256:<verified-digest>` and update `IMAGE` to match. The placeholder is not a digest. A failed pull or unavailable digest means exact repeat is not verified.
+
+The gateway pull uses Docker Hub and the access conditions above. For local build instead:
 
 ```sh
-docker compose pull
-docker compose up -d
+export IMAGE=tg-selfhost-botapi:local
+docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.build.yml config --images
+docker compose -f docker-compose.yml -f docker-compose.build.yml pull gateway
+docker pull alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
+docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
 ```
 
-For a private GHCR package, authenticate with an account that has package access;
-for anonymous pulls, the repository owner must make the package public.
-Local compilation can take a long time. The default build uses one compilation job.
+Local build pulls Alpine from Docker Hub and depends on GitHub and APK repositories. Record Dockerfile inputs and build-arg overrides. The default `BUILD_JOBS=1` TDLib build can take tens of minutes or more on a small VPS; reserve RAM and disk and keep the session alive with screen/tmux or SSH. After pull/build, record the chosen reference, ID, OS/architecture, RepoDigests and labels `io.tg-selfhost.bot-api-revision`, `io.tg-selfhost.build-key`, `org.opencontainers.image.source`; local RepoDigests can be empty. Record nginx digest and ID as well. Image config ID is not a manifest digest; labels are not an attestation. The default `nginx:alpine` and `latest` float. Inspect only these fields when sharing results.
 
+```sh
+docker image inspect --format 'ID={''{.Id}} OS/arch={''{.Os}}/{''{.Architecture}} digests={''{json .RepoDigests}} source={''{index .Config.Labels "org.opencontainers.image.source"}} revision={''{index .Config.Labels "io.tg-selfhost.bot-api-revision"}} build-key={''{index .Config.Labels "io.tg-selfhost.build-key"}}' "$IMAGE"
+docker image inspect --format 'ID={''{.Id}} OS/arch={''{.Os}}/{''{.Architecture}} digests={''{json .RepoDigests}}' nginx:alpine
+IMAGE_ID=$(docker image inspect --format '{''{.Id}}' "$IMAGE")
+docker run --rm --network none --pull never "$IMAGE_ID" --version
+```
+Expect version output and exit code 0; no working data or credentials are mounted. Entrypoint passthrough bypasses credentials and ownership setup and does not prove readiness. For an exact gateway repeat, on a disposable daemon only, pull the recorded `nginx@sha256:<verified-digest>`, tag that image locally as `nginx:alpine`, and verify its ID matches the recorded ID. Retagging affects all users of that name; an unavailable digest means repeat is unverified. Start the selected mode:
+
+```sh
+# Published:
+docker compose -f docker-compose.yml up -d --no-build --pull never
+# Local build, instead:
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --pull never
+```
+
+Check both services and compare container Image IDs with the recorded image IDs, including nginx. Both must be running and RestartCount must not increase between two observations; a mismatch or restart loop fails this stage even if HTTP works:
+
+```sh
+docker compose -f docker-compose.yml ps
+docker inspect --format 'name={''{.Name}} image={''{.Image}} status={''{.State.Status}} restarts={''{.RestartCount}}' tg_botapi tg_gateway
+```
+
+For local mode use both `-f` files with `ps`. Do not share full inspect output containing environment.
 ## Verify
 
 ```sh
