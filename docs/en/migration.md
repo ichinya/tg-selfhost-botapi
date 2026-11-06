@@ -90,9 +90,20 @@ Use a test bot before relying on the helper for a working installation.
 client, not a server-side migration executor. It uses requests from your browser;
 the API needs an appropriate origin/access setup.
 
+Use the current page, rather than an older saved copy. The exported plan is a Bash
+script for Linux/WSL with curl. Save the complete plan as UTF-8 with LF line
+endings and run `bash ./migration-plan.sh`. Native PowerShell is not supported.
+The form token is not included: at runtime the script uses `BOT_TOKEN` from the
+environment or prompts without echo on the controlling terminal. If neither is
+available, it exits before curl. The exported script is separate from the helper
+above and from requests executed by the browser.
+
+Quoting preserves arguments but does not guarantee that curl or the server accepts
+a URL. The token may still be visible in curl process arguments, the environment
+and external access logs. The plan does not guarantee a successful migration.
+
 Browser execution and generated plans still have
-[error-handling](https://github.com/ichinya/tg-selfhost-botapi/issues/6) and
-[shell-escaping](https://github.com/ichinya/tg-selfhost-botapi/issues/8) limitations.
+[error-handling](https://github.com/ichinya/tg-selfhost-botapi/issues/6) limitations.
 A CORS failure can hide the response to an already executed mutation: check the
 current state before trying another plan. Review generated commands before use.
 
