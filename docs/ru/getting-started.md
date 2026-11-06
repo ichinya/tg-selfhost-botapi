@@ -36,6 +36,26 @@ ports:
 используйте доверенное локальное окружение. Для удалённого доступа также нужны
 HTTPS и ограничение доступа.
 
+## Доступ к registry
+
+| Registry | Назначение |
+| --- | --- |
+| GHCR | Готовый образ Bot API |
+| Docker Hub | gateway `nginx:alpine` и закреплённый `alpine` при локальной сборке |
+
+Публичные образы доступны анонимно, пока позволяют доступ и действующие лимиты. Для приватного образа нужна учётная запись с правами; вход может помочь при анонимном pull limit, но не исправляет любой ответ 429. См. [лимиты Docker Hub](https://docs.docker.com/docker-hub/usage/pulls/). Вход в Hub не авторизует в GHCR.
+
+Задайте `DOCKERHUB_USER` как имя пользователя, а `DOCKERHUB_TOKEN_FILE` как путь к файлу PAT вне репозитория, доступному только владельцу. Создайте его приватно, не записывая токен в историю shell. Выключите трассировку; не выводите токен или файл:
+
+```sh
+set +x
+docker login --username "$DOCKERHUB_USER" --password-stdin < "$DOCKERHUB_TOKEN_FILE"
+```
+
+Ожидаются код 0 и `Login Succeeded`; затем отдельно выполните pull нужного reference и проверьте код 0; вход сам по себе не подтверждает доступ к образу. Другой вариант — `docker login --username "$DOCKERHUB_USER"` и скрытый ввод PAT. Без `--username` Docker Hub использует device-code flow. Для приватного GHCR нужны отдельные credentials с правом чтения пакета: `docker login ghcr.io --username "$GHCR_USER" --password-stdin < "$GHCR_TOKEN_FILE"`. Защитите файл таким же образом.
+
+Выполняйте login и pull от одного Unix-пользователя с одинаковыми Docker context и `DOCKER_CONFIG`: `sudo docker` может использовать другую конфигурацию. Используйте credential helper: без него Docker может сохранить credentials в `config.json` в base64, без шифрования. Не передавайте registry PAT в environment Compose или `.env` приложения и не включайте Docker config в отчёты.
+
 ## Запуск
 
 До первой публикации в GHCR используйте локальную сборку:

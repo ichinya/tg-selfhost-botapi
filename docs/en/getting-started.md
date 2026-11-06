@@ -37,6 +37,26 @@ data directory under `/file/`. Use a trusted local environment until the
 [file-access issue](https://github.com/ichinya/tg-selfhost-botapi/issues/3)
 is resolved. A remote deployment also needs HTTPS and access controls.
 
+## Registry access
+
+| Registry | Use |
+| --- | --- |
+| GHCR | Published Bot API image |
+| Docker Hub | `nginx:alpine` gateway and pinned `alpine` base image for local builds |
+
+Public images can be pulled anonymously while access and applicable limits permit it. Private images require an authorized account; login may help with an anonymous pull limit, but does not fix every 429. See [Docker Hub pull limits](https://docs.docker.com/docker-hub/usage/pulls/). Hub login does not authenticate GHCR.
+
+Set `DOCKERHUB_USER` to your username and `DOCKERHUB_TOKEN_FILE` to a PAT file outside the repository, readable only by its owner. Provision it privately without putting the token in shell history. Disable tracing and do not print the file or token:
+
+```sh
+set +x
+docker login --username "$DOCKERHUB_USER" --password-stdin < "$DOCKERHUB_TOKEN_FILE"
+```
+
+Expect exit code 0 and `Login Succeeded`; then separately pull the required reference and expect exit 0; login alone does not prove image access. Alternatively, run `docker login --username "$DOCKERHUB_USER"` and enter the PAT at the hidden prompt. Without `--username`, Docker Hub uses device-code login. A private GHCR package needs separate credentials with package-read access: `docker login ghcr.io --username "$GHCR_USER" --password-stdin < "$GHCR_TOKEN_FILE"`. Protect that file in the same way.
+
+Use the same Unix user, Docker context and `DOCKER_CONFIG` for login and pull; `sudo docker` can use a different configuration. Use a credential helper: without one Docker may store credentials base64-encoded, not encrypted, in `config.json`. Do not put registry PATs in Compose environment or application `.env`, or include Docker config in reports.
+
 ## Start
 
 Before the first GHCR publication, build locally:
