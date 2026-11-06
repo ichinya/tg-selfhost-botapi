@@ -184,6 +184,7 @@
     let state = {
       mode: 'official-to-self',
       currentWebhookFromCheck: '',
+      webhookFromApiInField: false,
       currentBotName: '',
       currentBotUsername: '',
       currentBotId: ''
@@ -345,86 +346,58 @@
       }
     }
 
-    function buildCommands(cfg, currentHook = '') {
-      const token = cfg.token;
-      const drop = cfg.dropPending ? 'true' : 'false';
-      const qWebhook = cfg.webhook || currentHook || '';
-      const cmds = [];
+    function bashLiteral(value) {
+      value = String(value);
+      if (value.includes('\0')) throw new Error('NUL не представим в Bash');
+      return "'" + value.replace(/'/g, "'\"'\"'") + "'";
+    }
 
-      if (!token) return ['# Сначала введи токен бота'];
+    function exportConfig() {
+      return {
+        mode: state.mode,
+        oldApi: state.mode === 'official-to-self' ? officialApi : els.oldApi.value,
+        newApi: els.newApi.value,
+        webhook: state.webhookFromApiInField ? state.currentWebhookFromCheck : (els.webhookUrl.value || state.currentWebhookFromCheck),
+        dropPending: !!els.dropPending.checked
+      };
+    }
 
-      if (cfg.mode === 'official-to-self') {
-        cmds.push(`# Проверка текущего состояния на official`,
-          `curl "${officialApi}/bot${token}/getMe"`,
-          `curl "${officialApi}/bot${token}/getWebhookInfo"`,
-          '',
-          '# Удаление webhook на official',
-          `curl -X POST "${officialApi}/bot${token}/deleteWebhook" --data-urlencode "drop_pending_updates=${drop}"`,
-          '',
-          '# Выход из official перед переходом на local',
-          `curl -X POST "${officialApi}/bot${token}/logOut"`,
-          '',
-          '# Первый запрос к self-hosted API',
-          `curl "${cfg.newApi}/bot${token}/getMe"`
-        );
-        if (qWebhook) {
-          cmds.push('', '# Установка webhook на self-hosted API', `curl -X POST "${cfg.newApi}/bot${token}/setWebhook" --data-urlencode "url=${qWebhook}" --data-urlencode "drop_pending_updates=${drop}"`);
-        }
-        cmds.push('', '# Итоговая проверка', `curl "${cfg.newApi}/bot${token}/getWebhookInfo"`);
+    function buildCommands(cfg) {
+      if (!['official-to-self', 'self-to-self', 'self-to-official', 'hook-only'].includes(cfg.mode)) throw new Error('Неизвестный режим');
+      const oldApi = cfg.mode === 'official-to-self' ? officialApi : cfg.mode === 'hook-only' ? (cfg.oldApi || cfg.newApi || officialApi) : cfg.oldApi;
+      const newApi = cfg.mode === 'self-to-official' ? officialApi : cfg.newApi;
+      const validate = (value, https) => {
+        bashLiteral(value);
+        if (!(https ? httpsUrlLooksValid(value) : urlLooksValid(value))) throw new Error('Некорректный URL');
+      };
+      validate(oldApi, false);
+      if (cfg.mode !== 'hook-only') validate(newApi, false);
+      if (cfg.webhook) validate(cfg.webhook, true);
+      const stripSlash = value => value.replace(/\/$/, '');
+      const lines = [`OLD_API=${bashLiteral(stripSlash(oldApi))}`];
+      if (cfg.mode !== 'hook-only') lines.push(`NEW_API=${bashLiteral(stripSlash(newApi))}`);
+      const methods = ['getMe', 'getWebhookInfo', 'deleteWebhook', 'logOut', 'close', 'setWebhook'];
+      function call(base, method, data = []) {
+        if (!['OLD_API', 'NEW_API'].includes(base) || !methods.includes(method)) throw new Error('Некорректная команда');
+        const post = ['deleteWebhook', 'logOut', 'close', 'setWebhook'].includes(method);
+        lines.push(['curl', '--disable', '--globoff', ...(post ? ['-X', 'POST'] : []), '--url', `"\${${base}}/bot\${BOT_TOKEN}/${method}"`, ...data.flatMap(value => ['--data-urlencode', bashLiteral(value)])].join(' '));
       }
-
-      if (cfg.mode === 'self-to-self') {
-        cmds.push(`# Проверка старого local API`,
-          `curl "${cfg.oldApi}/bot${token}/getMe"`,
-          `curl "${cfg.oldApi}/bot${token}/getWebhookInfo"`,
-          '',
-          '# Удаление webhook на старом local API',
-          `curl -X POST "${cfg.oldApi}/bot${token}/deleteWebhook" --data-urlencode "drop_pending_updates=${drop}"`,
-          '',
-          '# Закрытие старого local инстанса',
-          `curl -X POST "${cfg.oldApi}/bot${token}/close"`,
-          '',
-          '# Первый запрос к новому local API',
-          `curl "${cfg.newApi}/bot${token}/getMe"`
-        );
-        if (qWebhook) {
-          cmds.push('', '# Установка webhook на новом local API', `curl -X POST "${cfg.newApi}/bot${token}/setWebhook" --data-urlencode "url=${qWebhook}" --data-urlencode "drop_pending_updates=${drop}"`);
-        }
-        cmds.push('', '# Итоговая проверка', `curl "${cfg.newApi}/bot${token}/getWebhookInfo"`);
-      }
-
-      if (cfg.mode === 'self-to-official') {
-        cmds.push(`# Проверка старого local API`,
-          `curl "${cfg.oldApi}/bot${token}/getMe"`,
-          `curl "${cfg.oldApi}/bot${token}/getWebhookInfo"`,
-          '',
-          '# Удаление webhook на старом local API',
-          `curl -X POST "${cfg.oldApi}/bot${token}/deleteWebhook" --data-urlencode "drop_pending_updates=${drop}"`,
-          '',
-          '# Закрытие local инстанса',
-          `curl -X POST "${cfg.oldApi}/bot${token}/close"`,
-          '',
-          '# Проверка official Bot API',
-          `curl "${officialApi}/bot${token}/getMe"`
-        );
-        if (qWebhook) {
-          cmds.push('', '# Установка webhook на official API', `curl -X POST "${officialApi}/bot${token}/setWebhook" --data-urlencode "url=${qWebhook}" --data-urlencode "drop_pending_updates=${drop}"`);
-        }
-        cmds.push('', '# Итоговая проверка', `curl "${officialApi}/bot${token}/getWebhookInfo"`);
-      }
-
+      const drop = `drop_pending_updates=${cfg.dropPending ? 'true' : 'false'}`;
       if (cfg.mode === 'hook-only') {
-        const api = cfg.oldApi || cfg.newApi || officialApi;
-        cmds.push(`# Чтение текущего webhook`, `curl "${api}/bot${token}/getWebhookInfo"`);
-        if (qWebhook) {
-          cmds.push('', '# Установка нового webhook', `curl -X POST "${api}/bot${token}/setWebhook" --data-urlencode "url=${qWebhook}" --data-urlencode "drop_pending_updates=${drop}"`);
-        } else {
-          cmds.push('', '# Удаление webhook', `curl -X POST "${api}/bot${token}/deleteWebhook" --data-urlencode "drop_pending_updates=${drop}"`);
-        }
-        cmds.push('', '# Итоговая проверка', `curl "${api}/bot${token}/getWebhookInfo"`);
+        call('OLD_API', 'getWebhookInfo');
+        if (cfg.webhook) call('OLD_API', 'setWebhook', [`url=${cfg.webhook}`, drop]);
+        else call('OLD_API', 'deleteWebhook', [drop]);
+        call('OLD_API', 'getWebhookInfo');
+      } else {
+        call('OLD_API', 'getMe');
+        call('OLD_API', 'getWebhookInfo');
+        call('OLD_API', 'deleteWebhook', [drop]);
+        call('OLD_API', cfg.mode === 'official-to-self' ? 'logOut' : 'close');
+        call('NEW_API', 'getMe');
+        if (cfg.webhook) call('NEW_API', 'setWebhook', [`url=${cfg.webhook}`, drop]);
+        call('NEW_API', 'getWebhookInfo');
       }
-
-      return cmds;
+      return lines;
     }
 
     async function checkCurrentState() {
@@ -478,7 +451,10 @@
           const hook = await fetchJson(`${apiForRead}/bot${cfg.token}/getWebhookInfo`);
           if (hook.json && hook.json.ok === true) {
             state.currentWebhookFromCheck = hook.json.result.url || '';
-            if (!cfg.webhook && state.currentWebhookFromCheck) els.webhookUrl.value = state.currentWebhookFromCheck;
+            if (!cfg.webhook && state.currentWebhookFromCheck) {
+              els.webhookUrl.value = state.currentWebhookFromCheck;
+              state.webhookFromApiInField = true;
+            }
             log(`Текущий webhook: ${state.currentWebhookFromCheck || '(не установлен)'}`, 'info');
           } else {
             const errorMsg = hook.json && hook.json.description ? hook.json.description : 'неизвестная ошибка';
@@ -514,14 +490,19 @@
     }
 
     function buildPlan() {
-      const cfg = currentConfig();
-      const cmds = buildCommands(cfg, state.currentWebhookFromCheck);
-      els.curlPlan.textContent = cmds.join('\n');
-      log('Curl-план обновлён.', 'info');
+      els.curlPlan.textContent = '';
+      try {
+        els.curlPlan.textContent = buildCommands(exportConfig()).join('\n');
+        log('Curl-план обновлён.', 'info');
+        return true;
+      } catch (e) {
+        log(`План не создан: ${e.message}`, 'error');
+        return false;
+      }
     }
 
     async function copyCurlPlan() {
-      buildPlan();
+      if (!buildPlan()) return;
       try {
         await navigator.clipboard.writeText(els.curlPlan.textContent);
         log('Curl-план скопирован в буфер обмена.', 'success');
@@ -793,6 +774,8 @@
     }
 
     function bindInputs() {
+      els.webhookUrl.addEventListener('input', () => { state.webhookFromApiInField = false; });
+      els.webhookUrl.addEventListener('change', () => { state.webhookFromApiInField = false; });
       [els.botToken, els.oldApi, els.newApi, els.webhookUrl, els.dropPending].forEach(el => {
         el.addEventListener('input', runLocalChecks);
         el.addEventListener('change', runLocalChecks);
