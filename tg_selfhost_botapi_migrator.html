@@ -85,7 +85,7 @@
                 
                 <div class="form-group">
                     <label for="botToken">Bot Token:</label>
-                    <input id="botToken" type="text" placeholder="123456:AA..." autocomplete="off" />
+                    <input id="botToken" type="password" placeholder="123456:AA..." autocomplete="off" spellcheck="false" />
                 </div>
                 
                 <div class="form-group" id="oldApiBlock">
@@ -146,7 +146,7 @@
             <div class="card">
                 <h2>5. Curl-план</h2>
                 <div class="hint" style="margin-bottom: 10px;">
-                    Этот план можно выполнить вручную на сервере. 
+                    План предназначен для Bash в Linux/WSL, не для PowerShell. Сохраните его в UTF-8 с переводами строк LF как migration-plan.sh и запустите <code>bash ./migration-plan.sh</code>. Токен вводится скрыто или берётся из BOT_TOKEN.
                     Кнопка "Выполнить команды" пытается сделать это прямо в браузере (но может быть заблокировано CORS).
                 </div>
                 <pre id="curlPlan" class="curl-plan">Сначала выбери режим и нажми «Проверить состояние».</pre>
@@ -374,7 +374,22 @@
       if (cfg.mode !== 'hook-only') validate(newApi, false);
       if (cfg.webhook) validate(cfg.webhook, true);
       const stripSlash = value => value.replace(/\/$/, '');
-      const lines = [`OLD_API=${bashLiteral(stripSlash(oldApi))}`];
+      const lines = [
+        '#!/usr/bin/env bash',
+        '# Bash в Linux/WSL: сохраните UTF-8/LF и запустите bash ./migration-plan.sh',
+        '# Native PowerShell не поддерживается.',
+        'set +x +v',
+        "trap 'unset BOT_TOKEN' EXIT",
+        'if [[ -z ${BOT_TOKEN:-} ]]; then',
+        '  if ! { exec 3<>/dev/tty; } 2>/dev/null; then echo "Требуется BOT_TOKEN или терминал" >&2; exit 1; fi',
+        '  printf "Bot token: " >&3',
+        '  if ! IFS= read -r -s BOT_TOKEN <&3; then printf "\\n" >&3; echo "Не удалось прочитать токен" >&2; exit 1; fi',
+        '  printf "\\n" >&3',
+        '  exec 3>&-',
+        'fi',
+        'if [[ ! $BOT_TOKEN =~ ^[0-9]+:[A-Za-z0-9_-]{20,}$ ]]; then echo "Неверный формат токена" >&2; exit 1; fi',
+        `OLD_API=${bashLiteral(stripSlash(oldApi))}`
+      ];
       if (cfg.mode !== 'hook-only') lines.push(`NEW_API=${bashLiteral(stripSlash(newApi))}`);
       const methods = ['getMe', 'getWebhookInfo', 'deleteWebhook', 'logOut', 'close', 'setWebhook'];
       function call(base, method, data = []) {
