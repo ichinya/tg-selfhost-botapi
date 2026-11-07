@@ -1,0 +1,14 @@
+{
+  "bots": [
+    {
+      "alias": "bot-a",
+      "credential": "REPLACE_WITH_RANDOM_DOWNLOAD_CREDENTIAL",
+      "token": "12345:REPLACE_WITH_BOT_TOKEN",
+      "endpoint": "http://botapi:8081",
+      "media_root": "/var/lib/telegram-bot-api-files",
+      "bot_root": "/var/lib/telegram-bot-api-files/12345:REPLACE_WITH_BOT_TOKEN",
+      "test_dc": false,
+      "colon": true
+    }
+  ]
+}

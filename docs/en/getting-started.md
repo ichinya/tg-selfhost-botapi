@@ -24,6 +24,20 @@ cp .env.example .env
 
 Fill in `API_ID` and `API_HASH` in `.env`. Keep that file private.
 
+For the split file profile on Linux, prepare `./files` before startup:
+
+```sh
+sudo install -d -o 101 -g 101 -m 0770 ./files
+```
+
+The reader/handler profile additionally requires Linux/amd64, kernel >= 5.6 and
+openat2. Use a qualified Bot API/downloads image pair. Prepare private token and
+registry files outside media, then mount only the selected full-token bot-root
+read-only at the same absolute path. See [the file contract](configuration.md#files-in-local-mode)
+and the repository's `examples/files/README.md` for commands; source examples are
+excluded from Pages. Base HTTP file downloads are unsupported; remote downloads
+require the opt-in override and operator HTTPS ingress on the `18082` proxy.
+
 The gateway binds to `127.0.0.1` by default and does not expose the state directory.
 If remote clients, including a webhook receiver, must reach the Bot API, set
 `GATEWAY_BIND=0.0.0.0` in `.env` and provide HTTPS and network access controls.

@@ -224,6 +224,10 @@ webhook. Восстановите `secret_token`, сертификат, `allowed
 исправляет. nginx передаёт запросы `/file/` в Bot API, не открывая каталог
 состояния. Не приписывайте ему авторизацию `X-Telegram-Bot-Token`.
 См. [доступ к файлам](configuration.md).
-Порт 18081 отдельного downloads-сервиса не заменяет API-порт 18080.
+Порт 18082 opt-in downloads proxy не заменяет API-порт 18080. Контракт #5 добавляет
+отдельные local/remote профили, не меняет мигратор и не интегрирует независимые
+работы #7/#9. Переключение API endpoint не подтверждает готовность downloads.
+Сначала квалифицируйте пару образов и mounts, затем выполните
+[cold upgrade/rollback](maintenance.md).
 
 [Настройки](configuration.md) · [Обслуживание](maintenance.md)

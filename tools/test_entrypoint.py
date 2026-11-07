@@ -70,6 +70,21 @@ class EntrypointTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["args"], ["--version"])
 
+    def test_legacy_default_does_not_set_files_directory(self):
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any(arg.startswith('--files-dir=') for arg in json.loads(result.stdout)['args']))
+
+    def test_split_storage_rejects_overlaps_and_symlink_ancestors(self):
+        for value in (self.env['TELEGRAM_WORK_DIR'], str(self.root / 'temp' / 'media'),
+                      str(self.root / 'media' / '..' / 'escape')):
+            self.env['TELEGRAM_FILES_DIR'] = value
+            self.assertNotEqual(self.run_script().returncode, 0)
+        linked = self.root / 'linked'
+        linked.symlink_to(self.root, target_is_directory=True)
+        self.env['TELEGRAM_FILES_DIR'] = str(linked / 'media')
+        self.assertNotEqual(self.run_script().returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

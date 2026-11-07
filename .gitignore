@@ -2,6 +2,10 @@
 !/.github/
 /.env
 /data
+/files
+/downloads.config.json
+/bot-token
+/download.curl
 /logs
 __pycache__/
 /_site/

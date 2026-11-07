@@ -224,6 +224,10 @@ It requires compatible mounts and application paths; state transfer alone does
 not fix them. nginx forwards `/file/` requests to the Bot API instead of exposing
 the state directory. Do not invent `X-Telegram-Bot-Token` authorization. See
 [file access](configuration.md).
-An independent downloads service's port 18081 does not replace API port 18080.
+The opt-in downloads proxy's port 18082 does not replace API port 18080. The file
+contract in #5 supplies separate local/remote profiles; it does not change the
+migrator or integrate the independent #7/#9 work. Switching the API endpoint does
+not establish download readiness. Qualify the image pair and mount boundaries,
+then follow the [cold upgrade/rollback procedure](maintenance.md).
 
 [Configuration](configuration.md) · [Maintenance](maintenance.md)

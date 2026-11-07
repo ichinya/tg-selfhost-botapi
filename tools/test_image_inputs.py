@@ -5,10 +5,29 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from image_inputs import build_key, digest, revision
+from image_inputs import build_key, digest, revision, downloads_key, python_image, RECIPE, DOWNLOADS_RECIPE, ROOT
 
 
 class BuildInputsTest(unittest.TestCase):
+    def test_fingerprints_cover_existing_inputs_and_the_gate(self):
+        for recipe in (RECIPE, DOWNLOADS_RECIPE):
+            self.assertEqual(len(recipe), len(set(recipe)))
+            for name in recipe:
+                with self.subTest(name=name):
+                    self.assertTrue((ROOT / name).is_file())
+            for name in ('docker-entrypoint.sh', '.github/workflows/file-contract.yml',
+                         'tools/file_access.py', 'tools/fixtures/files/mock_botapi.py',
+                         'tools/check_docs.py', '.dockerignore'):
+                self.assertIn(name, recipe)
+
+    def test_downloads_key_and_python_base_are_fail_closed(self):
+        self.assertNotEqual(downloads_key({}, {'a': b'1'}), downloads_key({}, {'a': b'2'}))
+        self.assertNotEqual(build_key({}, {}), downloads_key({}, {}))
+        with patch('image_inputs.digest', return_value='sha256:' + 'a' * 64):
+            self.assertEqual(python_image(), 'python:3.12-alpine@sha256:' + 'a' * 64)
+        with self.assertRaises(ValueError):
+            python_image('python:3.12-alpine@sha256:invalid')
+
     def test_any_upstream_change_invalidates_published_build(self):
         inputs = dict(source="a", base="b")
         files = {"Dockerfile": b"recipe", "patch": b"header"}

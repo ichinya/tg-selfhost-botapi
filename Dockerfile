@@ -23,6 +23,28 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/l
  && cmake --build build --target install -j ${BUILD_JOBS} \
  && strip /usr/local/bin/telegram-bot-api
 
+FROM source AS permissions-build
+COPY tools/fixtures/files/tdlib_permissions.cpp /tmp/tdlib_permissions.cpp
+RUN printf '\nadd_executable(file-permissions-probe /tmp/tdlib_permissions.cpp)\ntarget_link_libraries(file-permissions-probe PRIVATE tdutils)\n' >> CMakeLists.txt \
+ && cmake -S . -B permissions-build -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build permissions-build --target file-permissions-probe -j 1 \
+ && mkdir -p /proof \
+ && cp permissions-build/file-permissions-probe /proof/probe \
+ && git -C td rev-parse HEAD > /proof/tdlib-revision \
+ && cp td/td/telegram/files/FileLoaderUtils.cpp /proof/FileLoaderUtils.cpp \
+ && cp td/tdutils/td/utils/port/FileFd.cpp /proof/FileFd.cpp \
+ && cp td/tdutils/td/utils/port/path.cpp /proof/path.cpp
+
+FROM ${ALPINE_IMAGE} AS permissions-probe
+ARG BOT_API_REVISION
+LABEL io.tg-selfhost.bot-api-revision="${BOT_API_REVISION}"
+RUN apk add --no-cache openssl libstdc++ zlib \
+ && addgroup -g 101 -S media \
+ && adduser -S -D -H -u 101 -G media writer
+COPY --from=permissions-build /proof /usr/share/file-contract
+USER 101:101
+ENTRYPOINT ["/usr/share/file-contract/probe"]
+
 FROM ${ALPINE_IMAGE}
 ARG BOT_API_REVISION=e3e9dd8e5b3d7ab8537cd5a10dc31d5ffa8f82d1
 # Public recipe fingerprint, stored in image metadata.
@@ -33,11 +55,12 @@ LABEL org.opencontainers.image.source="https://github.com/ichinya/tg-selfhost-bo
       io.tg-selfhost.build-key="${BUILD_FINGERPRINT}"
 ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
     TELEGRAM_TEMP_DIR="/tmp/telegram-bot-api"
-RUN apk add --no-cache openssl libstdc++ \
+RUN apk add --no-cache openssl libstdc++ zlib \
  && addgroup -g 101 -S telegram-bot-api \
  && adduser -S -D -H -u 101 -h /var/lib/telegram-bot-api -s /sbin/nologin -G telegram-bot-api telegram-bot-api \
- && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api \
- && chown telegram-bot-api:telegram-bot-api /var/lib/telegram-bot-api /tmp/telegram-bot-api
+ && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \
+ && chown telegram-bot-api:telegram-bot-api /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \
+ && chmod 770 /var/lib/telegram-bot-api-files
 COPY --from=build /usr/local/bin/telegram-bot-api /usr/local/bin/telegram-bot-api
 COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
 COPY --from=source /usr/src/telegram-bot-api/LICENSE_1_0.txt /usr/share/licenses/telegram-bot-api/LICENSE_1_0.txt

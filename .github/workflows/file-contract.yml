@@ -1,0 +1,235 @@
+name: File contract qualification
+
+on:
+  workflow_call:
+    outputs:
+      build_key:
+        description: Qualified Bot API recipe
+        value: ${{ jobs.qualify.outputs.build_key }}
+      downloads_key:
+        description: Qualified downloads recipe
+        value: ${{ jobs.qualify.outputs.downloads_key }}
+      botapi_image_id:
+        description: Exact qualified Bot API image ID
+        value: ${{ jobs.qualify.outputs.botapi_image_id }}
+      downloads_image_id:
+        description: Exact qualified downloads image ID
+        value: ${{ jobs.qualify.outputs.downloads_image_id }}
+      artifact_name:
+        description: Qualified pair archive
+        value: ${{ jobs.qualify.outputs.artifact_name }}
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      build_key: ${{ steps.inputs.outputs.build_key }}
+      downloads_key: ${{ steps.inputs.outputs.downloads_key }}
+      botapi_image_id: ${{ steps.pair.outputs.botapi_image_id }}
+      downloads_image_id: ${{ steps.pair.outputs.downloads_image_id }}
+      artifact_name: ${{ steps.pair.outputs.artifact_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install tracked migration prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash curl jq
+      - uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: |
+            memory=6g
+            memory-swap=6g
+            cpu-period=100000
+            cpu-quota=200000
+      - name: Unit tests from clean checkout
+        timeout-minutes: 5
+        run: timeout 240 python3 -m unittest discover -s tools -p 'test_*.py' -v
+      - name: Check the exact build context allowlist without image execution
+        run: |
+          mkdir -p files
+          printf 'SYNTHETIC_PRIVATE_CANARY' > files/context-canary.txt
+          printf 'FROM scratch\nCOPY . /\n' | docker buildx build --file - --output type=local,dest=.context-check .
+          python3 - <<'PY'
+          from pathlib import Path
+          allowed = {'Dockerfile', 'Dockerfile.downloads', 'docker-entrypoint.sh', 'patches/webhook-user-agent.patch',
+                     'tools/file_access.py', 'tools/file_contract.py', 'tools/download_server.py', 'examples/files/local_reader.py',
+                     'tools/fixtures/files/tdlib_permissions.cpp'}
+          actual = {str(p.relative_to('.context-check')) for p in Path('.context-check').rglob('*') if p.is_file()}
+          assert actual == allowed, actual ^ allowed
+          assert all(b'SYNTHETIC_PRIVATE_CANARY' not in p.read_bytes() for p in Path('.context-check').rglob('*') if p.is_file())
+          PY
+      - name: Build and check documentation
+        run: |
+          docker run --rm --cpus 2 --memory 1g --pids-limit 256 \
+            --volume "$GITHUB_WORKSPACE:/src" --workdir /src \
+            --env JEKYLL_ENV=production --env PAGES_REPO_NWO="$GITHUB_REPOSITORY" \
+            --entrypoint /usr/local/bundle/bin/github-pages \
+            ghcr.io/actions/jekyll-build-pages:v1.0.13 \
+            build --source /src --destination /src/.site-check
+          python3 tools/check_docs.py .site-check
+      - name: Resolve immutable pair inputs
+        id: inputs
+        run: |
+          python3 tools/image_inputs.py | tee candidate-inputs.txt >> "$GITHUB_OUTPUT"
+          git rev-parse HEAD > candidate-revision.txt
+      - name: Login for private immutable candidate reuse
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull immutable candidates when available
+        id: reuse
+        env:
+          BUILD_KEY: ${{ steps.inputs.outputs.build_key }}
+          DOWNLOADS_KEY: ${{ steps.inputs.outputs.downloads_key }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          reuse() {
+            name="$1"; ref="$2"; candidate="$3"
+            if docker buildx imagetools inspect "$ref" > /dev/null 2>registry-error.txt; then
+              docker pull --platform linux/amd64 "$ref"
+              docker tag "$ref" "$candidate"
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            elif grep -Eqi 'manifest unknown|manifest_unknown' registry-error.txt; then
+              echo "$name=false" >> "$GITHUB_OUTPUT"
+            else
+              echo 'Registry status UNKNOWN; refusing unconfirmed reuse/rebuild' >&2
+              exit 1
+            fi
+          }
+          reuse botapi "$image:build-$BUILD_KEY" botapi-candidate:check
+          reuse downloads "$image-downloads:build-$DOWNLOADS_KEY" downloads-candidate:check
+      - name: Build missing Bot API candidate
+        if: steps.reuse.outputs.botapi != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: botapi-candidate:check
+          cache-from: type=gha,scope=botapi
+          cache-to: type=gha,mode=max,scope=botapi
+          build-args: |
+            BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
+            ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
+            BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
+            BUILD_JOBS=1
+      - name: Build missing downloads candidate
+        if: steps.reuse.outputs.downloads != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.downloads
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: downloads-candidate:check
+          cache-from: type=gha,scope=downloads
+          cache-to: type=gha,mode=max,scope=downloads
+          build-args: |
+            PYTHON_IMAGE=${{ steps.inputs.outputs.python_image }}
+            DOWNLOADS_FINGERPRINT=${{ steps.inputs.outputs.downloads_key }}
+      - name: Build pinned TDLib offline permissions probe
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: permissions-probe
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: permissions-candidate:check
+          cache-from: type=gha,scope=permissions
+          cache-to: type=gha,mode=max,scope=permissions
+          build-args: |
+            BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
+            ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
+      - name: Verify exact candidate metadata and binary
+        env:
+          REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+          BUILD_KEY: ${{ steps.inputs.outputs.build_key }}
+          DOWNLOADS_KEY: ${{ steps.inputs.outputs.downloads_key }}
+          PYTHON_IMAGE: ${{ steps.inputs.outputs.python_image }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          images = json.loads(subprocess.check_output(['docker', 'image', 'inspect', 'botapi-candidate:check', 'downloads-candidate:check']))
+          a, b = [i['Config']['Labels'] for i in images]
+          assert a['io.tg-selfhost.bot-api-revision'] == os.environ['REVISION']
+          assert a['io.tg-selfhost.build-key'] == os.environ['BUILD_KEY']
+          assert b['io.tg-selfhost.downloads-key'] == os.environ['DOWNLOADS_KEY']
+          assert b['io.tg-selfhost.python-image'] == os.environ['PYTHON_IMAGE']
+          PY
+          docker run --rm --network none --cpus 1 --memory 256m --pids-limit 64 botapi-candidate:check --version > candidate-version.txt
+          docker run --rm --network none --cpus 1 --memory 256m --pids-limit 64 \
+            --entrypoint sh botapi-candidate:check -ec \
+            'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh; test "$(id -u telegram-bot-api):$(id -g telegram-bot-api)" = 101:101'
+      - name: Both state-isolation gates before file opt-in
+        run: |
+          python3 tools/check_file_contract.py --state-isolation-only --report state-before.json
+      - name: Mandatory local, remote, mount and TLS gate
+        timeout-minutes: 20
+        run: python3 tools/check_file_contract.py --report file-contract-receipt.json
+      - name: Both state-isolation gates after file opt-in
+        run: |
+          python3 tools/check_file_contract.py --state-isolation-only --report state-after.json
+      - name: Seal qualified pair without rebuilding
+        id: pair
+        env:
+          BUILD_KEY: ${{ steps.inputs.outputs.build_key }}
+          DOWNLOADS_KEY: ${{ steps.inputs.outputs.downloads_key }}
+        run: |
+          docker save botapi-candidate:check downloads-candidate:check | gzip > candidate-pair.tar.gz
+          sha256sum candidate-pair.tar.gz > candidate-pair.sha256
+          python3 - <<'PY'
+          import json, os, subprocess
+          images = json.loads(subprocess.check_output(['docker', 'image', 'inspect', 'botapi-candidate:check', 'downloads-candidate:check']))
+          pair = dict(source_sha=os.environ['GITHUB_SHA'], build_key=os.environ['BUILD_KEY'], downloads_key=os.environ['DOWNLOADS_KEY'],
+                      botapi_image_id=images[0]['Id'], downloads_image_id=images[1]['Id'],
+                      artifact_name='qualified-pair-' + os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT'],
+                      unit='PASS', docs='PASS', runtime='PASS', publish='NOTRUN', production='NOTRUN')
+          receipt = json.load(open('file-contract-receipt.json'))
+          assert receipt['status'] == 'PASS' and receipt['runtime'] == 'PASS'
+          assert receipt['tdlib_permissions'] == 'PASS', 'TDLib writer evidence required'
+          pair['tdlib_permissions'] = receipt['tdlib_permissions']
+          with open('candidate-pair.json', 'w') as f: json.dump(pair, f, indent=2)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              for key in ('botapi_image_id', 'downloads_image_id', 'artifact_name'): f.write(key + '=' + pair[key] + '\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pair.outputs.artifact_name }}
+          path: |
+            candidate-pair.tar.gz
+            candidate-pair.sha256
+            candidate-pair.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Preserve qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: file-contract-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            candidate-*.txt
+            candidate-pair.json
+            file-contract-receipt.json
+            state-before.json
+            state-after.json
+          if-no-files-found: warn
+      - name: Qualification summary
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+        run: echo "File contract $RESULT; source $GITHUB_SHA; publish and production NOTRUN in this job" >> "$GITHUB_STEP_SUMMARY"

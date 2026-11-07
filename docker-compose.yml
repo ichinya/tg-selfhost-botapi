@@ -7,8 +7,10 @@ services:
       TELEGRAM_API_ID: ${API_ID}
       TELEGRAM_API_HASH: ${API_HASH}
       TELEGRAM_LOCAL: "true"
+      TELEGRAM_FILES_DIR: /var/lib/telegram-bot-api-files
     volumes:
       - ./data:/var/lib/telegram-bot-api
+      - ./files:/var/lib/telegram-bot-api-files
 
   gateway:
     image: nginx:alpine

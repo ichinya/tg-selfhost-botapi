@@ -22,14 +22,21 @@ defaults:
 exclude:
   - README.md
   - Dockerfile
+  - Dockerfile.downloads
   - docker-compose.yml
   - docker-compose.build.yml
+  - docker-compose.downloads.yml
   - docker-entrypoint.sh
   - migrate_off_to_self.sh
   - nginx.conf
   - patches
   - tools
   - data
+  - files
+  - examples
+  - downloads.config.json
+  - bot-token
+  - download.curl
   - logs
   - .site-check
 navigation:
