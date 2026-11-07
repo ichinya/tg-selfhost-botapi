@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "evidence": "synthetic fixtures only; no VPS or live delivery acceptance",
+  "directions": {
+    "cloud_to_local": {"local_mode": true, "detach": "logOut", "steps": ["source_delete", "source_logout", "target_authorize", "target_configure"]},
+    "local_to_local": {"local_mode": true, "detach": "close", "steps": ["source_delete", "source_close", "state_transfer", "target_authorize", "target_configure"]},
+    "local_to_cloud": {"local_mode": false, "detach": "logOut", "steps": ["source_delete", "source_logout", "target_authorize", "target_configure"]},
+    "webhook_only": {"local_mode": true, "detach": null, "steps": ["target_configure"]}
+  },
+  "cases": [
+    {"id": "cloud-local-preserve", "direction": "cloud_to_local", "action": "preserve", "acceptance": ["AC1", "AC2", "AC8"]},
+    {"id": "cloud-local-set", "direction": "cloud_to_local", "action": "set", "acceptance": ["AC1", "AC2", "AC8"]},
+    {"id": "cloud-local-polling", "direction": "cloud_to_local", "action": "polling", "acceptance": ["AC1", "AC2", "AC8"]},
+    {"id": "local-local-preserve", "direction": "local_to_local", "action": "preserve", "acceptance": ["AC3", "AC8"]},
+    {"id": "local-local-set", "direction": "local_to_local", "action": "set", "acceptance": ["AC3", "AC8"]},
+    {"id": "local-local-polling", "direction": "local_to_local", "action": "polling", "acceptance": ["AC3", "AC8"]},
+    {"id": "local-cloud-preserve", "direction": "local_to_cloud", "action": "preserve", "acceptance": ["AC2", "AC8"]},
+    {"id": "local-cloud-set", "direction": "local_to_cloud", "action": "set", "acceptance": ["AC2", "AC8"]},
+    {"id": "local-cloud-polling", "direction": "local_to_cloud", "action": "polling", "acceptance": ["AC2", "AC8"]},
+    {"id": "webhook-preserve", "direction": "webhook_only", "action": "preserve", "acceptance": ["AC2", "AC8"]},
+    {"id": "webhook-set", "direction": "webhook_only", "action": "set", "acceptance": ["AC2", "AC8"]},
+    {"id": "webhook-polling", "direction": "webhook_only", "action": "polling", "acceptance": ["AC2", "AC8"]}
+  ],
+  "acceptance_tests": {
+    "AC1": ["test_migration_contract.py", "test_migration_directions.py"],
+    "AC2": ["test_migration_interfaces.py", "test_migration_export.py", "test_migration_directions.py"],
+    "AC3": ["test_migration_reconcile.py", "test_migration_faults.py", "test_migration_store.py"],
+    "AC4": ["test_migration_state_privacy.py", "test_migration_http.py", "test_docs_privacy.py"],
+    "AC5": ["test_migration_helper.py", "test_migration_ui.mjs"],
+    "AC6": ["test_migration_integration.py", "test_migration_ui.mjs"],
+    "AC7": ["test_migration_readiness.py", "test_migration_http.py"],
+    "AC8": ["test_migration_directions.py", "test_migration_interfaces.py"]
+  },
+  "limits": [
+    "Preserve matrix uses an explicitly acknowledged url_only profile; full preserve remains blocked without original private profile verification.",
+    "Checkpoint and deployment receipts are fixture evidence, not real operator proof.",
+    "Full secret/certificate transport, response loss and helper security are covered separately by acceptance_tests."
+  ]
+}
