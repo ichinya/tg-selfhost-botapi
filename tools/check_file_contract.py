@@ -40,7 +40,8 @@ def environment(botapi, downloads, permissions='permissions-candidate:check'):
                PERMISSIONS_TEST_IMAGE=permissions,
                DOWNLOADS_CONFIG_FILE='/srv/private/downloads.config.json', BOT_TOKEN_FILE='/srv/private/token',
                BOT_A_HOST_ROOT='/srv/private/media/bot-a', BOT_A_ROOT=MEDIA + '/' + TOKENS[0],
-               ROOT_DIR=str(ROOT), FIXTURE_DIR=str(FIXTURE), TLS_CONFIG=str(FIXTURE / 'unused.conf'))
+               ROOT_DIR=str(ROOT), FIXTURE_DIR=str(FIXTURE), TLS_CONFIG=str(FIXTURE / 'unused.conf'),
+               FIXTURE_REGISTRY_DIR='/tmp/fixture-registry', FIXTURE_TOKEN_DIR='/tmp/fixture-token')
     return env
 
 
@@ -146,6 +147,11 @@ def validate_fixture(model):
         service = services[name]
         if service['user'] != '10001:101' or not service.get('read_only'):
             raise ValueError('fixture consumer identity')
+        secret_target = '/run/secrets/' + ('downloads.config.json' if name == 'downloads' else 'bot-token')
+        secrets = [v for v in service['volumes'] if v['target'] == secret_target]
+        if (len(secrets) != 1 or secrets[0]['type'] != 'bind' or not secrets[0].get('read_only')
+                or secrets[0].get('bind', {}).get('create_host_path') is not False):
+            raise ValueError('fixture secret must be a file bind')
         mounts = [v for v in service['volumes'] if v['target'].startswith(MEDIA)]
         if len(mounts) != (2 if name == 'downloads' else 1):
             raise ValueError('fixture bot mount count')
@@ -329,6 +335,12 @@ def exercise(project, env, report, botapi, downloads):
     report['binary_cli'] = 'PASS'
     with tempfile.TemporaryDirectory(prefix='file-contract-') as directory:
         tmp = Path(directory)
+        tmp.chmod(0o755)
+        for name, filename in (('registry', 'downloads.config.json'), ('token', 'bot-token')):
+            secret_dir = tmp / name
+            secret_dir.mkdir()
+            (secret_dir / filename).touch()
+            env['FIXTURE_' + name.upper() + '_DIR'] = str(secret_dir)
         config = (ROOT / 'examples/files/nginx.downloads-tls.conf').read_text(encoding='utf-8')
         config = config.replace('127.0.0.1:18082', 'downloads-gateway:80').replace('downloads.example.com', 'downloads-tls')
         (tmp / 'tls.conf').write_text(config, encoding='utf-8')

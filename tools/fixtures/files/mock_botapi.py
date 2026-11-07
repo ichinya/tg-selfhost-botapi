@@ -87,9 +87,11 @@ def registry(rotated=False):
 
 def setup():
     os.umask(0o007)
-    for path in [MEDIA, '/private-state', '/registry', '/token', '/backup']:
+    for path in [MEDIA, '/private-state', '/backup']:
         os.chown(path, 101, 101)
         os.chmod(path, 0o770 if path == MEDIA else 0o750)
+    for path in ('/registry', '/token'):
+        os.chmod(path, 0o755)
     for bot in TOKENS:
         root = Path(bot_root(bot))
         root.mkdir(mode=0o750, exist_ok=True)
@@ -199,9 +201,9 @@ class Mock(BaseHTTPRequestHandler):
 
 
 def local():
-    token, _ = read_private_file('/run/local-token/bot-token', 256)
+    token, _ = read_private_file('/run/secrets/bot-token', 256)
     binding = Binding(token.decode(), 'http://botapi:8081', MEDIA, bot_root('a'))
-    env = {**os.environ, 'BOT_TOKEN_FILE': '/run/local-token/bot-token',
+    env = {**os.environ, 'BOT_TOKEN_FILE': '/run/secrets/bot-token',
            'BOTAPI_ENDPOINT': 'http://botapi:8081', 'BOT_MEDIA_ROOT': MEDIA, 'BOT_ROOT': bot_root('a')}
     actual = subprocess.run([sys.executable, '/app/examples/files/local_reader.py', 'fixture'],
                             env=env, capture_output=True, timeout=70)

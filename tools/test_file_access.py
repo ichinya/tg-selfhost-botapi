@@ -26,6 +26,11 @@ class PathTests(unittest.TestCase):
 @unittest.skipUnless(platform.system() == 'Linux' and platform.machine() == 'x86_64',
                      'requires the mandatory Linux/amd64 gate')
 class KernelTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get('FILE_ACCESS_BIND_TEST'), 'requires a file bind mount fixture')
+    def test_private_secret_file_bind_mount(self):
+        data, _ = read_private_file(os.environ['FILE_ACCESS_BIND_TEST'])
+        self.assertEqual(data, b'SYNTHETIC_BIND_SECRET')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -50,6 +55,18 @@ class KernelTests(unittest.TestCase):
         os.link(self.file, self.root / 'secret-hardlink')
         with self.assertRaises(access.FileAccessError):
             read_private_file(str(self.file))
+
+    def test_private_secret_rejects_symlink_fifo_and_oversize(self):
+        self.file.chmod(0o600)
+        with self.assertRaises(ContractError):
+            read_private_file(str(self.file), maximum=1)
+        link = self.root / 'secret-link'
+        link.symlink_to(self.file)
+        fifo = self.root / 'secret-fifo'
+        os.mkfifo(fifo)
+        for path in (link, fifo):
+            with self.subTest(path=path), self.assertRaises(access.FileAccessError):
+                read_private_file(str(path))
 
     def test_fd_survives_unlink_without_reopening(self):
         with access.Root(str(self.root)) as root:

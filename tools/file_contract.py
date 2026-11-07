@@ -10,9 +10,9 @@ import threading
 from urllib.parse import urlsplit
 
 try:
-    from .file_access import Root, FileAccessError, absolute_path, overlaps
+    from .file_access import Root, FileAccessError, absolute_path, overlaps, open_private_file
 except ImportError:
-    from file_access import Root, FileAccessError, absolute_path, overlaps
+    from file_access import Root, FileAccessError, absolute_path, overlaps, open_private_file
 
 PRIVATE_ROOTS = ('/var/lib/telegram-bot-api', '/tmp', '/run', '/etc', '/proc', '/sys', '/dev')
 MAX_JSON, MAX_FILE_ID = 16384, 1024
@@ -96,20 +96,18 @@ class Binding:
 
 def read_private_file(path, maximum=131072):
     """Read the pinned, single-link secret FD; never reopen a checked pathname."""
-    candidate = absolute_path(str(path))
-    with Root(str(candidate.parent)) as root:
-        fd, info = root.open(str(candidate))
-        try:
-            if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o137
-                    or info.st_uid not in (0, os.geteuid()) or info.st_size > maximum):
-                raise ContractError('protected regular secret file required')
-            with os.fdopen(fd, 'rb', closefd=False) as source:
-                data = source.read(maximum + 1)
-            if len(data) > maximum:
-                raise ContractError('secret file too large')
-            return data, info
-        finally:
-            os.close(fd)
+    fd, info = open_private_file(str(path))
+    try:
+        if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o137
+                or info.st_uid not in (0, os.geteuid()) or info.st_size > maximum):
+            raise ContractError('protected regular secret file required')
+        with os.fdopen(fd, 'rb', closefd=False) as source:
+            data = source.read(maximum + 1)
+        if len(data) > maximum:
+            raise ContractError('secret file too large')
+        return data, info
+    finally:
+        os.close(fd)
 
 
 def get_file(binding, file_id):

@@ -57,6 +57,26 @@ def openat2(directory, path, flags, resolve):
     return int(fd)
 
 
+def open_private_file(path, forbidden_inodes=()):
+    """Open a single secret, allowing its file mount but never following links."""
+    candidate = absolute_path(path)
+    anchor = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        fd = openat2(anchor, str(candidate)[1:], os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC,
+                     BENEATH | NO_SYMLINKS | NO_MAGICLINKS)
+    finally:
+        os.close(anchor)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                or (info.st_dev, info.st_ino) in forbidden_inodes):
+            raise FileAccessError('file unavailable')
+        return fd, info
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 class Root:
     """Pin the root without following symlinks, then open children atomically."""
     def __init__(self, path, forbidden_inodes=()):

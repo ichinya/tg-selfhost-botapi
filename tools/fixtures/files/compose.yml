@@ -52,8 +52,8 @@ services:
       - ${FIXTURE_DIR:?}:/fixture:ro
       - media:/var/lib/telegram-bot-api-files
       - state:/private-state
-      - registry:/registry
-      - token:/token
+      - ${FIXTURE_REGISTRY_DIR:?}:/registry
+      - ${FIXTURE_TOKEN_DIR:?}:/token
       - backup:/backup
   writer:
     <<: *limits
@@ -111,10 +111,12 @@ services:
     depends_on: [botapi]
     networks: [private]
     volumes:
-      - type: volume
-        source: registry
-        target: /run/secrets
+      - type: bind
+        source: ${FIXTURE_REGISTRY_DIR:?}/downloads.config.json
+        target: /run/secrets/downloads.config.json
         read_only: true
+        bind:
+          create_host_path: false
       - type: volume
         source: media
         target: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
@@ -145,7 +147,12 @@ services:
         read_only: true
         volume:
           subpath: 12345:SYNTHETIC_A
-      - token:/run/local-token:ro
+      - type: bind
+        source: ${FIXTURE_TOKEN_DIR:?}/bot-token
+        target: /run/secrets/bot-token
+        read_only: true
+        bind:
+          create_host_path: false
   downloads-gateway:
     <<: *limits
     image: nginx:alpine
@@ -215,8 +222,6 @@ volumes:
   state-canary:
   media:
   state:
-  registry:
-  token:
   tls:
   backup:
   entry-state:
