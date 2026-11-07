@@ -54,8 +54,8 @@ The new interface never infers polling/preserve from an empty webhook.
 CLI flags override process environment, which overrides an explicit `--env-file`.
 Env files are parsed as data with an allowlist; shell expansion is rejected.
 The Bash filename remains compatible and forwards subcommands to the same CLI.
-Legacy positional token/target/webhook are translated to environment inputs;
-the original token argv remains visible to its caller and is deprecated.
+Positional token/target/webhook arguments are rejected without echoing values.
+Use process environment or an explicitly selected private input file.
 Legacy invocation prints a sealed plan and requires a separate apply with its
 digest. It never performs the old independent curl sequence.
 
@@ -119,10 +119,12 @@ or guarantee continuity.
 
 Use `bash migrate_off_to_self.sh plan/apply/status/resume/export ...` with the
 same flags as Python. There are no curl/jq requirements for migration itself.
-Legacy mode alone may read the repository-root `.env` as private data;
-subcommands read only an explicit `--env-file`. Environment values take precedence.
-An empty webhook requires an explicit action even in legacy mode. Prefer
-`BOT_TOKEN_FILE` over positional credentials. Legacy mode prints the plan and
+The repository `.env` and `.env.example` are Compose configuration only.
+Migration inputs belong in process environment or a separate private file
+selected with `--env-file`; the wrapper never reads `.env` automatically.
+Environment values take precedence. An empty webhook requires an explicit action
+even in legacy mode. Use `BOT_TOKEN` or `BOT_TOKEN_FILE`; positional credentials
+are rejected. Legacy mode prints the plan and
 returns code 2 for separate digest confirmation; it does not auto-apply.
 
 ## Browser workflow

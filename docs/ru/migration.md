@@ -53,9 +53,9 @@ PARTIAL. Readiness, миграция, webhook и доставка имеют о�
 явные `OLD_BOT_URL`, `SELF_BOT_URL`, `MIGRATION_ACTION` и private deployment evidence.
 Пустой webhook не выбирает polling/preserve. Приоритет: CLI, process environment,
 явный `--env-file`. Env читается как данные с allowlist, shell expansion запрещён.
-Старое имя Bash сохраняется и передаёт субкоманды общему CLI. Positional
-token/target/webhook переводятся в environment; исходный token argv остаётся
-видимым вызывающему процессу и устарел. Legacy-вызов выводит sealed plan;
+Старое имя Bash сохраняется и передаёт субкоманды общему CLI. Позиционные
+token/target/webhook отклоняются без вывода значений; используйте environment
+или явно выбранный приватный файл ввода. Legacy-вызов выводит sealed plan;
 для выполнения нужен отдельный apply с его digest. Старой curl-последовательности нет.
 
 ```sh
@@ -118,10 +118,12 @@ webhook. `getWebhookInfo` не возвращает прежний `secret_token
 
 Используйте `bash migrate_off_to_self.sh plan/apply/status/resume/export ...`
 с теми же флагами, что Python. Для самой миграции curl/jq не нужны.
-Только legacy-mode может читать `.env` корня репозитория как приватные данные;
-субкоманды читают только явный `--env-file`. Environment имеет приоритет.
-Пустой webhook требует явного action и в legacy-mode. Предпочитайте
-`BOT_TOKEN_FILE` positional credentials. Legacy-mode выводит plan и возвращает
+Файлы `.env` и `.env.example` репозитория предназначены только для Compose.
+Параметры миграции передавайте через environment или отдельный приватный файл
+с явным `--env-file`; wrapper автоматически `.env` не читает.
+Environment имеет приоритет. Пустой webhook требует явного action и в legacy-mode.
+Используйте `BOT_TOKEN` или `BOT_TOKEN_FILE`; позиционные credentials отклоняются.
+Legacy-mode выводит plan и возвращает
 код 2 для отдельного подтверждения digest; автоматического apply нет.
 
 ## Работа в браузере

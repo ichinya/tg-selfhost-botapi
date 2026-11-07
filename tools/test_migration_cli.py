@@ -2,10 +2,16 @@ import contextlib
 import io
 from unittest import mock
 import unittest
-from migration_cli import parse_env,main,parser,runtime
+from migration_cli import parse_env,main,parser,runtime,legacy
 
 
 class CliTests(unittest.TestCase):
+    def test_legacy_does_not_inject_dotenv_or_guess_a_source(self):
+        with mock.patch('migration_cli.main', return_value=4) as delegated, \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(legacy(['--operation', 'op', '--action', 'polling']), 4)
+        delegated.assert_called_once_with(['plan', '--operation', 'op', '--action', 'polling'])
+
     def test_env_is_data_only(self):
         self.assertEqual(parse_env("# ignored\nOLD_BOT_URL=https://api.telegram.org\nBOT_TOKEN='123:synthetic'")['BOT_TOKEN'],'123:synthetic')
         for text in ('BOT_TOKEN=$(execute)','BOT_TOKEN=`execute`','export BOT_TOKEN=x','PATH=x','BOT_TOKEN=x\nBOT_TOKEN=y'):

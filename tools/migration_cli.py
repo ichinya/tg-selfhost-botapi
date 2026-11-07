@@ -305,18 +305,11 @@ def legacy(argv):
     import contextlib
     import io
     import json
-    from pathlib import Path
     import uuid
     operation='legacy-'+uuid.uuid4().hex
     extra=list(argv)
     if '--operation' not in extra:
         extra += ['--operation',operation]
-    if '--env-file' not in extra:
-        env_file=Path(__file__).resolve().parents[1]/'.env'
-        if env_file.exists():
-            extra += ['--env-file',str(env_file)]
-    if '--source' not in extra and 'OLD_BOT_URL' not in os.environ:
-        extra += ['--source','https://api.telegram.org']
     output=io.StringIO()
     with contextlib.redirect_stdout(output):
         code=main(['plan',*extra])

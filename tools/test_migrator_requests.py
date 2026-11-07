@@ -511,8 +511,14 @@ class MigrationRequestTests(migration_integration.WrapperTests):
         self.assertNotIn(migration_integration.TOKEN,child.stdout+child.stderr)
         return child
 
-    def test_positional_adapter_only_prepares_a_reviewable_plan(self):
+    def test_positional_credentials_are_rejected_before_any_api_call(self):
         child=self.legacy(migration_integration.TOKEN,self.target.endpoint,action='polling')
+        self.assertEqual(child.returncode,4,child.stdout+child.stderr)
+        self.assertNotIn(self.target.endpoint,child.stdout+child.stderr)
+        self.assertEqual(self.trace,[])
+
+    def test_environment_adapter_only_prepares_a_reviewable_plan(self):
+        child=self.legacy(action='polling')
         self.assertEqual(child.returncode,2,child.stdout+child.stderr)
         plan=json.loads(child.stdout.splitlines()[0])
         self.assertEqual(plan['plan']['action'],'polling')
@@ -521,7 +527,7 @@ class MigrationRequestTests(migration_integration.WrapperTests):
         self.assertEqual(self.target.effects['getMe'],0)
 
     def test_empty_webhook_does_not_select_an_action(self):
-        child=self.legacy(migration_integration.TOKEN,self.target.endpoint)
+        child=self.legacy()
         self.assertEqual(child.returncode,4,child.stdout+child.stderr)
         self.assertEqual(self.trace,[])
 
