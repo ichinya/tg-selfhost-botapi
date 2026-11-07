@@ -103,6 +103,11 @@ jobs:
           BUILD_KEY: ${{ steps.inputs.outputs.build_key }}
           DOWNLOADS_KEY: ${{ steps.inputs.outputs.downloads_key }}
         run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            echo 'botapi=false' >> "$GITHUB_OUTPUT"
+            echo 'downloads=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
           reuse() {
             name="$1"; ref="$2"; candidate="$3"
