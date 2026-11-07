@@ -5,6 +5,12 @@ translation: /docs/ru/migration.html
 
 # Migration
 
+The retained HTML URL now loads a single ES module and uses the local helper.
+It makes no direct Bot API or arbitrary webhook HEAD requests. Browser refresh
+restores only the saved ID/digest and reads status. Form changes create a new
+draft; old asynchronous responses cannot replace it. A lost apply response means
+the UI does not know the outcome: read the same operation's durable status.
+
 ## Executor contract
 
 The version 2 migration contract uses an immutable operation ID and digest,
