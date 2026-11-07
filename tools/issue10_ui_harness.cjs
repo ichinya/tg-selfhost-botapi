@@ -22,7 +22,8 @@ function page(options = {}) {
   let sourceProfile = {allowed_updates:[],max_connections:40,has_custom_certificate:false,...options.sourceProfile};
   let targetProfile = {allowed_updates:[],max_connections:40,has_custom_certificate:false,...options.targetProfile};
   const queues = {source:3,target:5};
-  const context = vm.createContext({URL, URLSearchParams, FormData, AbortController, setTimeout, clearTimeout,
+  let infoReads = 0;
+  const context = vm.createContext({URL, URLSearchParams, FormData, AbortController, atob, setTimeout, clearTimeout,
     document:{getElementById(id) { assert(elements.has(id), `Missing DOM id: ${id}`); return elements.get(id); },
       createElement:element, querySelectorAll:() => modes},
     navigator:{clipboard:{async writeText(text) { clipboard.push(text); }}},
@@ -50,7 +51,7 @@ function page(options = {}) {
       else {
         let result = true;
         if (method === 'getMe') result = {id:123,first_name:'Synthetic'};
-        if (method === 'getWebhookInfo') result = {url:role === 'source' ? sourceHook : targetHook,...(role === 'source' ? sourceProfile : targetProfile)};
+        if (method === 'getWebhookInfo') result = {url:role === 'source' ? sourceHook : targetHook,...(role === 'source' ? sourceProfile : targetProfile),pending_update_count:++infoReads};
         if (method === 'setWebhook' && (!fail || options.failure === 'lost-after')) {
           assert.equal(request.method, 'POST');
           const data = request.body instanceof FormData ? request.body : new URLSearchParams(request.body);

@@ -15,6 +15,7 @@ class State:
                          for role in ('source', 'target')}
         self.queues = dict(source=3, target=5)
         self.calls = []
+        self.info_reads = 0
         self.fault = fault
 
 
@@ -62,7 +63,9 @@ def mock_api(state):
             if method == 'getMe':
                 result = dict(id=123)
             elif method == 'getWebhookInfo':
-                result = dict(url=state.hooks[role], **state.profiles[role])
+                state.info_reads += 1
+                result = dict(url=state.hooks[role], pending_update_count=state.queues[role],
+                              last_error_date=state.info_reads, **state.profiles[role])
                 if fault == 'null-url': result['url'] = None
                 if fault == 'missing-url': del result['url']
                 if fault == 'number-url': result['url'] = 12

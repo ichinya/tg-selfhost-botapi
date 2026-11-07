@@ -52,6 +52,10 @@ async function tests() {
   p=page({action:'set',hook:matrix.setUrl,fields:{secretMode:'provided',webhookSecret:'private_canary_secret'}});
   const cert=new File(['-----BEGIN CERTIFICATE-----\nMAA=\n-----END CERTIFICATE-----\n'],'private-canary.pem');
   p.elements.get('certificateFile').files=[cert];p.elements.get('certificateMode').value='provided';
+  await p.run('executeInBrowser()'); assert.equal(p.calls.length,0); assert(p.logs().includes('PEM')); count++;
+  p=page({action:'set',hook:matrix.setUrl,fields:{secretMode:'provided',webhookSecret:'private_canary_secret'}});
+  p.elements.get('certificateFile').files=[new File([fs.readFileSync(path.join(__dirname,'fixtures/issue9_certificate.pem'))], 'public.pem')];
+  p.elements.get('certificateMode').value='provided';
   await p.run('executeInBrowser()');assert(p.logs().includes('Конфигурация проверена'),p.logs());
   const body=p.calls.find(c=>c.method==='setWebhook').request.body;assert(body instanceof FormData);assert.equal(body.get('secret_token'),'private_canary_secret');
   p=page({action:'set',hook:matrix.setUrl,fields:{secretMode:'provided',webhookSecret:'private_canary_secret'}});
@@ -67,6 +71,12 @@ async function tests() {
   for(const failure of ['wrong-url','missing-url','number-url']) {
     p=page({action:'polling',fail:'target:getWebhookInfo',failure});await p.run('executeInBrowser()');
     assert(!p.logs().includes('Конфигурация проверена'));assert(p.run('state.needsReconcile'));count++;
+  }
+  p=page();
+  p.run(`verifyDelivery({targetMethod:null,ipMode:'fixed'}, {url:'u',has_custom_certificate:true,ip_address:'1.2.3.4',allowed_updates:['b','a'],max_connections:40,pending_update_count:9}, {url:'u',has_custom_certificate:true,ip_address:'1.2.3.4',allowed_updates:['a','b','a'],max_connections:40,pending_update_count:1})`); count++;
+  p.run(`verifyDelivery({targetMethod:null}, {url:'u',allowed_updates:null}, {url:'u',allowed_updates:null})`); count++;
+  for (const field of ['has_custom_certificate','ip_address','allowed_updates','max_connections']) {
+    assert.throws(() => p.run(`verifyDelivery({targetMethod:null,ipMode:'fixed'}, {url:'u',has_custom_certificate:false,ip_address:'1.2.3.4',allowed_updates:['a'],max_connections:40,${field}:null}, {url:'u',has_custom_certificate:false,ip_address:'1.2.3.4',allowed_updates:['a'],max_connections:40})`)); count++;
   }
   for(const sourceProfile of [{allowed_updates:null},{max_connections:'40'},{has_custom_certificate:null}]) {
     p=page({action:'preserve',oldHook:matrix.sourceUrls[1],sourceProfile});await p.run('executeInBrowser()');

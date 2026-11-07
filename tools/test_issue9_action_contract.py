@@ -26,8 +26,11 @@ class ActionContract(unittest.TestCase):
                     WEBHOOK_CERTIFICATE_MODE='none', NO_PROXY='127.0.0.1', no_proxy='127.0.0.1')
 
     def bash(self, script, env, args=()):
-        return subprocess.run([bash_binary(), posix_path(script), *args], env=env, cwd=ROOT,
-                              input='y\ny\n', capture_output=True, text=True, timeout=15)
+        result = subprocess.run([bash_binary(), posix_path(script), *args], env=env, cwd=ROOT,
+                                input=b'y\ny\n', capture_output=True, timeout=15)
+        result.stdout = result.stdout.decode('utf-8', errors='replace')
+        result.stderr = result.stderr.decode('utf-8', errors='replace')
+        return result
 
     def assert_effect(self, state, action, old, drop, role='target', noop=False):
         mutations = [c for c in state.calls if c['role'] == role and c['method'] in ('setWebhook', 'deleteWebhook')]

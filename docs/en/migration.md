@@ -215,6 +215,8 @@ the profile. HTTP receiver URLs require explicit `WEBHOOK_TARGET_LOCAL=true` /
 the UI --local capability, asserted by the operator, not discovered remotely.
 Cloud always requires HTTPS. Local max_connections is also bounded by server limits.
 
+Browser certificate preflight checks only the outer X.509 DER structure; the server performs further validation. Neither preflight nor configuration readback proves delivery.
+
 The browser has no default action. Clearing URL never changes the selected action.
 File/profile/action/drop changes invalidate checks while preserving completed and
 UNKNOWN locks. Preview performs no fetch. Export uses runtime `BOT_TOKEN`,
