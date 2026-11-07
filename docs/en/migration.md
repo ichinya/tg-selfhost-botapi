@@ -20,6 +20,17 @@ configure) and Webhook only (configure). Each dependency must be confirmed.
 Local → Cloud requires acknowledgement of weaker queue continuity. Full typed
 profiles and explicit `url_only`/polling scope are bound to the sealed plan.
 
+The executor reserves an operation before source observations. It never calls
+the target with a bot token before a confirmed detach and, for Local → Local,
+a verified transfer receipt. Transfer is external: retain the source backup;
+bind matching manifest commitments, close attempt, deployments, UID/GID/layout
+and absence of writers. Without a trusted provider the checkpoint stays BLOCKED.
+`close` 429 is WAITING with `not_before`; it is not an automatic retry loop.
+Cloud cooldown is an explicit input requiring evidence, not a guessed hostname.
+After detach a target failure is PARTIAL. Readiness, migration, webhook settings
+and delivery have separate outcomes; delivery starts as NOTRUN. A full preserve
+profile without verifiable original private settings fails closed before detach.
+
 A migration changes the Bot API endpoint used by your application and may also
 change its webhook. Know the old endpoint before starting. Do not use cloud
 `getMe` as a neutral discovery request: token-bearing calls can affect sessions.

@@ -353,7 +353,10 @@ class Journal:
         else:
             previous=self.load(state['plan']['operation_id'])
         if previous:
-            if previous['digest']!=state['digest'] or previous['deployment']!=state['deployment'] or previous['snapshot']!=state['snapshot']:
+            snapshot_change = previous['snapshot'] != state['snapshot']
+            if previous['snapshot'] is None and not any(previous['steps'].values()):
+                snapshot_change = False  # one-time sealing of source observation after durable reservation
+            if previous['digest']!=state['digest'] or previous['deployment']!=state['deployment'] or snapshot_change:
                 raise StateError('immutable plan changed')
             for name in sids(state):
                 old,new=previous['steps'][name],state['steps'][name]

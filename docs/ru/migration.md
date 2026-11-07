@@ -21,6 +21,17 @@ translation: /docs/en/migration.html
 очереди. Полный типизированный профиль и явная область `url_only`/polling
 привязаны к неизменяемому плану.
 
+Исполнитель резервирует операцию до наблюдений source. Target не получает
+токен до подтверждённого detach, а в Local → Local — до проверенного receipt
+внешнего переноса. Сохраняйте backup source; receipt связывает совпадающие
+manifest commitments, close attempt, deployments, UID/GID/layout и отсутствие
+writers. Без доверенного provider checkpoint остаётся BLOCKED.
+`close` с 429 означает WAITING с `not_before`, без автоматического цикла retry.
+Cloud cooldown — явный вход с подтверждением. Отказ target после detach даёт
+PARTIAL. Readiness, миграция, webhook и доставка имеют отдельные итоги;
+доставка изначально NOTRUN. Полный preserve без проверки исходных приватных
+настроек блокируется до detach.
+
 При переносе меняется Bot API endpoint приложения и, при необходимости, webhook.
 До начала нужно знать старый endpoint. Облачный `getMe` не подходит для нейтрального
 определения текущего сервера: запросы с токеном могут влиять на сессию.
