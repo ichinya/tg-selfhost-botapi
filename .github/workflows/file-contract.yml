@@ -57,7 +57,7 @@ jobs:
         run: |
           printf SYNTHETIC_BIND_SECRET > "$RUNNER_TEMP/file-contract-secret"
           chmod 600 "$RUNNER_TEMP/file-contract-secret"
-          docker run --rm --network none --cpus 1 --memory 256m --pids-limit 64 \
+          docker run --rm --network none --cpus 1 --memory 256m --pids-limit 64 --user "$(id -u):$(id -g)" \
             -v "$GITHUB_WORKSPACE:/src:ro" \
             --mount "type=bind,src=$RUNNER_TEMP/file-contract-secret,dst=/run/secrets/bot-token,readonly" \
             -e FILE_ACCESS_BIND_TEST=/run/secrets/bot-token -w /src python:3.12-slim \
