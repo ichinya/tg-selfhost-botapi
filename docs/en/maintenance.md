@@ -5,6 +5,14 @@ translation: /docs/ru/maintenance.html
 
 # Maintenance
 
+## Recovering the migration journal
+
+Back up the whole private authority **together with `binding.key`** while idle.
+Restore both with their owner and private modes. Missing keys, token rotation,
+corrupt or unsupported state block continuation. Interrupted durable intents
+become UNKNOWN. Restore the original authority and reconcile the same operation;
+starting an empty state root cannot establish whether a remote effect occurred.
+
 ## Image pipeline
 
 The image workflow checks official tdlib source and the Alpine 3.22 digest every

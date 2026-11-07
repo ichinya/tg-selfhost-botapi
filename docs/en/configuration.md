@@ -41,6 +41,13 @@ No binlog, real bot directory, statistics endpoint or state file is fetched.
 Read-only mounts, disabled directory listings and loopback publication do not
 prevent known-file HTTP reads. Unsupported remote file workflows use the boundary
 in issue #5; doctor does not certify or execute neighboring migration helpers.
+## Private migration authority
+
+Use one `MIGRATION_STATE_DIR` per operator/host on a private Linux filesystem
+outside the checkout, Bot API mounts and webroots (directory 0700, files 0600).
+All interfaces share its per-bot lock and unfinished-operation reservation.
+Windows and Windows-mounted WSL state are unsupported. Nested private artifacts
+are rejected by the documentation checker.
 
 ## Addresses and storage
 
