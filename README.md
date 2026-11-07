@@ -3,6 +3,10 @@
 Self-hosted Telegram Bot API in Docker, built directly from the official
 [tdlib server](https://github.com/tdlib/telegram-bot-api).
 Includes a webhook User-Agent patch and migration tools.
+Migration requires explicit `preserve`, `set` or `polling`: empty URL preserves source mode
+only with `preserve`, errors with `set`, and is ignored by `polling` (target webhook deletion).
+See the [English](docs/en/migration.md#polling-webhook-profile-and-files) /
+[Russian](docs/ru/migration.md#polling-профиль-webhook-и-файлы) action tables.
 
 [English docs](docs/en/README.md) · [Документация на русском](docs/ru/README.md) ·
 [Documentation website](https://ichinya.github.io/tg-selfhost-botapi/) ·

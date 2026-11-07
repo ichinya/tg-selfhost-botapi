@@ -39,7 +39,21 @@ An image digest can be used instead. The local build override uses
 
 ## Migration helper environment
 
-The Bash migration helper reads only `SELF_BOT_URL`, `TELEGRAM_BOT_URL`, `WEBHOOK_URL`, `WEB_HOOK` and `DROP_PENDING_UPDATES` from its trusted `.env` file; other values there are not exported to the helper. `OFFICIAL_BOT_URL` is an advanced testing override for the source endpoint and is read from the process environment, not from that file.
+These are host-side helper settings, not container environment. This is the exact trusted-file whitelist; all other keys are ignored. `OFFICIAL_BOT_URL` is process-only for isolated tests. Presence-aware precedence and empty input semantics: [migration](migration.md).
+
+| Variable | Meaning |
+| --- | --- |
+| `SELF_BOT_URL`, `TELEGRAM_BOT_URL` | Target Bot API; legacy alias |
+| `WEBHOOK_URL`, `WEB_HOOK` | Receiver URL; ignored by polling/preserve |
+| `WEBHOOK_ACTION` | Required: preserve / set / polling; no default |
+| `DROP_PENDING_UPDATES` | true / false; default false; target mutation only |
+| `WEBHOOK_TARGET_LOCAL` | true / false; default false; operator assertion of --local |
+| `WEBHOOK_SECRET_MODE` | `provided` / `none`; explicit selection required for webhook |
+| `WEBHOOK_SECRET_TOKEN`, `WEBHOOK_SECRET_TOKEN_FILE` | Private secret value OR readable file; API alphabet, 1-256 chars |
+| `WEBHOOK_ALLOWED_UPDATES` | JSON array of strings; default []; empty string is invalid |
+| `WEBHOOK_MAX_CONNECTIONS` | Integer; default 40; cloud 1-100, confirmed local up to 100000 and server limit |
+| `WEBHOOK_IP_MODE`, `WEBHOOK_IP_ADDRESS` | `dns` / `fixed`; fixed requires explicit IP; observed IP is not provenance |
+| `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE` | `provided` / `none`; Readable nonempty public PEM for provided; private keys rejected; openssl required |
 
 ## Container environment
 

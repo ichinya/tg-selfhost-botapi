@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "sourceUrls": ["", "https://source-receiver.example/hook"],
+  "targetUrls": ["", "https://target-receiver.example/hook"],
+  "actions": ["preserve", "set", "polling"],
+  "drop": [false, true],
+  "setUrl": "https://receiver.example/new?keep=exact",
+  "faults": ["http", "api", "false-result", "malformed", "lost-before", "lost-after", "null-url", "missing-url", "number-url", "wrong-url", "profile-mismatch"]
+}

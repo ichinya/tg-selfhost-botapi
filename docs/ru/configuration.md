@@ -39,7 +39,21 @@ BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
 
 ## Окружение помощника миграции
 
-Bash-помощник миграции считывает из доверенного файла `.env` только `SELF_BOT_URL`, `TELEGRAM_BOT_URL`, `WEBHOOK_URL`, `WEB_HOOK` и `DROP_PENDING_UPDATES`; остальные значения из файла не экспортируются в окружение помощника. `OFFICIAL_BOT_URL` — расширенная настройка для тестовой подмены исходного endpoint; она читается из окружения процесса, а не из файла.
+Это настройки host-side утилиты, не окружение контейнера. Здесь точный whitelist доверенного файла; остальные ключи игнорируются. `OFFICIAL_BOT_URL` — только из процесса для изолированных тестов. Приоритет по присутствию и семантика пустоты: [миграция](migration.md).
+
+| Переменная | Значение |
+| --- | --- |
+| `SELF_BOT_URL`, `TELEGRAM_BOT_URL` | Целевой Bot API; legacy alias |
+| `WEBHOOK_URL`, `WEB_HOOK` | Receiver URL; игнорируется polling/preserve |
+| `WEBHOOK_ACTION` | Обязательно: preserve / set / polling; без default |
+| `DROP_PENDING_UPDATES` | true / false; default false; только target mutation |
+| `WEBHOOK_TARGET_LOCAL` | true / false; default false; подтверждение оператором --local |
+| `WEBHOOK_SECRET_MODE` | `provided` / `none`; явный выбор обязателен для webhook |
+| `WEBHOOK_SECRET_TOKEN`, `WEBHOOK_SECRET_TOKEN_FILE` | Приватное значение secret ИЛИ читаемый файл; API alphabet, 1-256 символов |
+| `WEBHOOK_ALLOWED_UPDATES` | JSON-массив строк; default []; пустая строка невалидна |
+| `WEBHOOK_MAX_CONNECTIONS` | Целое; default 40; cloud 1-100, подтверждённый local до 100000 и server limit |
+| `WEBHOOK_IP_MODE`, `WEBHOOK_IP_ADDRESS` | `dns` / `fixed`; fixed требует явного IP; observed IP не подтверждает policy |
+| `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE` | `provided` / `none`; Для provided читаемый непустой публичный PEM; private key запрещён; нужен openssl |
 
 ## Переменные контейнера
 

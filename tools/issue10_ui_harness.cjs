@@ -19,7 +19,10 @@ function page(options = {}) {
   const modes = ['official-to-self','self-to-self','self-to-official','hook-only'].map(mode =>
     Object.assign(element(), {dataset:{mode}}));
   let targetHook = options.targetHook || '', sourceHook = options.oldHook || '';
-  const context = vm.createContext({URL, URLSearchParams, AbortController, setTimeout, clearTimeout,
+  let sourceProfile = {allowed_updates:[],max_connections:40,has_custom_certificate:false,...options.sourceProfile};
+  let targetProfile = {allowed_updates:[],max_connections:40,has_custom_certificate:false,...options.targetProfile};
+  const queues = {source:3,target:5};
+  const context = vm.createContext({URL, URLSearchParams, FormData, AbortController, setTimeout, clearTimeout,
     document:{getElementById(id) { assert(elements.has(id), `Missing DOM id: ${id}`); return elements.get(id); },
       createElement:element, querySelectorAll:() => modes},
     navigator:{clipboard:{async writeText(text) { clipboard.push(text); }}},
@@ -47,25 +50,34 @@ function page(options = {}) {
       else {
         let result = true;
         if (method === 'getMe') result = {id:123,first_name:'Synthetic'};
-        if (method === 'getWebhookInfo') result = {url:role === 'source' ? sourceHook : targetHook};
-        if (method === 'setWebhook' && !fail) {
+        if (method === 'getWebhookInfo') result = {url:role === 'source' ? sourceHook : targetHook,...(role === 'source' ? sourceProfile : targetProfile)};
+        if (method === 'setWebhook' && (!fail || options.failure === 'lost-after')) {
           assert.equal(request.method, 'POST');
-          assert.equal(request.headers['Content-Type'], 'application/x-www-form-urlencoded');
-          if (role === 'target') targetHook = new URLSearchParams(request.body).get('url');
-          else sourceHook = new URLSearchParams(request.body).get('url');
+          const data = request.body instanceof FormData ? request.body : new URLSearchParams(request.body);
+          if (request.body instanceof FormData) assert.equal(request.headers,undefined);
+          else assert.equal(request.headers['Content-Type'], 'application/x-www-form-urlencoded');
+          const profile = {allowed_updates:JSON.parse(data.get('allowed_updates')),max_connections:Number(data.get('max_connections')),has_custom_certificate:!!data.get('certificate')};
+          if (data.get('ip_address')) profile.ip_address = data.get('ip_address');
+          if (role === 'target') { targetHook = data.get('url'); targetProfile = profile; }
+          else { sourceHook = data.get('url'); sourceProfile = profile; }
+          if (data.get('drop_pending_updates') === 'true') queues[role] = 0;
         }
-        if (method === 'deleteWebhook' && !fail) {
+        if (method === 'deleteWebhook' && (!fail || options.failure === 'lost-after')) {
           if (role === 'target') targetHook = ''; else sourceHook = '';
+          if (new URLSearchParams(request.body).get('drop_pending_updates') === 'true') queues[role] = 0;
         }
         json = {ok:true,result};
       }
       if (fail) {
         switch (options.failure) {
+          case 'lost-after': throw new Error('Simulated response loss after effect');
           case 'http': status = 500; break;
           case 'redirect': status = 302; break;
           case 'false-result': json = {ok:true,result:false}; break;
           case 'malformed': return {ok:true,status:200,text:async () => '{'};
           case 'wrong-url': json = {ok:true,result:{url:null}}; break;
+          case 'missing-url': json = {ok:true,result:{}}; break;
+          case 'number-url': json = {ok:true,result:{url:123}}; break;
           default: json = {ok:false,error_code:429,parameters:{retry_after:600}};
         }
       }
@@ -79,7 +91,14 @@ function page(options = {}) {
   if (options.mode && options.mode !== 'official-to-self') elements.get('oldApi').value = 'https://source.test/prefix';
   elements.get('newApi').value = 'http://target.test/prefix';
   elements.get('webhookUrl').value = options.hook || '';
+  elements.get('deliveryAction').value = options.action ?? (options.hook ? 'set' : 'polling');
+  elements.get('secretMode').value = 'none'; elements.get('ipMode').value = 'dns';
+  elements.get('certificateMode').value = 'none'; elements.get('targetLocal').checked = true;
+  elements.get('allowedUpdates').value = '[]'; elements.get('maxConnections').value = '40';
+  elements.get('dropPending').checked = !!options.drop;
+  for (const [key,value] of Object.entries(options.fields || {})) elements.get(key).value = value;
   return {calls, prompts, clipboard, elements, run,
+    final:() => ({sourceHook,targetHook,sourceProfile,targetProfile,queues}),
     logs:() => elements.get('logBox').children.map(el => el.textContent).join('\n'),
     plan:() => { run('buildPlan()'); return elements.get('curlPlan').textContent; }};
 }
@@ -165,10 +184,10 @@ async function tests() {
   for (const options of [{mismatch:true}, {fail:'target:getWebhookInfo',failure:'wrong-url'}]) {
     p = page(options); await p.run('executeInBrowser()'); assert(!p.logs().includes('Конфигурация проверена')); count++;
   }
-  p = page({hook:'https://sink.test/$(echo bad)'});
+  p = page({hook:'https://sink.test/$canary'});
   const plan = p.plan(); assert(!plan.includes(token));
   assert(plan.includes('set -euo pipefail')); assert(plan.includes('UNKNOWN'));
-  assert(plan.indexOf(' logOut -X POST') < plan.indexOf("'http://target.test/prefix' getMe")); count++;
+  assert(plan.indexOf('api "$SOURCE_API" logOut') < plan.indexOf('api "$TARGET_API" getMe')); count++;
   for (const mode of ['official-to-self', 'hook-only']) {
     p = page({mode, hook:'http://sink.test/webhook'});
     await p.run('checkCurrentState()');

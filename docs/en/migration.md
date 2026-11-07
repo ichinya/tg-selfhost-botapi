@@ -107,18 +107,23 @@ for this direction; it does not execute it.
 
 ## Bash helper
 
-The current script supports **cloud → local**. It loads `.env` beside the script,
-or the file selected by `ENV_FILE` (relative paths are relative to the caller's
-working directory). An absent default file is allowed; an invalid explicit file
-stops execution. This is trusted shell code, not a sandbox. Arguments take
-precedence over process environment, then file values, then defaults. Within a
-source, `SELF_BOT_URL` and `WEBHOOK_URL` take precedence over legacy
-`TELEGRAM_BOT_URL` and `WEB_HOOK`; process aliases override file values.
-Empty webhook values retain the legacy fallback described below. For example,
-from another directory use `ENV_FILE="/path/to/settings.env" bash
-/path/to/migrate_off_to_self.sh "$BOT_TOKEN"`.
+The helper supports **cloud → local**. Arguments are `BOT_TOKEN`, `SELF_BOT_URL`,
+`WEBHOOK_URL`, then the required `WEBHOOK_ACTION=preserve|set|polling`. Missing,
+empty or unknown action stops before networking. Existing three-argument commands
+must add an action; there is no inference from URL emptiness.
 
-Arguments are `BOT_TOKEN`, `SELF_BOT_URL`, then `WEBHOOK_URL`:
+It reads a trusted Bash `.env` beside the script, or `ENV_FILE` relative to the
+caller's directory. An absent default is allowed; an invalid explicit file stops.
+Only the [documented whitelist](configuration.md#migration-helper-environment)
+returns from that file. Precedence uses **presence**, including empty strings:
+positional argument > process canonical > process URL alias > file canonical/alias.
+Other settings use process > file > default. Empty values never activate fallback.
+`OFFICIAL_BOT_URL` is a process-only source override for isolated tests.
+
+The following equivalent examples intentionally choose a new webhook without a
+secret or custom certificate, DNS policy, API-default updates and 40 connections.
+Use your own complete saved profile when those choices do not match your receiver.
+Argument 2 is the Bot API, argument 3 is the receiver. Both use API port **18080**.
 
 <!-- issue10-example:environment -->
 ```sh
@@ -126,51 +131,49 @@ set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 SELF_BOT_URL="http://127.0.0.1:18080" \
 WEBHOOK_URL="https://example.com/telegram/webhook" \
+WEBHOOK_ACTION=set WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns \
+WEBHOOK_CERTIFICATE_MODE=none WEBHOOK_ALLOWED_UPDATES='[]' WEBHOOK_MAX_CONNECTIONS=40 \
   bash ./migrate_off_to_self.sh "$BOT_TOKEN"
 unset BOT_TOKEN
 ```
-
-Alternatively pass all three positional arguments. Do not put the webhook URL in
-argument 2: that argument is the Bot API endpoint.
 
 <!-- issue10-example:positional -->
 ```sh
 set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
-bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
-  "http://127.0.0.1:18080" "https://example.com/telegram/webhook"
+WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_CERTIFICATE_MODE=none \
+WEBHOOK_ALLOWED_UPDATES='[]' WEBHOOK_MAX_CONNECTIONS=40 \
+  bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
+  "http://127.0.0.1:18080" "https://example.com/telegram/webhook" set
 unset BOT_TOKEN
 ```
 
-Both forms use external API port **18080**; nginx forwards to `botapi:8081`.
-The webhook URL is an application address. These commands do not start a polling
-consumer. From another working directory, use an absolute helper path:
+For polling, pass an empty third argument and `polling` as the fourth argument.
+For preserve, pass an empty third argument and `preserve`; supply the source secret
+or explicitly confirm none, choose its IP policy, and provide its public PEM when
+required. See the action table below. No command starts a polling consumer.
 
 ```sh
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
-ENV_FILE="/path/to/settings.env" \
-  bash /path/to/migrate_off_to_self.sh "$BOT_TOKEN"
+bash ./migrate_off_to_self.sh "$BOT_TOKEN" "http://127.0.0.1:18080" "" polling
 unset BOT_TOKEN
 ```
 
-`DROP_PENDING_UPDATES=true` discards pending updates. Its default is `false`.
-
 ### Current helper limitations
 
-- The token-free target probe checks a characteristic error response, not the
-  host's identity or bot readiness. Verify the endpoint before confirmation.
-- Token-bearing calls start only after confirmation; the helper does not implement
-  resume after an ambiguous `logOut` result. Do not blindly rerun after a lost response.
-- An empty webhook argument reuses the old webhook when present. It does not
-  explicitly request polling.
-- The helper does not transfer `secret_token`, certificates or the full delivery
-  profile. Restore required parameters deliberately.
-- Tokens can appear in process arguments and logs.
-
-These are tracked in [#2](https://github.com/ichinya/tg-selfhost-botapi/issues/2),
-[#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7) and
-[#9](https://github.com/ichinya/tg-selfhost-botapi/issues/9).
-Use a test bot before relying on the helper for a working installation.
+- The token-free probe is not host authentication. Confirm the endpoint and stop
+  old clients before allowing token-bearing reads. A second confirmation applies
+  the resolved profile, source detach/logOut, then the first target getMe.
+- Source detach always uses `drop_pending_updates=false`. The selected drop
+  (default false) applies only to the single target set/delete. True intentionally
+  destroys target backlog; false does not guarantee queue transfer or survival
+  after local logOut. There is no automatic rollback, resume or retry after UNKNOWN.
+- Secret and certificate bytes cannot be recovered through getWebhookInfo. Supply
+  private inputs before detach; available readback checks configuration, not delivery.
+- The positional bot token may be visible in process arguments. New request bodies
+  use private temporary files; this does not close the broader privacy scope of #2.
+- Full delivery qualification in [#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7)
+  remains separate. Use a test bot before migration of a working installation.
 
 ## Browser tool
 
@@ -194,30 +197,37 @@ current state before trying another plan. Review generated commands before use.
 
 ## Polling, webhook profile and files
 
-The independent fixes in [#5](https://github.com/ichinya/tg-selfhost-botapi/issues/5),
-[#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7) and
-[#9](https://github.com/ichinya/tg-selfhost-botapi/issues/9) are not integrated in
-this candidate. Their unfinished modules are not dependencies of these helpers.
-Empty webhook input retains legacy inheritance; it is not a polling action.
-For explicit polling, after completing the server transition, manually delete
-the **target** webhook and verify that `result.url` is a string equal to `""`:
+| Action and receiver input | Result |
+| --- | --- |
+| `preserve` + empty (or any new URL) | Preserve source mode; the new URL is ignored |
+| `set` + empty | Preflight error, zero mutations |
+| `set` + valid URL | Set the explicit complete profile |
+| `polling` + any URL, including invalid | Ignore inactive URL/profile; target deleteWebhook and typed empty-URL readback |
 
-```sh
-# BOT_TOKEN and SELF_BOT_URL refer to the chosen target, after migration.
-set -euo pipefail
-curl -q -fsS --connect-timeout 5 --max-time 30 -X POST \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/deleteWebhook" \
-  --data-urlencode 'drop_pending_updates=false' | jq -e '.ok == true and .result == true'
-curl -q -fsS --connect-timeout 5 --max-time 30 \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/getWebhookInfo" | \
-  jq -e '.ok == true and (.result.url | type == "string") and .result.url == ""'
-```
+In Webhook only, preserve is read-only; it never resets the queue or reinstalls a
+webhook, and `drop=true` is rejected. During migration, preserve snapshots the
+source: polling becomes explicit target delete; webhook becomes target set with
+the same URL, allowed_updates, max_connections and certificate flag. A missing
+optional allowed_updates means API default `[]`; malformed data is an error.
+Observed IP cannot establish DNS/fixed policy. Unknown secret/certificate bytes
+must be supplied privately before detach; choose `set` to intentionally change
+the profile. HTTP receiver URLs require explicit `WEBHOOK_TARGET_LOCAL=true` /
+the UI --local capability, asserted by the operator, not discovered remotely.
+Cloud always requires HTTPS. Local max_connections is also bounded by server limits.
 
-Stop if either check fails. Start your own polling client only after verification;
-the examples do not consume updates. URL readback does not prove webhook delivery.
-Restore `secret_token`, certificate, `allowed_updates`, `max_connections` and other
-required settings from your saved profile. Secrets and the uploaded certificate
-cannot be reconstructed from `getWebhookInfo`.
+The browser has no default action. Clearing URL never changes the selected action.
+File/profile/action/drop changes invalidate checks while preserving completed and
+UNKNOWN locks. Preview performs no fetch. Export uses runtime `BOT_TOKEN`,
+`SOURCE_API`, `TARGET_API`, `WEBHOOK_URL`, secret and certificate file variables;
+it copies no entered token, receiver URL, secret, PEM bytes or local path. The script
+re-reads source and asks consent; the browser snapshot is not a current-state guarantee.
+
+Readback requires HTTP success, ok=true, typed results and the expected configuration;
+lost/malformed responses stop without retry. Queue assertions in mocks are models,
+not evidence of Telegram delivery. Start your own polling client only after verification.
+Independent [#5](https://github.com/ichinya/tg-selfhost-botapi/issues/5) file access and
+[#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7) delivery qualification remain
+outside this action slice; their unfinished modules are not runtime dependencies.
 
 In local mode an absolute `getFile.file_path` names a path on the server/container.
 It requires compatible mounts and application paths; state transfer alone does

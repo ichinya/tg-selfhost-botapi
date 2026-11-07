@@ -32,7 +32,8 @@ class ConfigTests(unittest.TestCase):
             path.chmod(0o755)
         self.env = {key: value for key, value in os.environ.items()
                     if key.upper() in ('PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'COMSPEC')}
-        self.env.update(CALLS=(self.root / 'calls').as_posix())
+        self.env.update(CALLS=(self.root / 'calls').as_posix(), WEBHOOK_ACTION='polling',
+                        WEBHOOK_SECRET_MODE='none', WEBHOOK_IP_MODE='dns', WEBHOOK_CERTIFICATE_MODE='none')
 
     def run_helper(self, *args, **env):
         return subprocess.run([bash_binary(), '-c', 'PATH="$1:$PATH"; export PATH; shift; exec "$0" "$@"',
@@ -102,26 +103,48 @@ class ConfigTests(unittest.TestCase):
 
     def test_hook_and_drop_precedence_in_preview(self):
         (self.script.parent / '.env').write_text(
-            'SELF_BOT_URL=http://file\nWEBHOOK_URL=https://file/hook\nWEB_HOOK=https://file-alias/hook\n'
+            'SELF_BOT_URL=http://file\nWEBHOOK_URL=invalid\nWEB_HOOK=invalid\n'
             'DROP_PENDING_UPDATES=true\n', newline='\n')
         result = self.run_helper(SELF_BOT_URL='http://process', WEB_HOOK='https://process/hook',
-                                 DROP_PENDING_UPDATES='false')
+                                 DROP_PENDING_UPDATES='false', WEBHOOK_ACTION='set')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('Webhook: https://process/hook', result.stdout)
-        self.assertIn('Drop updates: false', result.stdout)
+        self.assertNotIn('https://process/hook', result.stdout)
+        self.assertIn('target drop=false', result.stdout)
         result = self.run_helper('http://argument', 'https://argument/hook',
-                                 WEBHOOK_URL='https://process/hook', WEB_HOOK='https://alias/hook')
-        self.assertIn('Webhook: https://argument/hook', result.stdout)
+                                 WEBHOOK_URL='invalid', WEB_HOOK='invalid', WEBHOOK_ACTION='set')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('https://argument/hook', result.stdout)
         self.assertNotIn('/bot123:', self.calls())
 
     def test_file_canonical_hook_beats_file_alias(self):
         (self.script.parent / '.env').write_text(
-            'SELF_BOT_URL=http://file\nWEBHOOK_URL=https://canonical/hook\nWEB_HOOK=https://alias/hook\n', newline='\n')
-        result = self.run_helper()
-        self.assertIn('Webhook: https://canonical/hook', result.stdout)
+            'SELF_BOT_URL=http://file\nWEBHOOK_URL=https://canonical/hook\nWEB_HOOK=invalid\n', newline='\n')
+        result = self.run_helper(WEBHOOK_ACTION='set')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('https://canonical/hook', result.stdout)
 
     def test_invalid_drop_stops_before_network(self):
         result = self.run_helper(SELF_BOT_URL='http://local', DROP_PENDING_UPDATES='invalid')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls(), '')
+
+    def test_action_presence_and_empty_override_stop_before_network(self):
+        (self.script.parent / '.env').write_text('WEBHOOK_ACTION=polling\n', newline='\n')
+        for args, settings in [((), {'WEBHOOK_ACTION': ''}),
+                               (('http://local', '', ''), {'WEBHOOK_ACTION': 'polling'}),
+                               ((), {'WEBHOOK_ACTION': 'invalid'})]:
+            result = self.run_helper(*args, SELF_BOT_URL='http://local', **settings)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(self.calls(), '')
+
+    def test_present_empty_endpoint_does_not_use_alias_or_file(self):
+        (self.script.parent / '.env').write_text('SELF_BOT_URL=http://file\n', newline='\n')
+        result = self.run_helper(SELF_BOT_URL='', TELEGRAM_BOT_URL='http://alias')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls(), '')
+
+    def test_empty_set_argument_does_not_inherit_stale_process_url(self):
+        result = self.run_helper('http://local', '', 'set', WEBHOOK_URL='https://stale/hook')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.calls(), '')
 

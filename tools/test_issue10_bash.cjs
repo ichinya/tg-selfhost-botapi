@@ -40,8 +40,9 @@ const watchdog = setTimeout(() => {
       }
       let result = true;
       if (req.url.endsWith('/getMe')) result = {id:123,first_name:'Test',username:'test'};
-      if (req.url.endsWith('/getWebhookInfo')) result = {url:role === 'target' ? targetHook : ''};
+      if (req.url.endsWith('/getWebhookInfo')) result = {url:role === 'target' ? targetHook : '',allowed_updates:[],max_connections:40,has_custom_certificate:false};
       if (method === 'setWebhook') targetHook = new URLSearchParams(body).get('url');
+      if (method === 'deleteWebhook' && role === 'target') targetHook = '';
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ok:true,result}));
     });
@@ -63,7 +64,10 @@ const watchdog = setTimeout(() => {
       const child = activeChild = spawn(bash, ['-c', options.command ||
         'bash ./helper.sh "$1" "$2"', '_', '123:synthetic', target], {
         cwd:tmp,
-        env: {...baseEnv, OFFICIAL_BOT_URL:urls[0], SELF_BOT_URL:urls[1], NO_PROXY:'127.0.0.1', no_proxy:'127.0.0.1'},
+        env: {...baseEnv, OFFICIAL_BOT_URL:urls[0], SELF_BOT_URL:urls[1], WEBHOOK_ACTION:'polling',
+          WEBHOOK_SECRET_MODE:'none',WEBHOOK_IP_MODE:'dns',WEBHOOK_CERTIFICATE_MODE:'none',WEBHOOK_TARGET_LOCAL:'true',
+          BOT_TOKEN:'123:synthetic',SOURCE_API:urls[0],TARGET_API:urls[1],WEBHOOK_URL:urls[2]+'/webhook',
+          NO_PROXY:'127.0.0.1', no_proxy:'127.0.0.1'},
         stdio:['pipe','pipe','pipe']
       });
       let output = '', stderr = '';
@@ -76,7 +80,7 @@ const watchdog = setTimeout(() => {
       child.on('error', error => { clearTimeout(timer); activeChild = null; reject(error); });
       child.on('close', code => { clearTimeout(timer); activeChild = null; resolve({code, output, stderr}); });
       child.stdin.on('error', () => {});
-      child.stdin.end(answer);
+      child.stdin.end(answer.startsWith('y\n') ? 'y\ny\n' : answer);
     });
   }
   try {

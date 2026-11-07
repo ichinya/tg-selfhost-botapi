@@ -99,12 +99,29 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="webhookUrl">Webhook URL:</label>
+                    <label for="deliveryAction">Действие доставки:</label>
+                    <select id="deliveryAction"><option value="">Выберите действие</option><option value="preserve">Сохранить текущий режим</option><option value="set">Установить webhook</option><option value="polling">Перейти на polling</option></select>
+                    <p>Polling всегда удаляет webhook на target. Preserve в Webhook only выполняет только чтение. Очистка URL не меняет действие.</p>
+                    <label for="webhookUrl">Webhook receiver URL (отдельно от Bot API):</label>
                     <input id="webhookUrl" type="text" placeholder="https://mysite/hook" />
+                    <label><input id="targetLocal" type="checkbox" /> Подтверждаю: целевой сервер запущен с --local (разрешает HTTP webhook)</label>
+                    <p>Поля ниже активны для set и восстановления webhook при переносе preserve. Для polling они игнорируются.</p>
+                    <label for="secretMode">Secret policy (для preserve — исходная):</label>
+                    <select id="secretMode"><option value="">Выберите</option><option value="none">Подтверждаю отсутствие secret</option><option value="provided">Предоставить secret</option></select>
+                    <input id="webhookSecret" type="password" autocomplete="off" aria-label="Webhook secret" />
+                    <label for="allowedUpdates">allowed_updates (JSON, [] — API default):</label><input id="allowedUpdates" value="[]" />
+                    <label for="maxConnections">max_connections:</label><input id="maxConnections" value="40" />
+                    <label for="ipMode">IP policy (observed IP не доказывает fixed):</label>
+                    <select id="ipMode"><option value="">Выберите</option><option value="dns">DNS</option><option value="fixed">Fixed IP</option></select>
+                    <input id="ipAddress" aria-label="Fixed IP" />
+                    <label for="certificateMode">Публичный сертификат:</label>
+                    <select id="certificateMode"><option value="">Выберите</option><option value="none">Без custom certificate</option><option value="provided">Предоставить PEM</option></select>
+                    <input id="certificateFile" type="file" accept=".pem,.crt" aria-label="Публичный PEM (не private key)" />
                 </div>
                 
                 <div class="form-group">
-                    <label class="check"><input id="dropPending" type="checkbox" /> Drop pending updates</label>
+                    <label class="check"><input id="dropPending" type="checkbox" /> Намеренно сбросить pending updates на target</label>
+                    <p>Source detach всегда drop=false. True необратим; false не гарантирует перенос очереди. Для read-only preserve drop неприменим.</p>
                 </div>
                 
                 <div class="btn-group" style="margin-top: 15px;">
@@ -162,10 +179,12 @@
       'chkToken','chkOldApi','chkNewApi','chkHook','chkHookTls','chkCors'
     ].map(id => [id, document.getElementById(id)]));
     const state = {mode:'official-to-self', currentWebhookFromCheck:'', checkedConfig:'',
-      busy:false, needsReconcile:false, completedMigration:false};
+      busy:false, needsReconcile:false, completedMigration:false, snapshot:undefined};
+    for (const id of ['deliveryAction','targetLocal','secretMode','webhookSecret','allowedUpdates','maxConnections','ipMode','ipAddress','certificateMode','certificateFile']) els[id] = document.getElementById(id);
     const norm = value => (value || '').trim().replace(/\/$/, '');
     const tokenLooksValid = value => /^\d+:[A-Za-z0-9_-]{20,}$/.test(value || '');
     function apiUrlValid(value) {
+      if (/[?#\s\\]/.test(value)) return false;
       try {
         const u = new URL(value);
         return ['http:','https:'].includes(u.protocol) && !u.username && !u.password && !u.search && !u.hash;
@@ -173,6 +192,7 @@
     }
     function hookUrlValid(value, targetIsCloud) {
       if (!value) return true;
+      if (/[#\s\\]/.test(value)) return false;
       try { const u = new URL(value); return (u.protocol === 'https:' || (!targetIsCloud && u.protocol === 'http:')) && !u.username && !u.password && !u.hash; }
       catch { return false; }
     }
@@ -180,19 +200,68 @@
       return {mode:state.mode, token:els.botToken.value.trim(),
         oldApi:state.mode === 'official-to-self' ? officialApi : norm(els.oldApi.value),
         newApi:state.mode === 'self-to-official' ? officialApi : norm(els.newApi.value),
-        webhook:els.webhookUrl.value.trim(), dropPending:!!els.dropPending.checked};
+        webhook:els.webhookUrl.value, dropPending:!!els.dropPending.checked,
+        action:els.deliveryAction.value,targetLocal:!!els.targetLocal.checked,secretMode:els.secretMode.value,secret:els.webhookSecret.value,
+        allowedUpdates:els.allowedUpdates.value,maxConnections:els.maxConnections.value,ipMode:els.ipMode.value,ipAddress:els.ipAddress.value,
+        certificateMode:els.certificateMode.value,certificate:els.certificateFile.files?.[0] || null};
     }
-    const targetIsCloud = cfg => (cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi) === officialApi;
-    const fingerprint = cfg => JSON.stringify(cfg);
+    const targetIsCloud = cfg => { try { return new URL(cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi).hostname.toLowerCase().replace(/\.$/,'') === 'api.telegram.org'; } catch { return false; } };
+    const fileIds = new WeakMap(); let nextFileId = 0;
+    const fingerprint = cfg => JSON.stringify({...cfg,certificate:cfg.certificate ? (fileIds.has(cfg.certificate) ? fileIds.get(cfg.certificate) : (fileIds.set(cfg.certificate,++nextFileId),nextFileId)) : null});
     const isManual = cfg => ['self-to-self','self-to-official'].includes(cfg.mode);
+    // Pure contract: never fetch, mutate inputs, or expose private values in a public preview.
+    function resolveDelivery(cfg, snapshot) {
+      if (!['preserve','set','polling'].includes(cfg.action)) throw new Error('Выберите действие доставки.');
+      if (typeof cfg.dropPending !== 'boolean') throw new Error('Некорректный выбор drop.');
+      if (cfg.mode === 'hook-only' && cfg.action === 'preserve' && cfg.dropPending) throw new Error('Сохранение в Webhook only — только чтение; drop неприменим.');
+      if (snapshot !== undefined && (!snapshot || typeof snapshot.url !== 'string')) throw new Error('Некорректный source snapshot.');
+      const sourceMode = snapshot === undefined ? 'unknown' : snapshot.url ? 'webhook' : 'polling';
+      const plan = {action:cfg.action,sourceMode,sourceDrop:false,targetDrop:cfg.dropPending,targetMethod:null,profile:null};
+      if (cfg.action === 'preserve' && cfg.mode === 'hook-only') return plan;
+      if (cfg.action === 'polling' || (cfg.action === 'preserve' && sourceMode === 'polling')) return {...plan,targetMethod:'deleteWebhook',expectedUrl:''};
+      if (cfg.action === 'preserve' && sourceMode === 'unknown') throw new Error('Для сохранения сначала требуется snapshot source.');
+      const url = cfg.action === 'set' ? cfg.webhook : snapshot.url;
+      if (!url || /[\s\\]/.test(url) || !hookUrlValid(url, targetIsCloud(cfg) || !cfg.targetLocal)) throw new Error('Нужен допустимый webhook URL; HTTP требует подтверждённого --local.');
+      let allowed = cfg.allowedUpdates, max = cfg.maxConnections;
+      const preserve = cfg.action === 'preserve';
+      if (preserve) {
+        allowed = Object.hasOwn(snapshot,'allowed_updates') ? snapshot.allowed_updates : [];
+        max = Object.hasOwn(snapshot,'max_connections') ? snapshot.max_connections : max;
+        if (Object.hasOwn(snapshot,'max_connections') && typeof snapshot.max_connections !== 'number') throw new Error('Повреждённый max_connections source.');
+        if (typeof snapshot.has_custom_certificate !== 'boolean') throw new Error('Неизвестен certificate flag source.');
+      } else {
+        try { allowed = JSON.parse(allowed); } catch { throw new Error('allowed_updates: нужен JSON-массив строк.'); }
+      }
+      if (!Array.isArray(allowed) || allowed.some(v => typeof v !== 'string')) throw new Error('Некорректный allowed_updates source/profile.');
+      if (!/^[1-9][0-9]{0,5}$/.test(String(max)) || Number(max) > (cfg.targetLocal && !targetIsCloud(cfg) ? 100000 : 100)) throw new Error('Некорректный max_connections.');
+      if (!['none','provided'].includes(cfg.secretMode)) throw new Error('Подтвердите отсутствие secret либо предоставьте исходный secret.');
+      if (cfg.secretMode === 'provided' && !/^[A-Za-z0-9_-]{1,256}$/.test(cfg.secret || '')) throw new Error('Недопустимый secret_token.');
+      if (!['dns','fixed'].includes(cfg.ipMode)) throw new Error('Выберите исходную IP policy: DNS или fixed.');
+      if (cfg.ipMode === 'fixed' && !validIp(cfg.ipAddress)) throw new Error('Некорректный fixed IP.');
+      if (preserve && cfg.ipMode === 'fixed' && snapshot.ip_address !== cfg.ipAddress) throw new Error('Fixed IP не совпадает с source.');
+      const certMode = preserve ? (snapshot.has_custom_certificate ? 'provided' : 'none') : cfg.certificateMode;
+      if (!['none','provided'].includes(certMode) || (certMode === 'provided' && !cfg.certificate)) throw new Error('Нужен исходный публичный PEM-файл сертификата.');
+      return {...plan,targetMethod:'setWebhook',expectedUrl:url,profile:{url,allowed_updates:[...new Set(allowed)].sort(),max_connections:Number(max),
+        secret_token:cfg.secretMode === 'provided' ? cfg.secret : '',ip_address:cfg.ipMode === 'fixed' ? cfg.ipAddress : '',
+        certificate:certMode === 'provided' ? cfg.certificate : null,has_custom_certificate:certMode === 'provided'}};
+    }
+    function validIp(value) {
+      if (/^(\d{1,3}\.){3}\d{1,3}$/.test(value)) return value.split('.').every(v => Number(v) <= 255);
+      try { return value.includes(':') && new URL('http://[' + value + ']/').hostname.length > 2; } catch { return false; }
+    }
     function validate(cfg) {
       if (!tokenLooksValid(cfg.token)) throw new Error('Проверьте формат токена.');
       if (!apiUrlValid(cfg.oldApi)) throw new Error('Укажите известный исходный Bot API без credentials, query или fragment.');
       if (cfg.mode !== 'hook-only' && (!apiUrlValid(cfg.newApi) || cfg.newApi === cfg.oldApi)) {
         throw new Error('Укажите отдельный целевой Bot API.');
       }
+      if (cfg.mode === 'official-to-self' && targetIsCloud(cfg)) throw new Error('Для cloud → local нужен отдельный локальный target, не api.telegram.org.');
       if (cfg.mode.startsWith('self-to-') && cfg.oldApi === officialApi) throw new Error('Укажите исходный local API.');
-      if (!hookUrlValid(cfg.webhook, targetIsCloud(cfg))) throw new Error(targetIsCloud(cfg) ? 'Для облачного Bot API webhook должен быть HTTPS URL без credentials и fragment.' : 'Для local Bot API webhook должен быть HTTP или HTTPS URL без credentials и fragment.');
+      if (cfg.action !== 'preserve') resolveDelivery(cfg);
+      else {
+        if (cfg.mode === 'hook-only') resolveDelivery(cfg);
+        if (!['preserve','set','polling'].includes(cfg.action)) throw new Error('Выберите действие доставки.');
+      }
     }
     function log(message, type = 'info') {
       if (els.logBox.dataset.initialized !== 'true') { els.logBox.textContent = ''; els.logBox.dataset.initialized = 'true'; }
@@ -208,12 +277,17 @@
       setCheck(els.chkToken, 'Формат токена: ' + (tokenLooksValid(cfg.token) ? 'корректен' : 'проверьте'), tokenLooksValid(cfg.token));
       setCheck(els.chkOldApi, 'Исходный API: URL проверяется локально; автоматического определения нет', apiUrlValid(cfg.oldApi));
       setCheck(els.chkNewApi, 'Целевой API: проверка адреса не авторизует бота', cfg.mode === 'hook-only' || apiUrlValid(cfg.newApi));
-      setCheck(els.chkHook, cfg.webhook ? (targetIsCloud(cfg) ? 'Webhook: для cloud обязателен HTTPS' : 'Webhook: для local допускаются HTTP и HTTPS') : 'Пусто: наследовать прежний webhook, если он задан', hookUrlValid(cfg.webhook, targetIsCloud(cfg)));
+      setCheck(els.chkHook, 'Действие: ' + (cfg.action || 'выберите') + '; polling игнорирует URL; set требует URL; preserve сохраняет source mode', !!cfg.action);
       setCheck(els.chkHookTls, 'Доставка и TLS проверяются отдельно; запросы на webhook не отправляются', false);
       setCheck(els.chkCors, 'CORS может скрыть ответ уже выполненной операции', false);
     }
     function invalidate() {
-      state.currentWebhookFromCheck = ''; state.checkedConfig = '';
+      state.currentWebhookFromCheck = ''; state.checkedConfig = ''; state.snapshot = undefined;
+      const cfg = currentConfig();
+      if (!state.busy) {
+        els.btnExecute.disabled = !cfg.action || isManual(cfg) || state.needsReconcile || (state.completedMigration && cfg.mode === 'official-to-self');
+        els.btnCopyCurl.disabled = !cfg.action || state.needsReconcile || (state.completedMigration && cfg.mode === 'official-to-self');
+      }
       setSummary('Настройки изменены. Предыдущее состояние сброшено.');
       runLocalChecks(); buildPlan();
     }
@@ -231,7 +305,7 @@
         'official-to-self':'Остановите старых API-клиентов. После согласия: source logOut, затем первый запрос к target. Очередь не гарантируется.',
         'self-to-self':'Только ручные этапы: detach/close → перенос согласованного state → target. Одношаговое выполнение отключено.',
         'self-to-official':'Только ручной план: local logOut перед cloud. Локальный state в облако не переносится; очередь может быть очищена.',
-        'hook-only':'Изменение webhook на явно выбранном API; без logOut и close. Пустое поле наследует прежний URL.'
+        'hook-only':'Явное действие на выбранном API; без logOut и close. Preserve — только чтение.'
       }[state.mode];
       invalidate();
     }
@@ -252,8 +326,9 @@
     }
     async function api(base, token, method, data) {
       const mutation = !['getMe','getWebhookInfo'].includes(method);
-      const options = mutation ? {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:new URLSearchParams(data || {}).toString()} : {};
+      const multipart = data instanceof FormData;
+      const options = mutation ? {method:'POST', ...(multipart ? {} : {headers:{'Content-Type':'application/x-www-form-urlencoded'}}),
+        body:multipart ? data : new URLSearchParams(data || {}).toString()} : {};
       let r;
       try { r = await fetchJson(`${base}/bot${token}/${method}`, options); }
       catch {
@@ -269,21 +344,22 @@
       return r.json.result;
     }
     function consent(cfg, action) {
-      return confirm(`${action}\nSource: ${cfg.oldApi}\nTarget: ${cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi}\nWebhook: ${cfg.webhook || 'наследовать прежний, если задан'}\nDrop updates: ${cfg.dropPending}\nПроверка адреса не подтверждает подлинность узла. Старые API-клиенты остановлены? Разрешить запросы с токеном?`);
+      return confirm(`${action}\nSource: ${cfg.oldApi}\nTarget: ${cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi}\nДействие: ${cfg.action}\nSource drop=false; target drop=${cfg.dropPending}\nTrue теряет target backlog; false не гарантирует перенос очереди. Проверка адреса не подтверждает подлинность узла. Старые API-клиенты остановлены? Разрешить запросы с токеном?`);
     }
     async function withLock(action) {
       if (state.busy) return;
       state.busy = true;
-      const controls = [els.botToken,els.oldApi,els.newApi,els.webhookUrl,els.dropPending,els.btnCheck,els.btnExecute,els.btnCopyCurl];
+      const controls = [els.botToken,els.oldApi,els.newApi,els.webhookUrl,els.dropPending,els.btnCheck,els.btnExecute,els.btnCopyCurl,
+        els.deliveryAction,els.targetLocal,els.secretMode,els.webhookSecret,els.allowedUpdates,els.maxConnections,els.ipMode,els.ipAddress,els.certificateMode,els.certificateFile];
       controls.forEach(el => el.disabled = true);
       try { await action(); }
       catch (error) { log(error.message, 'error'); setSummary(error.message); }
       finally {
         state.busy = false;
         controls.forEach(el => el.disabled = false);
-        els.btnExecute.disabled = isManual(currentConfig()) || state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+        els.btnExecute.disabled = !currentConfig().action || isManual(currentConfig()) || state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
         els.btnCheck.disabled = state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
-        els.btnCopyCurl.disabled = state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+        els.btnCopyCurl.disabled = !currentConfig().action || state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
         buildPlan();
       }
     }
@@ -297,6 +373,8 @@
         await api(cfg.oldApi, cfg.token, 'getMe');
         const hook = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
         state.currentWebhookFromCheck = hook.url;
+        state.snapshot = hook;
+        resolveDelivery(cfg, hook);
         state.checkedConfig = fingerprint(cfg);
         setSummary('Состояние source прочитано. Профиль и secret_token сохраняйте отдельно.');
         buildPlan();
@@ -305,21 +383,21 @@
     // A generated local migration is deliberately a checklist, never copy-all code.
     function manualPlan(cfg) {
       if (cfg.mode === 'self-to-self') return [
-        '# Этап 1 — только исходный сервер ' + cfg.oldApi,
+        '# Этап 1 — только исходный сервер $SOURCE_API (задайте приватно по выбранному endpoint)',
         '# Остановите API-клиентов/pollers/retries, сохраните профиль и согласованную резервную копию.',
         '# На source: deleteWebhook без намеренного сброса, затем close; требуются HTTP success, ok=true, result=true.',
         '# Ошибка, 429/retry_after или UNKNOWN: СТОП, target не вызывайте.',
         '# СТОП — внешний перенос и проверка state. Выполнение из браузера отключено.',
         '# Перенос per-bot каталога не переносит общую tqueue.binlog. Не объединяйте shared binlogs.',
         '# Этап 2 — отдельно, после подтверждённого переноса и отсутствия прежних writers:',
-        '# На target ' + cfg.newApi + ': первый getMe, затем восстановление полного webhook-профиля или явного polling.',
+        '# На target $TARGET_API: первый getMe, затем восстановление полного webhook-профиля или явного polling.',
         '# Проверьте конфигурацию и доставку тестового update; только затем возобновите API-клиентов.',
         '# Подробный per-bot/cold-transfer runbook: docs/ru/migration.html'
       ];
       return [
         '# Ручной возврат local → official; browser execution отключён.',
         '# Обработайте backlog или явно примите потерю очереди; остановите старые API-клиенты.',
-        '# На source ' + cfg.oldApi + ': сохраните профиль, deleteWebhook, затем успешный logOut.',
+        '# На source $SOURCE_API: сохраните профиль, deleteWebhook, затем успешный logOut.',
         '# logOut может очистить локальную очередь. drop_pending_updates=false это не отменяет.',
         '# Ошибка/UNKNOWN: СТОП. Нельзя входить на обе стороны для проверки.',
         '# После подтверждённого source logOut и доступности cloud: первый getMe на ' + officialApi,
@@ -327,57 +405,108 @@
       ];
     }
     const shellQuote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
-    function buildCommands(cfg, currentHook = '') {
-      if (isManual(cfg)) return manualPlan(cfg);
-      const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
-      const hook = cfg.webhook || currentHook || '';
-      const drop = cfg.dropPending ? 'true' : 'false';
-      const commands = [
-        '# Bash + curl + jq. Остановите старых API-клиентов; проверьте адреса и полный профиль.',
-        'set -euo pipefail',
+    function buildCommands(cfg, snapshot) {
+      if (isManual(cfg)) {
+        let resolution;
+        try { resolution = resolveDelivery(cfg,snapshot).targetMethod || 'read-only'; } catch (error) { resolution = 'Missing inputs: ' + error.message; }
+        return [...manualPlan(cfg), '# Выбранное действие: ' + (cfg.action || 'не выбрано'), '# Source drop=false; target drop=' + cfg.dropPending,
+        '# Target method / validation: ' + resolution,
+        '# Profile policy: secret=' + (cfg.secretMode || 'не выбрано') + '; IP=' + (cfg.ipMode || 'не выбрано') + '; certificate=' + (cfg.certificateMode || 'не выбрано'),
+        '# После lifecycle/state barrier: target deleteWebhook для polling; set требует полного профиля; preserve требует source snapshot.',
+        '# Обязательный typed getWebhookInfo readback; неизвестный профиль блокирует изменение.'];
+      }
+      if (!['preserve','set','polling'].includes(cfg.action)) return ['# Выберите действие доставки.'];
+      // Resolve known inputs without network. Preserve snapshots are re-read by the exported script.
+      const plan = cfg.action === 'preserve' && snapshot === undefined && cfg.mode !== 'hook-only'
+        ? {targetMethod:'resolve-from-source'} : resolveDelivery(cfg, snapshot);
+      const lines = ['#!/usr/bin/env bash', '# Standalone export: Bash + curl + jq; certificate also needs openssl.',
+        '# Configuration readback does not prove delivery. UNKNOWN: stop; never retry automatically.',
+        'set +x', 'set -euo pipefail', 'umask 077',
+        'fail() { echo "UNKNOWN/FAIL: $1; stop and reconcile" >&2; exit 1; }',
+        ': "${BOT_TOKEN:?Set BOT_TOKEN privately}"', ': "${SOURCE_API:?Set SOURCE_API privately}"',
+        ...(cfg.mode === 'hook-only' ? ['TARGET_API=$SOURCE_API'] : [': "${TARGET_API:?Set TARGET_API privately}"']),
+        'for endpoint in "$SOURCE_API" "$TARGET_API"; do [[ "$endpoint" =~ ^https?://[^/@?#[:space:]\\\\]+(/[^?#[:space:]\\\\]*)?$ ]] || fail "Invalid API endpoint"; done',
+        '[[ "$BOT_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || fail "Invalid token"',
+        'SOURCE_API=${SOURCE_API%/}; TARGET_API=${TARGET_API%/}',
+        `action=${shellQuote(cfg.action)}`, `drop=${shellQuote(String(cfg.dropPending))}`, `local_capability=${shellQuote(String(cfg.targetLocal && !targetIsCloud(cfg)))}`,
+        'target_host=${TARGET_API#*://}; target_host=${target_host%%/*}; target_host=${target_host%%:*}; target_host=${target_host%.}; target_host=${target_host,,}; [[ "$target_host" != api.telegram.org ]] || local_capability=false',
+        '# Target method: ' + (plan.targetMethod || 'read-only'),
+        'work=$(mktemp -d); trap \'rm -rf -- "$work"\' EXIT',
+        'line() { local v=$2; v=${v//\\\\/\\\\\\\\}; v=${v//\\"/\\\\\\"}; printf \'%s = "%s"\\n\' "$1" "$v" >>"$work/request"; }',
         'api() {',
-        '  local base="$1" method="$2" response status; shift 2',
-        '  response=$(curl -q -sS --connect-timeout 5 --max-time 30 -w "\\n%{http_code}" "$base/bot$BOT_TOKEN/$method" "$@" 2>/dev/null) || { echo "UNKNOWN: stop and reconcile" >&2; return 1; }',
-        "  status=${response##*$'\\n'}; [[ $status =~ ^2[0-9][0-9]$ ]] || return 1",
-        "  response=${response%$'\\n'*}",
-        '  jq -e ".ok == true" >/dev/null <<<"$response" || return 1',
-        '  case "$method" in',
-        '    getMe) jq -e \'.result.id | type == "number"\' >/dev/null <<<"$response" ;;',
-        '    getWebhookInfo) jq -e \'.result.url | type == "string"\' >/dev/null <<<"$response" ;;',
-        '    *) jq -e ".result == true" >/dev/null <<<"$response" ;;',
-        '  esac || return 1',
-        '  printf "%s" "$response"',
-        '}'
-      ];
-      if (cfg.mode === 'official-to-self') commands.push(
-        `probe=$(curl -q -sS --connect-timeout 5 --max-time 10 -w '\\n%{http_code}' ${shellQuote(target + '/')})`,
-        "[[ ${probe##*$'\\n'} == 404 ]]",
-        "jq -e '.ok == false and .error_code == 404 and .description == \"Not Found\"' >/dev/null <<<\"${probe%$'\\n'*}\""
-      );
-      commands.push(
-        `printf '%s\\n' ${shellQuote('Source: ' + cfg.oldApi)} ${shellQuote('Target: ' + target)} ${shellQuote('Webhook: ' + (hook || 'inherit source if present'))} ${shellQuote('Drop updates: ' + drop)}`,
-        'read -r -p "Allow token-bearing requests? [y/N]: " answer || exit 0',
-        'case "$answer" in y|Y|yes|YES) ;; *) exit 0 ;; esac',
-        'read -rsp "Bot token: " BOT_TOKEN; printf "\\n"',
-        `api ${shellQuote(cfg.oldApi)} getMe >/dev/null`,
-        `source_hook=$(api ${shellQuote(cfg.oldApi)} getWebhookInfo)`,
-        `hook=${shellQuote(cfg.webhook)}`,
-        'if [[ -z "$hook" ]]; then hook=$(jq -r .result.url <<<"$source_hook"); fi'
-      );
-      if (cfg.mode === 'official-to-self') commands.push(
-        `api ${shellQuote(cfg.oldApi)} deleteWebhook -X POST --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`,
-        `api ${shellQuote(cfg.oldApi)} logOut -X POST >/dev/null`,
-        `api ${shellQuote(target)} getMe >/dev/null`
-      );
-      commands.push('if [[ -n "$hook" ]]; then',
-        `  api ${shellQuote(target)} setWebhook -X POST --data-urlencode "url=$hook" --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`);
-      if (cfg.mode === 'hook-only') commands.push('else',
-        `  api ${shellQuote(target)} deleteWebhook -X POST --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`);
-      commands.push('fi', `final=$(api ${shellQuote(target)} getWebhookInfo)`,
-        'jq -e --arg expected "$hook" \'.result.url == $expected\' >/dev/null <<<"$final"',
-        'unset BOT_TOKEN', '# URL readback не доказывает доставку. Проверьте полный профиль и тестовый update.');
-      return commands;
+        '  local base=$1 method=$2 response status key value i=0; shift 2; : >"$work/request"',
+        '  line url "$base/bot$BOT_TOKEN/$method"',
+        '  case "$method" in getMe|getWebhookInfo) ;; *) line request POST ;; esac',
+        '  while (( $# )); do key=$1; value=$2; shift 2; printf "%s" "$value" >"$work/field$i";',
+        '    if [[ "$method" == setWebhook && "$cert_mode" == provided ]]; then line form "$key=<\\"$work/field$i\\""; else line data-urlencode "$key@$work/field$i"; fi; ((i+=1)); done',
+        '  if [[ "$method" == setWebhook && "$cert_mode" == provided ]]; then line form "certificate=@\\"$work/certificate.pem\\";type=application/x-pem-file"; fi',
+        '  response=$(curl -q -sS --proto "=http,https" --max-redirs 0 --connect-timeout 5 --max-time 30 --config "$work/request" -w "\\n%{http_code}" 2>/dev/null) || fail "Response lost"',
+        '  status=${response##*$\'\\n\'}; response=${response%$\'\\n\'*}; [[ "$status" =~ ^2[0-9][0-9]$ ]] || fail "HTTP error"',
+        '  jq -e \' .ok == true \' >/dev/null 2>&1 <<<"$response" || fail "API response"',
+        '  case "$method" in getMe) jq -e \'.result.id | type == "number"\' >/dev/null <<<"$response" ;; getWebhookInfo) jq -e \'.result.url | type == "string"\' >/dev/null <<<"$response" ;; *) jq -e \'.result == true\' >/dev/null <<<"$response" ;; esac || fail "Typed result"',
+        '  printf "%s" "$response"', '}',
+        `secret_mode=${shellQuote(cfg.secretMode || '')}; ip_mode=${shellQuote(cfg.ipMode || '')}; cert_mode=${shellQuote(cfg.certificateMode || '')}`,
+        `allowed=${shellQuote(cfg.allowedUpdates || '')}; max=${shellQuote(cfg.maxConnections || '')}`,
+        'hook=; secret=; ip=;',
+        'valid_ip() {',
+        '  local value=$1 part left right; local -a groups;',
+        '  if [[ "$value" =~ ^([0-9]{1,3}\\.){3}[0-9]{1,3}$ ]]; then IFS=. read -r -a groups <<<"$value"; for part in "${groups[@]}"; do (( 10#$part <= 255 )) || return 1; done;',
+        '  else [[ "$value" =~ ^[0-9a-fA-F:]+$ && "$value" == *:* && "$value" != *:::* ]] || return 1;',
+        '    if [[ "$value" == *::* ]]; then left=${value%%::*}; right=${value#*::}; [[ "$right" != *::* ]] || return 1; read -r -a groups <<<"${left//:/ } ${right//:/ }"; (( ${#groups[@]} < 8 )) || return 1;',
+        '    else [[ "$value" != :* && "$value" != *: ]] || return 1; IFS=: read -r -a groups <<<"$value"; (( ${#groups[@]} == 8 )) || return 1; fi;',
+        '    for part in "${groups[@]}"; do [[ "$part" =~ ^[0-9a-fA-F]{1,4}$ ]] || return 1; done; fi;', '}',
+        'valid_receiver() {',
+        '  local value=$1 authority host port= label; local -a labels;',
+        '  [[ "$value" =~ ^https?://([^/?#[:space:]\\\\]+)([/?][^#[:space:]\\\\]*)?$ ]] || return 1; authority=${BASH_REMATCH[1]};',
+        '  if [[ "$authority" == \\[* ]]; then [[ "$authority" =~ ^\\[([0-9a-fA-F:]+)\\](:([0-9]{1,5}))?$ ]] || return 1; host=${BASH_REMATCH[1]}; port=${BASH_REMATCH[3]-}; valid_ip "$host" || return 1;',
+        '  else [[ "$authority" =~ ^([A-Za-z0-9.-]+)(:([0-9]{1,5}))?$ ]] || return 1; host=${BASH_REMATCH[1]}; port=${BASH_REMATCH[3]-}; host=${host%.};',
+        '    [[ -n "$host" && "$host" != *..* && ${#host} -le 253 ]] || return 1; IFS=. read -r -a labels <<<"$host";',
+        '    for label in "${labels[@]}"; do [[ "$label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]] || return 1; done;',
+        '    if [[ "$host" =~ ^[0-9.]+$ ]]; then valid_ip "$host" || return 1; fi; fi;',
+        '  [[ -z "$port" ]] || (( 10#$port >= 1 && 10#$port <= 65535 )) || return 1;', '}',
+        'profile() {',
+        '  valid_receiver "$hook" || fail "Webhook URL"',
+        '  [[ "$hook" == https://* || "$local_capability" == true ]] || fail "HTTP requires local capability"',
+        '  jq -e \'type == "array" and all(.[]; type == "string")\' >/dev/null 2>&1 <<<"$allowed" || fail "allowed_updates"',
+        '  [[ "$max" =~ ^[1-9][0-9]{0,5}$ ]] || fail "max_connections"; local limit=100; [[ "$local_capability" != true ]] || limit=100000; (( max <= limit )) || fail "max_connections capability"',
+        '  case "$secret_mode" in none) ;; provided) if [[ ${WEBHOOK_SECRET_TOKEN_FILE+x} ]]; then [[ -r "$WEBHOOK_SECRET_TOKEN_FILE" && -f "$WEBHOOK_SECRET_TOKEN_FILE" ]] || fail "Secret file"; secret=$(cat -- "$WEBHOOK_SECRET_TOKEN_FILE"); else secret=${WEBHOOK_SECRET_TOKEN-}; fi; [[ "$secret" =~ ^[A-Za-z0-9_-]{1,256}$ ]] || fail "Secret" ;; *) fail "Choose secret mode" ;; esac',
+        '  case "$ip_mode" in dns) ;; fixed) ip=${WEBHOOK_IP_ADDRESS-}; valid_ip "$ip" || fail "Fixed IP" ;; *) fail "Choose IP mode" ;; esac',
+        '  case "$cert_mode" in none) ;; provided) : "${WEBHOOK_CERTIFICATE_FILE:?Set public PEM path}"; [[ -r "$WEBHOOK_CERTIFICATE_FILE" && -s "$WEBHOOK_CERTIFICATE_FILE" ]] || fail "PEM file"; local pem; pem=$(cat -- "$WEBHOOK_CERTIFICATE_FILE"); [[ "$pem" != *"PRIVATE KEY"* ]] || fail "Private key forbidden"; openssl x509 -in "$WEBHOOK_CERTIFICATE_FILE" -noout >/dev/null 2>&1 || fail "Public PEM"; cp -- "$WEBHOOK_CERTIFICATE_FILE" "$work/certificate.pem" ;; *) fail "Choose certificate mode" ;; esac',
+        '}',
+        ...(cfg.action === 'set' ? [': "${WEBHOOK_URL:?Set receiver URL privately}"', 'hook=$WEBHOOK_URL; profile'] : [])];
+      if (cfg.mode !== 'hook-only') lines.push(
+        '[[ "$SOURCE_API" != "$TARGET_API" && "$target_host" != api.telegram.org ]] || fail "Distinct local target required"',
+        'probe=$(curl -q -sS --proto "=http,https" --max-redirs 0 --connect-timeout 5 --max-time 10 -w "\\n%{http_code}" "$TARGET_API/" 2>/dev/null) || fail "Probe"',
+        '[[ ${probe##*$\'\\n\'} == 404 ]] && jq -e \'.ok == false and .error_code == 404 and .description == "Not Found"\' >/dev/null <<<"${probe%$\'\\n\'*}" || fail "Probe"');
+      lines.push('echo "Source API: $SOURCE_API; target API: $TARGET_API"', 'echo "Action: $action; source drop=false; target drop=$drop. True discards target backlog; false does not guarantee queue transfer."',
+        'read -r -p "Allow token-bearing source reads? [y/N]: " answer || exit 0', 'case "$answer" in y|Y|yes|YES) ;; *) exit 0 ;; esac',
+        'me=$(api "$SOURCE_API" getMe)', 'source_hook=$(api "$SOURCE_API" getWebhookInfo)');
+      if (cfg.action === 'preserve' && cfg.mode !== 'hook-only') lines.push(
+        'hook=$(jq -r .result.url <<<"$source_hook")', 'if [[ -n "$hook" ]]; then',
+        '  jq -e \'.result.has_custom_certificate | type == "boolean"\' >/dev/null <<<"$source_hook" || fail "Source certificate flag"',
+        '  allowed=$(jq -c \'.result | if has("allowed_updates") then .allowed_updates else [] end\' <<<"$source_hook")',
+        '  if jq -e \'.result | has("max_connections")\' >/dev/null <<<"$source_hook"; then jq -e \'.result.max_connections | type == "number"\' >/dev/null <<<"$source_hook" || fail "Source max_connections"; max=$(jq -r .result.max_connections <<<"$source_hook"); fi',
+        '  if [[ $(jq -r .result.has_custom_certificate <<<"$source_hook") == true ]]; then cert_mode=provided; else cert_mode=none; fi',
+        '  profile; [[ "$ip_mode" != fixed || $(jq -r .result.ip_address <<<"$source_hook") == "$ip" ]] || fail "Source fixed IP"', 'fi');
+      if (!(cfg.action === 'preserve' && cfg.mode === 'hook-only')) {
+        lines.push('read -r -p "Apply resolved target action? [y/N]: " answer || exit 0', 'case "$answer" in y|Y|yes|YES) ;; *) exit 0 ;; esac');
+        if (cfg.mode !== 'hook-only') lines.push('api "$SOURCE_API" deleteWebhook drop_pending_updates false >/dev/null', 'api "$SOURCE_API" logOut >/dev/null',
+          'target_me=$(api "$TARGET_API" getMe)', '[[ $(jq -r .result.id <<<"$me") == $(jq -r .result.id <<<"$target_me") ]] || fail "Bot identity"');
+        lines.push('if [[ -n "$hook" ]]; then',
+          '  args=(url "$hook" allowed_updates "$allowed" max_connections "$max" secret_token "$secret" drop_pending_updates "$drop"); [[ "$ip_mode" != fixed ]] || args+=(ip_address "$ip")',
+          '  api "$TARGET_API" setWebhook "${args[@]}" >/dev/null',
+          'else api "$TARGET_API" deleteWebhook drop_pending_updates "$drop" >/dev/null; fi');
+      }
+      lines.push('final=$(api "$TARGET_API" getWebhookInfo)');
+      if (cfg.action === 'preserve' && cfg.mode === 'hook-only') lines.push('[[ $(jq -cS .result <<<"$final") == $(jq -cS .result <<<"$source_hook") ]] || fail "Read-only source changed"');
+      else lines.push('jq -e --arg url "$hook" \'.result.url == $url\' >/dev/null <<<"$final" || fail "URL readback"',
+        'if [[ -n "$hook" ]]; then',
+        '  cert=false; [[ "$cert_mode" != provided ]] || cert=true',
+        '  jq -e --argjson allowed "$allowed" --argjson max "$max" --argjson cert "$cert" --arg ip "$ip" \'.result | (if has("allowed_updates") then .allowed_updates else [] end) as $observed | ($observed | type == "array" and all(.[]; type == "string")) and ($observed | sort | unique) == ($allowed | sort | unique) and .max_connections == $max and .has_custom_certificate == $cert and ($ip == "" or .ip_address == $ip)\' >/dev/null <<<"$final" || fail "Profile readback"', 'fi');
+      lines.push('unset BOT_TOKEN secret', 'echo "DONE: configuration readback; test delivery separately."');
+      return lines;
     }
+
     function buildPlan() {
       const cfg = currentConfig();
       if (state.needsReconcile || (state.completedMigration && cfg.mode === 'official-to-self')) {
@@ -386,8 +515,8 @@
           : '# Сверьте состояние через getWebhookInfo на целевом API. Повторные запросы с токеном к source заблокированы.';
         return;
       }
-      const hook = state.checkedConfig === fingerprint(cfg) ? state.currentWebhookFromCheck : '';
-      els.curlPlan.textContent = buildCommands(cfg, hook).join('\n');
+      const hook = state.checkedConfig === fingerprint(cfg) ? state.snapshot : undefined;
+      try { els.curlPlan.textContent = buildCommands(cfg, hook).join('\n'); } catch (error) { els.curlPlan.textContent = '# ' + error.message; }
     }
     async function copyCurlPlan() {
       if (state.busy) return;
@@ -402,34 +531,75 @@
         if (isManual(cfg)) throw new Error('Этот переход выполняется только по отдельным ручным этапам; см. план.');
         if (state.needsReconcile) throw new Error('Сначала сверьте исход предыдущей операции вручную; повторное выполнение заблокировано.');
         if (cfg.mode === 'official-to-self') await probe(cfg.newApi);
-        if (!consent(cfg, 'Выполнение изменит webhook/сессию. Полный профиль восстанавливается отдельно.')) return;
-        await api(cfg.oldApi, cfg.token, 'getMe');
+        if (!consent(cfg, 'Чтение source и подготовка действия до изменения сессии.')) return;
+        const sourceMe = await api(cfg.oldApi, cfg.token, 'getMe');
         const info = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
-        const hook = cfg.webhook || info.url;
+        const plan = resolveDelivery(cfg, info);
+        await validateCertificate(plan.profile?.certificate);
+        const binding = fingerprint(cfg);
+        const assertBinding = () => { if (binding !== fingerprint(currentConfig())) throw new Error('Настройки изменились. Выполнение остановлено; выполните новую проверку.'); };
+        assertBinding();
+        if (!consent(cfg, `Разрешено: ${plan.targetMethod || 'только чтение'}. Profile readback не доказывает доставку.`)) return;
         const drop = {drop_pending_updates:String(cfg.dropPending)};
         let changed = false;
         try {
           const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
           if (cfg.mode === 'official-to-self') {
-            await api(cfg.oldApi, cfg.token, 'deleteWebhook', drop); changed = true;
+            assertBinding();
+            await api(cfg.oldApi, cfg.token, 'deleteWebhook', {drop_pending_updates:'false'}); changed = true;
             await api(cfg.oldApi, cfg.token, 'logOut', {});
-            await api(target, cfg.token, 'getMe');
+            const targetMe = await api(target, cfg.token, 'getMe');
+            if (targetMe.id !== sourceMe.id) throw new Error('Bot identity не совпадает. Сверьте состояние.');
           }
-          if (hook) { await api(target, cfg.token, 'setWebhook', {...drop,url:hook}); changed = true; }
-          else if (cfg.mode === 'hook-only') { await api(target, cfg.token, 'deleteWebhook', drop); changed = true; }
+          assertBinding();
+          if (plan.targetMethod) {
+            await api(target, cfg.token, plan.targetMethod, deliveryBody(plan)); changed = true;
+          }
           const final = await api(target, cfg.token, 'getWebhookInfo');
-          if (final.url !== hook) throw new Error('Итоговый webhook не совпадает; проверьте состояние вручную.');
+          verifyDelivery(plan, final, info);
           if (cfg.mode === 'official-to-self') state.completedMigration = true;
           log('Конфигурация проверена. Проверьте полный профиль и доставку тестового update.', 'success');
           setSummary('Запросы завершены успешно; фактическая доставка требует отдельной проверки.');
         } catch (error) { if (changed) state.needsReconcile = true; throw error; }
       });
     }
+    async function validateCertificate(file) {
+      if (!file) return;
+      if (file.size > 1024 * 1024) throw new Error('Публичный PEM слишком велик.');
+      const pem = await file.text();
+      if (pem.includes('PRIVATE KEY') || !/^\s*-----BEGIN CERTIFICATE-----\r?\n[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----\s*$/.test(pem)) throw new Error('Нужен публичный PEM, не private key.');
+    }
+    function deliveryBody(plan) {
+      const data = {drop_pending_updates:String(plan.targetDrop)};
+      if (plan.profile) {
+        const p = plan.profile;
+        Object.assign(data,{url:p.url,allowed_updates:JSON.stringify(p.allowed_updates),max_connections:String(p.max_connections),secret_token:p.secret_token});
+        if (p.ip_address) data.ip_address = p.ip_address;
+        if (p.certificate) {
+          const form = new FormData();
+          for (const [key,value] of Object.entries(data)) form.append(key,value);
+          form.append('certificate',p.certificate,'certificate.pem'); return form;
+        }
+      }
+      return data;
+    }
+    function verifyDelivery(plan, final, source) {
+      const expected = plan.targetMethod ? plan.expectedUrl : source.url;
+      if (typeof final.url !== 'string' || final.url !== expected) throw new Error('UNKNOWN: итоговый URL не совпадает; сверьте состояние вручную.');
+      const p = plan.profile;
+      const observedAllowed = Object.hasOwn(final,'allowed_updates') ? final.allowed_updates : [];
+      if (p && (final.max_connections !== p.max_connections || final.has_custom_certificate !== p.has_custom_certificate ||
+          !Array.isArray(observedAllowed) || observedAllowed.some(v => typeof v !== 'string') ||
+          JSON.stringify([...new Set(observedAllowed)].sort()) !== JSON.stringify(p.allowed_updates) ||
+          (p.ip_address && final.ip_address !== p.ip_address))) throw new Error('UNKNOWN: profile readback не совпадает; сверьте состояние.');
+      if (!plan.targetMethod && JSON.stringify(final) !== JSON.stringify(source)) throw new Error('Source изменился при read-only проверке.');
+    }
     document.querySelectorAll('.mode-btn').forEach(card => card.addEventListener('click', () => {
       if (state.busy) return;
       state.mode = card.dataset.mode; applyMode();
     }));
-    [els.botToken,els.oldApi,els.newApi,els.webhookUrl,els.dropPending].forEach(el => {
+    [els.botToken,els.oldApi,els.newApi,els.webhookUrl,els.dropPending,els.deliveryAction,els.targetLocal,els.secretMode,els.webhookSecret,
+      els.allowedUpdates,els.maxConnections,els.ipMode,els.ipAddress,els.certificateMode,els.certificateFile].forEach(el => {
       for (const event of ['input','change']) el.addEventListener(event, () => { if (!state.busy) invalidate(); });
     });
     els.btnCheck.addEventListener('click', checkCurrentState);
