@@ -9,7 +9,8 @@ REQUIRED = ['migrate_off_to_self.sh','tg_selfhost_botapi_migrator.html','assets/
             *('tools/'+pattern for pattern in PATTERNS), 'tools/test_migration_ui.mjs',
             'tools/check_docs.py','tools/check_migration_safety.py','tools/check_migration_volumes.py',
             'tools/migrator_request_mock.py',
-            'tools/fixtures/migration/docker-compose.volumes.yml','tools/fixtures/migration/fake-bot-api.sh']
+            'tools/fixtures/migration/docker-compose.volumes.yml','tools/fixtures/migration/fake-bot-api.sh',
+            'tools/fixtures/migration-executor-cases.json','.github/workflows/migration-executor.yml']
 
 
 def main():

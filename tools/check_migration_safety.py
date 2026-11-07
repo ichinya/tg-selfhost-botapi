@@ -10,7 +10,8 @@ PATTERNS=('test_migration_contract.py','test_migration_store.py','test_migration
           'test_migration_cli.py','test_migration_integration.py','test_migration_volumes.py',
           'test_migration_helper.py','test_migration_export.py','test_migration_interfaces.py',
           'test_migration_faults.py','test_migration_transport.py','test_migration_preflight.py',
-          'test_migration_readiness.py','test_docs_privacy.py','test_migrator_requests.py')
+          'test_migration_readiness.py','test_docs_privacy.py','test_migrator_requests.py',
+          'test_migration_directions.py')
 
 
 def main():

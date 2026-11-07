@@ -1,0 +1,54 @@
+name: Migration executor
+on:
+  pull_request:
+    paths:
+      - 'tools/**'
+      - 'assets/js/migration-client.mjs'
+      - 'migrate_off_to_self.sh'
+      - 'tg_selfhost_botapi_migrator.html'
+      - 'docker-compose*.yml'
+      - 'docs/**'
+      - '.env.example'
+      - '.github/workflows/migration-executor.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  executor-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Require tracked dependencies and POSIX safety acceptance
+        run: |
+          python3 tools/check_migration_checkout.py
+          python3 tools/check_migration_safety.py --require-posix
+          python3 -m unittest discover -s tools -p 'test_*.py'
+      - name: Check helper UI and wrappers without live credentials
+        run: |
+          node --test tools/test_migration_ui.mjs
+          node tools/migrator_ui_harness.js
+          bash -n migrate_off_to_self.sh
+          sh -n tools/fixtures/migration/fake-bot-api.sh
+          git diff --check
+      - name: Validate both Compose models with a fixture environment
+        run: |
+          fixture_env=$(mktemp)
+          trap 'rm -f "$fixture_env"' EXIT
+          printf '%s\n' 'API_ID=12345' 'API_HASH=test-placeholder' > "$fixture_env"
+          docker compose --env-file "$fixture_env" config --quiet
+          docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.build.yml config --quiet
