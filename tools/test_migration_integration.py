@@ -273,7 +273,7 @@ class WrapperTests(unittest.TestCase):
         copy=self.root/'helper path with spaces'
         (copy/'tools').mkdir(parents=True)
         shutil.copyfile(self.wrapper,copy/self.wrapper.name)
-        for name in ('contract','store','engine','http','probe','reconcile','cli'):
+        for name in ('contract','store','engine','http','probe','reconcile','cli','export'):
             shutil.copyfile(self.wrapper.parent/'tools'/f'migration_{name}.py',copy/'tools'/f'migration_{name}.py')
         self.wrapper=copy/self.wrapper.name
         self.plan()

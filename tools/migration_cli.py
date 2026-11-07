@@ -8,7 +8,7 @@ import sys
 from migration_contract import canonical
 from migration_engine import Engine,Runtime,Stop
 from migration_http import Client
-from migration_probe import Readiness,DockerEvidence,private_json
+from migration_probe import Readiness,CloudReadiness,DockerEvidence,private_json
 from migration_reconcile import apply_external,apply_delivery,TrustedReceipts
 from migration_export import export_operation
 from migration_store import StateStore,Journal,StateError
@@ -251,9 +251,12 @@ def main(argv=None):
             provider=DockerEvidence(args.docker_container,r.target,args.expected_image_id,j.key)
         elif evidence:
             provider=lambda:private_json(evidence)
+        elif r.direction=='local_to_cloud' and r.target.rstrip('/')=='https://api.telegram.org' and not r.fixture:
+            provider=None
         else:
             raise ValueError('deployment evidence required')
-        e=Engine(j,client,Readiness(client,provider,j.key,state_root=store.root),r,verifier=verifier)
+        readiness=CloudReadiness(client,j.key) if provider is None else Readiness(client,provider,j.key,state_root=store.root)
+        e=Engine(j,client,readiness,r,verifier=verifier)
         with j.lock(r.bot_id):
             if args.command=='plan':
                 s=e.prepare(args.operation,quiescence=receipt(args,'quiescence'),url_only_ack=args.ack_url_only,

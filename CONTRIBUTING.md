@@ -61,6 +61,17 @@ Doctor reports follow `tools/doctor.schema.json`; private decisions use input v1
 Check exit codes 0/1/2/3 and keep internal collection failures separate from usage
 errors. Run from a clean candidate without untracked helpers or `tools/__init__.py`.
 
+Migration acceptance uses Python 3.11+ and Node 24 on Linux:
+`python3 tools/check_migration_safety.py --require-posix` and
+`node --test tools/test_migration_ui.mjs`. The dedicated workflow also exercises
+only labelled fixture volumes, never a production bot. Windows passes are not
+POSIX/volume acceptance. A browser timeout is tested separately from lost Bot API
+responses. No live credentials or inference are used by these fixtures.
+
+Приёмка миграции: Python 3.11+, Node 24 и Linux, команды выше. Проверки используют
+mock APIs и временные volumes с точными IDs/labels. Windows-прогон не заменяет
+POSIX/volume-приёмку; потеря ответа UI и Bot API проверяются отдельно.
+
 Update [English](docs/en/README.md) and [Russian](docs/ru/README.md) documentation
 together. Keep the root README short. Documentation changes get a Jekyll build
 and internal-link check in CI; the existing migrator URL must keep working.

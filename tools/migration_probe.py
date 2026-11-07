@@ -85,6 +85,7 @@ class Readiness:
             raise ValueError('token-free target probe failed')
         record=validate_evidence(self.evidence_provider(),endpoint)
         self.local_mode = record.get('local_mode')
+        self.record = record
         if self.state_root:
             for root in record['local_forbidden_roots']:
                 forbidden=Path(root).resolve()
@@ -94,6 +95,18 @@ class Readiness:
         stable['endpoint']=normalize_endpoint(stable['endpoint'])
         stable['local_forbidden_roots']=sorted(stable['local_forbidden_roots'])
         return fingerprint(self.key,canonical(stable))
+
+
+class CloudReadiness:
+    """Public cloud has no operator-managed image/mount/credential evidence."""
+    local_mode = False
+    def __init__(self, client, key):
+        self.client, self.key = client, key
+
+    def check(self, endpoint):
+        if normalize_endpoint(endpoint) != 'https://api.telegram.org' or not protocol_ok(self.client.request(endpoint)):
+            raise ValueError('official cloud protocol probe failed')
+        return fingerprint(self.key, canonical({'role':'official_cloud','endpoint':'https://api.telegram.org','local_mode':False}))
 
 
 class DockerEvidence:
@@ -128,6 +141,18 @@ class DockerEvidence:
         env=dict(v.split('=',1) for v in info['Config']['Env'] if '=' in v)
         if not all(env.get(k) or env.get(k+'_FILE') for k in ('TELEGRAM_API_ID','TELEGRAM_API_HASH')):
             raise ValueError('managed application credentials not configured')
+        for name in ('TELEGRAM_API_ID', 'TELEGRAM_API_HASH'):
+            if env.get(name) and env.get(name+'_FILE'):
+                raise ValueError('managed credential input is ambiguous')
+        # Read credentials only inside the selected container; stdout is empty.
+        credentials = '''set -eu
+v=${TELEGRAM_API_ID:-}; [ -z "${TELEGRAM_API_ID_FILE:-}" ] || v=$(cat "$TELEGRAM_API_ID_FILE")
+case "$v" in ''|*[!0-9]*) exit 1;; esac
+[ "$v" -gt 0 ] && [ "$v" -le 2147483647 ]
+h=${TELEGRAM_API_HASH:-}; [ -z "${TELEGRAM_API_HASH_FILE:-}" ] || h=$(cat "$TELEGRAM_API_HASH_FILE")
+[ "${#h}" -eq 32 ]; case "$h" in *[!0-9a-fA-F]*) exit 1;; esac
+'''
+        self.run('exec',self.container,'sh','-c',credentials)
         work,temp=env.get('TELEGRAM_WORK_DIR','/var/lib/telegram-bot-api'),env.get('TELEGRAM_TEMP_DIR','/tmp/telegram-bot-api')
         mounts={m['Destination']:m for m in info['Mounts']}
         if work not in mounts or not mounts[work]['RW'] or temp in mounts and not mounts[temp]['RW']:

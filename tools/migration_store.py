@@ -281,17 +281,27 @@ def _validate_state(s):
     for attempts in s['steps'].values():
         if not isinstance(attempts, list):
             raise StateError('invalid attempts')
-        for a in attempts:
+        for index,a in enumerate(attempts):
+            if index and attempts[index-1]['events'][-1]['outcome'] not in ('failed','waiting'):
+                raise StateError('confirmed or unknown attempt cannot be repeated')
             if set(a) != {'id','events'} or not re.fullmatch('[0-9a-f]{32}', a['id']) or a['id'] in seen:
                 raise StateError('invalid attempt identity')
             seen.add(a['id'])
             if not isinstance(a['events'], list) or not a['events'] or a['events'][0]['outcome'] != 'in_flight':
                 raise StateError('missing durable intent')
+            previous = None
             for event in a['events']:
                 if set(event) != {'outcome','reason','http_status','api_code','not_before','evidence','time'}:
                     raise StateError('invalid receipt')
                 if event['outcome'] not in ('in_flight','confirmed','failed','unknown','waiting'):
                     raise StateError('invalid outcome')
+                if previous in ('confirmed','failed','waiting'):
+                    raise StateError('terminal receipt cannot be rewritten')
+                if event['outcome'] == 'in_flight' and previous not in (None,'unknown'):
+                    raise StateError('observation intent must follow UNKNOWN')
+                if previous == 'unknown' and event['outcome'] in ('confirmed','failed') and not event['evidence']:
+                    raise StateError('resolution requires evidence')
+                previous = event['outcome']
                 reasons={'intent','interrupted','observation_intent','api_ok','api_rejected','rate_limited',
                          'invalid_retry_after','invalid_json','invalid_api','inconsistent_response','http_ambiguous',
                          'transport_unknown','not_sent','invalid_result','bot_identity_mismatch',
@@ -358,6 +368,10 @@ class Journal:
                 snapshot_change = False  # one-time sealing of source observation after durable reservation
             if previous['digest']!=state['digest'] or previous['deployment']!=state['deployment'] or snapshot_change:
                 raise StateError('immutable plan changed')
+            for name, receipt in previous['checkpoints'].items():
+                if name not in state['checkpoints'] or (name not in ('quiescence','target_verified','delivery')
+                        and state['checkpoints'][name] != receipt):
+                    raise StateError('checkpoint history cannot be removed or rewritten')
             for name in sids(state):
                 old,new=previous['steps'][name],state['steps'][name]
                 if len(new)<len(old):

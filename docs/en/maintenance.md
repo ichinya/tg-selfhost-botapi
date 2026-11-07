@@ -5,6 +5,18 @@ translation: /docs/ru/maintenance.html
 
 # Maintenance
 
+## Migration acceptance
+
+Use the required Linux/Node 24 mock gate documented in CONTRIBUTING. It covers
+response loss before/after effects, per-bot locking, crashes around intent and
+receipt, interface plan parity, helper access and UI response loss. The volume
+gate operates only on exact fixture IDs/labels and preserves production data.
+CI checks that required files are tracked and that no private artifacts enter
+the rendered site. Platform skips are not acceptance. The old curl-specific
+request assertions are retained as reference; executable adapter tests now
+exercise the same loopback protocol/journal as the canonical CLI. Issue #9's
+missing delivery-action fixture is a separate declared workspace baseline.
+
 Restarting the helper requires a new session code and private runtime inputs.
 Keep the same journal/key. Browser disconnect does not cancel the background
 job. Read status and its job result, then resupply credentials before resume.

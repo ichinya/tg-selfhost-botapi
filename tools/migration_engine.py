@@ -33,15 +33,15 @@ class Runtime:
             raise ValueError('invalid bot token format')
         return self.token.split(':',1)[0]
 
-    def plan(self, operation, key):
+    def plan(self, operation, key, deployment=None):
         return build_plan(operation_id=operation,bot_id=self.bot_id,source=self.source,target=self.target,
                           token=self.token,profile=self.profile,action=self.action,drop=self.drop,
                           fixture=self.fixture,key=key,direction=self.direction,local_mode=self.local_mode,
-                          queue_ack=self.queue_ack,cloud_not_before=self.cloud_not_before)
+                          queue_ack=self.queue_ack,cloud_not_before=self.cloud_not_before,deployment=deployment)
 
     def bind(self, state, key):
         # Rebuild also enforces the supported direction and fixture boundary.
-        candidate=self.plan(state['plan']['operation_id'],key)
+        candidate=self.plan(state['plan']['operation_id'],key,state['deployment'])
         if candidate!=state['plan']:
             raise ValueError('runtime bindings changed')
         validate_binding(state['plan'],state['digest'],dict(source=self.source,target=self.target,
@@ -77,6 +77,10 @@ class Engine:
             if not isinstance(receipt, dict) or self.verifier is None:
                 raise Stop('trusted_checkpoint_required')
             value = self.verifier(receipt, kind=kind, state=s)
+        if kind == 'quiescence' and self.r.direction == 'local_to_cloud' and not self.r.fixture:
+            if (value.get('cloud_not_before') != self.r.cloud_not_before or self.r.cloud_not_before is None
+                    or value.get('cloud_availability_verified') is not True or value.get('queue_limitation_ack') is not True):
+                raise Stop('cloud_cooldown_evidence_required')
         if kind == 'application_start' and kind not in s['checkpoints'] and value['observed_at'] < s['checkpoints']['target_verified']['time']:
             raise Stop('application_start_predates_target_verification')
         self.j.checkpoint(s, kind, canonical(value))
@@ -134,6 +138,7 @@ class Engine:
         if supersede and previous is None:
             raise StateError('superseded plan was not found')
         deployment=self.gate()
+        plan=self.r.plan(operation,self.j.key,deployment)
         if previous:
             self.j.supersede(previous,operation)
         # Durable reservation precedes all bot-bearing observations.
@@ -292,7 +297,7 @@ class Engine:
                     'target_fingerprint':s['plan']['target_fingerprint'],
                     'target_deployment':s['deployment'], 'source_closed':True,
                     'no_writers':True, 'layout_valid':True}
-        if any(value.get(k) != v for k,v in expected.items()):
+        if any((value.get(k) is not v) if type(v) is bool else value.get(k) != v for k,v in expected.items()):
             raise Stop('transfer_binding_mismatch')
         if (not isinstance(value.get('source_manifest'), str) or not re.fullmatch('[0-9a-f]{64}',value['source_manifest'])
                 or value.get('target_manifest') != value['source_manifest']
@@ -301,6 +306,9 @@ class Engine:
                 or type(value.get('observed_at')) not in (int,float)
                 or not s['steps']['source_close'][-1]['events'][-1]['time'] <= value['observed_at'] <= time.time()):
             raise Stop('transfer_manifest_or_ownership_unverified')
+        deployment = getattr(self.readiness, 'record', None)
+        if deployment and any(value[k] != deployment['runtime_'+k] for k in ('uid', 'gid')):
+            raise Stop('transfer_runtime_ownership_mismatch')
         self.j.checkpoint(s,'state_transfer',canonical(value))
         self.j.intent(s,'state_transfer')
         self.j.finish(s,'state_transfer','confirmed','external_performed',evidence=fingerprint(self.j.key,canonical(value)))

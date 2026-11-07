@@ -140,7 +140,7 @@ def validate_profile(profile, action):
 
 def build_plan(*, operation_id, bot_id, source, target, token, profile, action, drop,
                key, direction='cloud_to_local', fixture=False, local_mode=True,
-               queue_ack=False, cloud_not_before=None):
+               queue_ack=False, cloud_not_before=None, deployment=None):
     from urllib.parse import urlsplit
     source, target = normalize_endpoint(source), normalize_endpoint(target)
     Direction(direction)
@@ -158,6 +158,8 @@ def build_plan(*, operation_id, bot_id, source, target, token, profile, action, 
         raise ValueError('explicit capabilities required')
     if cloud_not_before is not None and (type(cloud_not_before) not in (int, float) or not 0 <= cloud_not_before <= 1e12):
         raise ValueError('invalid cloud cooldown')
+    if cloud_not_before is not None:
+        cloud_not_before = float(cloud_not_before)
     WebhookAction(action)
     if type(drop) is not bool or not isinstance(token, str) or not token:
         raise ValueError('invalid queue policy or token')
@@ -168,6 +170,7 @@ def build_plan(*, operation_id, bot_id, source, target, token, profile, action, 
                             'token_file':'BOT_TOKEN_FILE','webhook':'WEBHOOK_URL'},
                 drop_step='target_configure' if drop else None,
                 local_mode=local_mode, queue_ack=queue_ack, cloud_not_before=cloud_not_before,
+                deployment_fingerprint=deployment or fingerprint(key, 'unbound-deployment'),
                 steps=registry(direction),
                 **{n + '_fingerprint': fingerprint(key, v) for n, v in
                    (('source', source), ('target', target), ('token', token), ('profile', profile_value))})
@@ -293,7 +296,7 @@ def validate_transition(previous, current, evidence=None):
 def validate_plan(plan):
     fields = {'operation_id', 'bot_id', 'direction', 'engine_version', 'drop_step', 'references', 'fixture', 'source_fingerprint',
               'target_fingerprint', 'token_fingerprint', 'action', 'profile_fingerprint', 'drop', 'steps',
-              'local_mode', 'queue_ack', 'cloud_not_before'}
+              'local_mode', 'queue_ack', 'cloud_not_before', 'deployment_fingerprint'}
     if not isinstance(plan, dict) or set(plan) != fields:
         raise ValueError('invalid plan fields')
     if type(plan['fixture']) is not bool:
@@ -312,7 +315,7 @@ def validate_plan(plan):
         WebhookAction(plan['action'])
     except (ValueError, TypeError) as exc:
         raise ValueError('invalid plan selection') from exc
-    for field in ('source_fingerprint', 'target_fingerprint', 'token_fingerprint', 'profile_fingerprint'):
+    for field in ('source_fingerprint', 'target_fingerprint', 'token_fingerprint', 'profile_fingerprint', 'deployment_fingerprint'):
         if not isinstance(plan[field], str) or not _HEX.fullmatch(plan[field]):
             raise ValueError('invalid fingerprint')
     if type(plan['drop']) is not bool or not isinstance(plan['steps'], list) or not plan['steps']:

@@ -1,0 +1,24 @@
+name: HTML migrator
+on:
+  push:
+    paths: ['assets/**', 'tools/migration_*.py', 'tools/test_migration_*.py', 'tools/migrator_ui_harness.js', 'tools/migrator_request_mock.py', 'tools/test_migrator_*.py', 'tg_selfhost_botapi_migrator.html', 'tools/test_html_migrator.*', 'tools/html_migrator_mock.js', 'docs/en/migration.md', 'docs/ru/migration.md', 'CONTRIBUTING.md', '.github/workflows/html-migrator.yml', '.github/workflows/image.yml']
+  pull_request:
+    paths: ['assets/**', 'tools/migration_*.py', 'tools/test_migration_*.py', 'tools/migrator_ui_harness.js', 'tools/migrator_request_mock.py', 'tools/test_migrator_*.py', 'tg_selfhost_botapi_migrator.html', 'tools/test_html_migrator.*', 'tools/html_migrator_mock.js', 'docs/en/migration.md', 'docs/ru/migration.md', 'CONTRIBUTING.md', '.github/workflows/html-migrator.yml', '.github/workflows/image.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m unittest discover -s tools -p 'test_html_migrator.py' -v
+      - run: python -m unittest discover -s tools -p 'test_*.py' -v

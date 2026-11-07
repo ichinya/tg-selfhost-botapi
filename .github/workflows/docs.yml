@@ -12,6 +12,7 @@ on:
       - 'docs/**'
       - 'tg_selfhost_botapi_migrator.html'
       - 'tools/check_docs.py'
+      - 'tools/test_docs_privacy.py'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
@@ -22,6 +23,7 @@ on:
       - 'assets/**'
       - 'tg_selfhost_botapi_migrator.html'
       - 'tools/check_docs.py'
+      - 'tools/test_docs_privacy.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 

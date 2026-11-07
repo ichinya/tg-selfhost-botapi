@@ -19,7 +19,13 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'migrate_off_to_self.sh'
 REAL_CURL = shutil.which('curl')
 
 
-class MigrationRequestTests(unittest.TestCase):
+class LegacyCurlRequestAssertions:
+    """Historical raw-curl receipt assertions, superseded by the #14 adapter.
+
+    Kept as reference for #11; this is not the contract of the new executor.
+    Executable request coverage below uses the same real loopback fixtures as
+    CLI/core, including the new UNKNOWN/WAITING codes and private journal.
+    """
     @classmethod
     def setUpClass(cls):
         if os.name != 'posix':
@@ -487,6 +493,47 @@ class MigrationRequestTests(unittest.TestCase):
                         proc.communicate()
                     self.mock.release.set()
                 self.reset_run()
+
+
+import test_migration_integration as migration_integration
+
+
+class MigrationRequestTests(migration_integration.WrapperTests):
+    def legacy(self, *args, action=None, **environment):
+        env_file=self.root/'legacy.env'
+        env_file.write_text('API_ID=12345\nAPI_HASH=test-placeholder\n'+
+                            ('MIGRATION_ACTION='+action+'\n' if action else ''),encoding='utf-8')
+        env_file.chmod(0o600)
+        child=subprocess.run(['bash',str(self.wrapper),*args,'--env-file',str(env_file),
+                              '--fixture-loopback','--quiescence-receipt','fixture'],
+                             env={**self.env,**environment},cwd=self.root,stdin=subprocess.DEVNULL,
+                             capture_output=True,text=True,timeout=15)
+        self.assertNotIn(migration_integration.TOKEN,child.stdout+child.stderr)
+        return child
+
+    def test_positional_adapter_only_prepares_a_reviewable_plan(self):
+        child=self.legacy(migration_integration.TOKEN,self.target.endpoint,action='polling')
+        self.assertEqual(child.returncode,2,child.stdout+child.stderr)
+        plan=json.loads(child.stdout.splitlines()[0])
+        self.assertEqual(plan['plan']['action'],'polling')
+        self.assertEqual(self.source.effects['deleteWebhook'],0)
+        self.assertEqual(self.source.effects['logOut'],0)
+        self.assertEqual(self.target.effects['getMe'],0)
+
+    def test_empty_webhook_does_not_select_an_action(self):
+        child=self.legacy(migration_integration.TOKEN,self.target.endpoint)
+        self.assertEqual(child.returncode,4,child.stdout+child.stderr)
+        self.assertEqual(self.trace,[])
+
+    def test_environment_aliases_use_the_same_contract(self):
+        env=dict(self.env)
+        env.pop('SELF_BOT_URL')
+        self.env=env
+        child=self.legacy('--ack-url-only',action='set',TELEGRAM_BOT_URL=self.target.endpoint,
+                          WEB_HOOK='https://receiver.example/private')
+        self.assertEqual(child.returncode,2,child.stdout+child.stderr)
+        self.assertNotIn('receiver.example',child.stdout+child.stderr)
+        self.assertEqual(self.target.effects['setWebhook'],0)
 
 
 class PublishedDiagnosticsTests(unittest.TestCase):

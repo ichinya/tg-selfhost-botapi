@@ -5,6 +5,17 @@ translation: /docs/en/maintenance.html
 
 # Обслуживание
 
+## Приёмка миграции
+
+Обязательный Linux/Node 24 mock-gate описан в CONTRIBUTING: потеря ответа до/после
+эффекта, per-bot lock, crash вокруг intent/receipt, паритет планов интерфейсов,
+доступ к helper и потеря ответа UI. Volume-gate использует только точные
+fixture IDs/labels. CI проверяет tracked зависимости и отсутствие приватных
+файлов в сайте. Платформенные skips не являются приёмкой. Старые curl-specific
+assertions сохранены как справочный код; исполняемые тесты адаптера проверяют
+тот же loopback protocol/journal, что CLI. Отсутствующий delivery-action fixture
+issue #9 остаётся отдельным declared workspace baseline.
+
 После перезапуска helper нужны новый session code и private runtime inputs.
 Сохраняйте прежний журнал/ключ. Browser disconnect не отменяет фоновую задачу.
 Прочитайте status/job result, заново подайте credentials перед resume.
