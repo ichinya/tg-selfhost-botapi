@@ -41,6 +41,15 @@ No binlog, real bot directory, statistics endpoint or state file is fetched.
 Read-only mounts, disabled directory listings and loopback publication do not
 prevent known-file HTTP reads. Unsupported remote file workflows use the boundary
 in issue #5; doctor does not certify or execute neighboring migration helpers.
+## Helper access
+
+The operator startup file allowlists full API endpoints. The loopback helper
+serves fixed routes/assets and accepts no arbitrary Docker command/container.
+One-time bootstrap creates an HttpOnly SameSite=Strict cookie and CSRF token.
+Exact Host/Origin checks reject external/null/file origins. Limits: 256 KiB body,
+ten-second HTTP lifetime, sixteen connections and one background migration.
+Access/body logs are disabled. The helper is never exposed through nginx.
+
 ## Private migration authority
 
 Use one `MIGRATION_STATE_DIR` per operator/host on a private Linux filesystem

@@ -5,6 +5,26 @@ translation: /docs/ru/getting-started.html
 
 # Getting started
 
+## Local migration UI
+
+Use Linux/WSL, Python 3.11+ and a private Linux state directory. Create a
+mode-0600 helper JSON file outside the checkout:
+
+```json
+{"state_dir":"/home/operator/.local/state/tg-selfhost-botapi/migrations","allowed_endpoints":["https://api.telegram.org","http://bot-api.internal:8081"],"evidence_file":"/home/operator/private/deployment.json","trust_file":"/home/operator/private/providers.json","fixture":false}
+```
+
+Supply fresh deployment evidence and independent trusted provider keys.
+Without them real external checkpoints stay blocked. Start explicitly:
+
+```sh
+python3 tools/migration_helper.py --config "$HELPER_CONFIG" --port 8765
+```
+
+Open `http://127.0.0.1:8765/` and enter the one-time code printed in the terminal.
+UI/API share this origin. Pages only explains this workflow. For a remote host:
+`ssh -N -L 8765:127.0.0.1:8765 operator@HOST`, then the exact same local URL.
+
 ## Requirements
 
 - Docker with Compose v2.

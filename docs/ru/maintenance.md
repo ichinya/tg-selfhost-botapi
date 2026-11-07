@@ -5,6 +5,11 @@ translation: /docs/en/maintenance.html
 
 # Обслуживание
 
+После перезапуска helper нужны новый session code и private runtime inputs.
+Сохраняйте прежний журнал/ключ. Browser disconnect не отменяет фоновую задачу.
+Прочитайте status/job result, заново подайте credentials перед resume.
+Locator операции не является полномочием.
+
 ## Восстановление журнала миграции
 
 Сохраняйте весь приватный каталог **вместе с `binding.key`**, когда операции

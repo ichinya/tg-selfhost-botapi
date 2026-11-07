@@ -5,6 +5,26 @@ translation: /docs/en/getting-started.html
 
 # Установка
 
+## Локальный UI миграции
+
+Нужны Linux/WSL, Python 3.11+ и приватное состояние на Linux ФС. Создайте
+helper JSON с правами 0600 вне checkout:
+
+```json
+{"state_dir":"/home/operator/.local/state/tg-selfhost-botapi/migrations","allowed_endpoints":["https://api.telegram.org","http://bot-api.internal:8081"],"evidence_file":"/home/operator/private/deployment.json","trust_file":"/home/operator/private/providers.json","fixture":false}
+```
+
+Отдельно подготовьте свежее deployment evidence и независимые trusted provider
+keys; без них реальные внешние checkpoints блокируются. Запустите явно:
+
+```sh
+python3 tools/migration_helper.py --config "$HELPER_CONFIG" --port 8765
+```
+
+Откройте `http://127.0.0.1:8765/`, введите одноразовый код из терминала.
+UI/API работают с одного origin. Pages только объясняет запуск. Удалённый хост:
+`ssh -N -L 8765:127.0.0.1:8765 operator@HOST`, затем тот же локальный URL.
+
 ## Требования
 
 - Docker с Compose v2.

@@ -43,6 +43,15 @@ Binlog, реальные каталоги ботов, statistics и state files 
 Read-only mounts, запрет листинга и публикация на loopback не предотвращают
 HTTP-чтение известного файла. Для неподдерживаемого remote file workflow используется
 граница #5; doctor не сертифицирует и не запускает соседние helpers.
+## Доступ к helper
+
+Оператор задаёт allowlist полных API endpoints в startup-файле. Loopback helper
+отдаёт фиксированные routes/assets, не принимает Docker command/container.
+Одноразовый bootstrap создаёт HttpOnly SameSite=Strict cookie и CSRF token.
+Точные Host/Origin проверки отвергают external/null/file origins. Лимиты:
+body 256 KiB, HTTP lifetime десять секунд, шестнадцать соединений и одна фоновая
+миграция. Access/body logs отключены. Helper не публикуется через nginx.
+
 ## Приватное состояние миграции
 
 Используйте один `MIGRATION_STATE_DIR` на оператора/хост в приватной Linux ФС

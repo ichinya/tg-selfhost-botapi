@@ -170,7 +170,9 @@ def view(j,s):
         aggregate='blocked'
     return dict(operation_id=s['plan']['operation_id'],digest=s['digest'],steps=steps,
                 aggregate=aggregate,results=results,checkpoints=list(s['checkpoints']),plan=s['plan'],
-                attempts={name:a[-1]['id'] if a else None for name,a in s['steps'].items()})
+                attempts={name:a[-1]['id'] if a else None for name,a in s['steps'].items()},
+                receipts={name:a[-1]['events'] if a else [] for name,a in s['steps'].items()},
+                profile_scope='bound_private_profile',freshness='saved_receipts_only')
 
 
 def receipt(args, name):

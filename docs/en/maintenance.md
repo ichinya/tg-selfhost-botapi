@@ -5,6 +5,11 @@ translation: /docs/ru/maintenance.html
 
 # Maintenance
 
+Restarting the helper requires a new session code and private runtime inputs.
+Keep the same journal/key. Browser disconnect does not cancel the background
+job. Read status and its job result, then resupply credentials before resume.
+An operation locator is not authorization.
+
 ## Recovering the migration journal
 
 Back up the whole private authority **together with `binding.key`** while idle.
