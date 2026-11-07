@@ -2,6 +2,13 @@ import http.client
 import json
 import threading
 import unittest
+import time
+from unittest.mock import patch
+import contextlib
+import io
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from migration_helper import Server
 
 
@@ -70,3 +77,57 @@ class HelperTests(unittest.TestCase):
         status,_,body=self.call('GET','/api/hello')
         self.assertEqual(status,200)
         self.assertNotIn(b'csrf',body)
+
+    def test_expired_bootstrap_and_session_do_not_reach_application(self):
+        self.server.bootstrap_expires = time.monotonic() - 1
+        self.assertEqual(self.call('POST', '/api/session', {'code': self.server.bootstrap})[0], 400)
+        self.server.bootstrap_expires = time.monotonic() + 300
+        self.login()
+        token = self.cookie.split('=', 1)[1]
+        self.server.sessions[token] = (self.csrf, time.monotonic() - 1)
+        self.assertEqual(self.call('GET', '/api/status?operation=op')[0], 401)
+        self.assertEqual(self.call('POST', '/api/apply', {'operation_id': 'op'})[0], 403)
+        self.assertEqual(self.app.effects, 0)
+
+
+class BootstrapOutputTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'posix', 'private bootstrap file acceptance requires Linux/WSL')
+    def test_private_bootstrap_file_rejects_reuse_state_and_unsafe_parent(self):
+        from migration_helper import write_bootstrap
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / 'state'
+            state.mkdir(mode=0o700)
+            path = root / 'pairing-code'
+            write_bootstrap(path, 'fixture-pairing', [state])
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(path.read_text(), 'fixture-pairing\n')
+            with self.assertRaises(FileExistsError):
+                write_bootstrap(path, 'replacement', [state])
+            with self.assertRaises(ValueError):
+                write_bootstrap(state / 'pairing-code', 'fixture-pairing', [state])
+            alias = root / 'alias'
+            alias.symlink_to(state, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                write_bootstrap(alias / 'pairing-code', 'fixture-pairing', [])
+            root.chmod(0o755)
+            try:
+                with self.assertRaises(ValueError):
+                    write_bootstrap(root / 'unsafe', 'fixture-pairing', [])
+            finally:
+                root.chmod(0o700)
+
+    def test_startup_does_not_print_pairing_credentials(self):
+        from migration_helper import main
+        output = io.StringIO()
+        with patch('sys.argv', ['helper', '--config', 'private-config', '--bootstrap-file', 'private-code']), \
+             patch('migration_helper.private_json', return_value={}), \
+             patch('migration_helper.Application') as app, \
+             patch('migration_helper.Server') as server, \
+             patch('migration_helper.write_bootstrap') as save, contextlib.redirect_stdout(output):
+            app.return_value.config = {'state_dir': 'state'}
+            server.return_value.origin = 'http://127.0.0.1:8765'
+            server.return_value.bootstrap = 'canary-bootstrap-private'
+            self.assertEqual(main(), 0)
+            save.assert_called_once_with('private-code', 'canary-bootstrap-private', ['state'])
+        self.assertNotIn('canary-bootstrap-private', output.getvalue())

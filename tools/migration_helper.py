@@ -6,6 +6,9 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import secrets
 import threading
+import time
+import os
+import stat
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from migration_cli import view
@@ -21,6 +24,37 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = {'/': ('tg_selfhost_botapi_migrator.html', 'text/html; charset=utf-8'),
           '/tg_selfhost_botapi_migrator.html': ('tg_selfhost_botapi_migrator.html', 'text/html; charset=utf-8'),
           '/assets/js/migration-client.mjs': ('assets/js/migration-client.mjs', 'text/javascript; charset=utf-8')}
+
+BOOTSTRAP_TTL = 300
+SESSION_TTL = 3600
+
+
+def write_bootstrap(path, code, forbidden_roots):
+    """Create a private bootstrap file outside the checkout and state mounts."""
+    if os.name != 'posix':
+        raise ValueError('bootstrap file requires Linux/WSL')
+    path = Path(path).absolute()
+    parent = path.parent.resolve(strict=True)
+    if parent != path.parent:
+        raise ValueError('bootstrap parent must not contain symlinks or traversal')
+    for root in (ROOT, *forbidden_roots):
+        root = Path(root).resolve()
+        if parent == root or root in parent.parents:
+            raise ValueError('bootstrap file must be outside checkout and state roots')
+    directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(directory)
+        if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError('bootstrap parent must be owned by operator with mode 0700')
+        fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     0o600, dir_fd=directory)
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            stream.write(code + '\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 class Application:
@@ -152,6 +186,7 @@ class Server(ThreadingHTTPServer):
     def __init__(self, app, port=8765):
         self.app=app
         self.bootstrap=secrets.token_urlsafe(32)
+        self.bootstrap_expires=time.monotonic()+BOOTSTRAP_TTL
         self.sessions={}
         self.auth_lock=threading.Lock()
         self.login_attempts=0
@@ -221,7 +256,14 @@ class Handler(BaseHTTPRequestHandler):
         except (KeyError,ValueError):
             return None
         with self.server.auth_lock:
-            return self.server.sessions.get(token)
+            session = self.server.sessions.get(token)
+            if session is None:
+                return None
+            csrf, expires = session
+            if time.monotonic() >= expires:
+                del self.server.sessions[token]
+                return None
+            return csrf
 
     def allowed(self, write=False):
         if (len(self.path)>2048 or len(self.headers.get_all('Host',[]))!=1
@@ -280,12 +322,13 @@ class Handler(BaseHTTPRequestHandler):
                 with self.server.auth_lock:
                     self.server.login_attempts+=1
                     if (set(body)!={'code'} or not isinstance(body['code'],str) or not self.server.bootstrap
+                            or time.monotonic() >= self.server.bootstrap_expires
                             or self.server.login_attempts>5 or not secrets.compare_digest(body['code'],self.server.bootstrap)):
                         raise ValueError('invalid bootstrap')
                     self.server.bootstrap=None
                     token,csrf=secrets.token_urlsafe(32),secrets.token_urlsafe(32)
-                    self.server.sessions[token]=csrf
-                self.reply(200,{'csrf':csrf},cookie='migration_session='+token+'; HttpOnly; SameSite=Strict; Path=/')
+                    self.server.sessions[token]=(csrf,time.monotonic()+SESSION_TTL)
+                self.reply(200,{'csrf':csrf},cookie='migration_session='+token+'; HttpOnly; SameSite=Strict; Path=/; Max-Age='+str(SESSION_TTL))
                 return
             csrf=self.session()
             if not csrf or not secrets.compare_digest(self.headers.get('X-CSRF-Token',''),csrf):
@@ -312,13 +355,16 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser=argparse.ArgumentParser(description='Start private loopback migration UI (Linux/WSL).')
     parser.add_argument('--config',required=True)
+    parser.add_argument('--bootstrap-file',required=True)
     parser.add_argument('--port',type=int,default=8765)
     args=parser.parse_args()
     app=server=None
     try:
         app=Application(private_json(args.config))
         server=Server(app,args.port)
-        print('Open '+server.origin+'; one-time session code: '+server.bootstrap,flush=True)
+        write_bootstrap(args.bootstrap_file, server.bootstrap,
+                        [app.config['state_dir'], *app.config.get('forbidden_state_roots', [])])
+        print('Open '+server.origin+'; read the one-time code from the selected bootstrap file.',flush=True)
         server.serve_forever(poll_interval=.25)
     except KeyboardInterrupt:
         pass

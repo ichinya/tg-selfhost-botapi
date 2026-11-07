@@ -18,10 +18,15 @@ Supply fresh deployment evidence and independent trusted provider keys.
 Without them real external checkpoints stay blocked. Start explicitly:
 
 ```sh
-python3 tools/migration_helper.py --config "$HELPER_CONFIG" --port 8765
+python3 tools/migration_helper.py --config "$HELPER_CONFIG" --bootstrap-file "$PAIRING_FILE" --port 8765
 ```
 
-Open `http://127.0.0.1:8765/` and enter the one-time code printed in the terminal.
+Select a new `PAIRING_FILE` in an operator-owned mode-0700 directory outside the
+checkout, journal and Bot API mounts. The helper creates it with mode 0600 and
+refuses to overwrite existing files. Read the code privately from that file and
+enter it at `http://127.0.0.1:8765/`; it is never printed in startup logs.
+Pairing expires after five minutes; authenticated sessions expire after one hour.
+Restart the helper with a fresh pairing file to establish a new session.
 UI/API share this origin. Pages only explains this workflow. For a remote host:
 `ssh -N -L 8765:127.0.0.1:8765 operator@HOST`, then the exact same local URL.
 

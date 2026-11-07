@@ -131,7 +131,7 @@ returns code 2 for separate digest confirmation; it does not auto-apply.
 
 [The retained migrator URL](../../tg_selfhost_botapi_migrator.html) is an entry
 screen on Pages. [Start the helper](getting-started.md#local-migration-ui), connect
-with the terminal code, choose direction/action/mode and submit Plan. Review the
+with the private pairing-file code, choose direction/action/mode and submit Plan. Review the
 ID/digest, profile scope, drop policy and ordered steps. Real plan preparation can
 seal a reviewable plan without source observations; apply needs fresh signed
 quiescence. Re-enter the reviewed digest and submit the required provider receipts.

@@ -228,7 +228,7 @@ PYTHONPATH=tools python3 - <<'PY'
 import json, os, tempfile
 from pathlib import Path
 from migration_mock import Bot, TOKEN, deployment
-from migration_helper import Application, Server
+from migration_helper import Application, Server, write_bootstrap
 root = Path(tempfile.mkdtemp(prefix="botapi-fixture-"))
 source, target = Bot("source"), Bot("target")
 direction = os.environ.get("MIGRATION_FIXTURE_DIRECTION", "cloud_to_local")
@@ -241,7 +241,9 @@ evidence.chmod(0o600)
 app = Application({"state_dir": str(root / "state"), "allowed_endpoints": [source.endpoint, target.endpoint],
                    "evidence_file": str(evidence), "trust_file": None, "fixture": True})
 server = Server(app, 8765)
-print("Synthetic fixture only:", server.origin, "code:", server.bootstrap, flush=True)
+pairing = root / "pairing-code"
+write_bootstrap(pairing, server.bootstrap, [root / "state"])
+print("Synthetic fixture only:", server.origin, "private pairing file:", pairing, flush=True)
 print("Source:", source.endpoint, "Target:", endpoint, "Token:", TOKEN, "Direction:", direction, flush=True)
 print("Retained fixture authority:", root, flush=True)
 try:
@@ -253,7 +255,7 @@ finally:
 PY
 ```
 
-1. Connect using the printed one-time code. Enter the printed fixture endpoints/
+1. Read the one-time code privately from the pairing file. Enter the printed fixture endpoints/
    synthetic token, matching direction/mode, explicit polling and quiescence JSON
    `"fixture"`. Local → Cloud also selects queue acknowledgement and cooldown 0.
 2. Plan, review the digest, then Apply. Confirm source detach precedes target

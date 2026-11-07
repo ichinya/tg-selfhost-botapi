@@ -130,7 +130,7 @@ Legacy-mode выводит plan и возвращает
 
 [Прежний URL мигратора](../../tg_selfhost_botapi_migrator.html) на Pages показывает
 входной экран. [Запустите helper](getting-started.md#локальный-ui-миграции), введите
-код из терминала, выберите direction/action/mode и нажмите Plan. Проверьте
+код из приватного pairing-файла, выберите direction/action/mode и нажмите Plan. Проверьте
 ID/digest, scope профиля, drop и порядок шагов. Реальная подготовка может
 создать sealed plan без наблюдений source; apply требует свежей подписанной
 quiescence. Введите проверенный digest и необходимые provider receipts.
