@@ -68,6 +68,8 @@ class Engine:
         return 'source_close' if 'source_close' in s['steps'] else 'source_logout' if 'source_logout' in s['steps'] else None
 
     def checkpoint(self, s, kind, receipt):
+        if self.r.fixture and kind in ('endpoint_change', 'application_start') and kind in s['checkpoints']:
+            return None
         if self.r.fixture and isinstance(receipt, str) and receipt:
             value = {'kind': kind, 'operation_id': s['plan']['operation_id'], 'digest': s['digest'],
                      'observed_at': time.time(), 'provenance': 'fixture', 'reference': receipt}
@@ -75,7 +77,7 @@ class Engine:
             if not isinstance(receipt, dict) or self.verifier is None:
                 raise Stop('trusted_checkpoint_required')
             value = self.verifier(receipt, kind=kind, state=s)
-        if kind == 'application_start' and value['observed_at'] < s['checkpoints']['target_verified']['time']:
+        if kind == 'application_start' and kind not in s['checkpoints'] and value['observed_at'] < s['checkpoints']['target_verified']['time']:
             raise Stop('application_start_predates_target_verification')
         self.j.checkpoint(s, kind, canonical(value))
         return value
@@ -116,7 +118,7 @@ class Engine:
         plan=self.r.plan(operation,self.j.key)  # validation before any API
         if self.j.bot!=self.r.bot_id:
             raise StateError('per-bot lock required')
-        if not quiescence or self.r.profile.get('mode') == 'url_only' and not url_only_ack:
+        if (not quiescence and self.r.fixture) or self.r.profile.get('mode') == 'url_only' and not url_only_ack:
             raise Stop('quiescence_and_profile_ack_required')
         # Reserve exclusivity before even a source snapshot.
         previous=None
@@ -136,6 +138,8 @@ class Engine:
             self.j.supersede(previous,operation)
         # Durable reservation precedes all bot-bearing observations.
         state=self.j.create(plan,None,deployment=deployment)
+        if not quiescence:
+            return state  # sealed reviewable plan; source observations wait for a signed checkpoint
         self.checkpoint(state,'quiescence',quiescence)
         self.prepare_snapshot(state)
         return state
@@ -309,6 +313,12 @@ class Engine:
             s['results']['migration_outcome']='partial'
             self.j.save(s)
             raise Stop('target_configuration_drift')
+        if self.r.profile.get('mode') == 'full':
+            for field in ('allowed_updates', 'max_connections', 'ip_address'):
+                if field in self.r.profile and info.get(field) != self.r.profile[field]:
+                    s['results']['webhook_configuration']='failed'
+                    self.j.save(s)
+                    raise Stop('target_configuration_drift')
         s['results']['webhook_configuration']='confirmed'
         self.j.checkpoint(s,'target_verified',canonical(info))
         self.j.save(s)
@@ -316,3 +326,16 @@ class Engine:
     def reconcile_unknown(self,s):
         from migration_reconcile import reconcile_allowed
         reconcile_allowed(self,s)
+
+    def refresh(self, s):
+        """Explicit phase-aware refresh; offline status never calls this."""
+        self.r.bind(s, self.j.key)
+        self.j.recover(s)
+        detach = self.detach(s)
+        if detach and self.j.outcome(s, detach) == 'unknown':
+            raise Stop('detach_evidence_required')
+        self.gate(s)
+        self.reconcile_unknown(s)
+        if self.j.outcome(s, 'target_configure') == 'confirmed':
+            self.verify_target(s)
+        return self.summary(s)

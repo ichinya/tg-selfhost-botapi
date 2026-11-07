@@ -31,6 +31,15 @@ After detach a target failure is PARTIAL. Readiness, migration, webhook settings
 and delivery have separate outcomes; delivery starts as NOTRUN. A full preserve
 profile without verifiable original private settings fails closed before detach.
 
+`status` is offline. `status --refresh` and `resume` reconcile only observations
+permitted by the current phase. UNKNOWN logOut/close never triggers bot-bearing
+probes on either side. UNKNOWN drop or hidden secret/certificate configuration
+requires independent evidence. Real checkpoints/effects/delivery require receipts
+signed by an explicitly configured, independent audit provider; JSON fields or
+an operator checkbox alone are insufficient. The first release supplies the HMAC
+provider boundary, not a platform-specific audit collector. Fixture trust is
+restricted to fixture operations. Historical confirmed receipts survive drift.
+
 A migration changes the Bot API endpoint used by your application and may also
 change its webhook. Know the old endpoint before starting. Do not use cloud
 `getMe` as a neutral discovery request: token-bearing calls can affect sessions.

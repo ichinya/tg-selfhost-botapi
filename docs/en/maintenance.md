@@ -13,6 +13,13 @@ corrupt or unsupported state block continuation. Interrupted durable intents
 become UNKNOWN. Restore the original authority and reconcile the same operation;
 starting an empty state root cannot establish whether a remote effect occurred.
 
+After a UI timeout read the same operation's offline status first. If only the
+browser lost the response, durable receipts still apply. If the Bot API response
+was lost, reconcile UNKNOWN with a trusted provider receipt bound to the exact
+operation/digest/attempt/endpoints/token and observation time. Without evidence,
+keep it blocked. A changed token/deployment/profile requires investigation and
+review, preserving the original journal; never erase confirmed history.
+
 ## Image pipeline
 
 The image workflow checks official tdlib source and the Alpine 3.22 digest every

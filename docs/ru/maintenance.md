@@ -13,6 +13,13 @@ translation: /docs/en/maintenance.html
 продолжение. Незавершённый intent становится UNKNOWN. Верните исходный журнал
 и сверяйте ту же операцию; пустой state root не доказывает отсутствие эффекта.
 
+После timeout UI сначала прочитайте offline status той же операции. Потеря
+ответа только браузером не отменяет durable receipts. При потере ответа Bot API
+сверьте UNKNOWN по trusted provider receipt с точными operation/digest/attempt,
+endpoint/token bindings и временем. Без доказательств сохраняйте блокировку.
+Изменение токена/deployment/профиля требует разбора и проверки с сохранением
+исходного журнала; подтверждённую историю нельзя стирать.
+
 ## Сборка образа
 
 Workflow проверяет официальный исходник tdlib и digest Alpine 3.22 каждую ночь

@@ -1,6 +1,8 @@
 """Evidence binding and permitted observations; JSON is not proof of provenance."""
 import re
 import time
+import hashlib
+import hmac
 from migration_contract import canonical,fingerprint
 from migration_engine import Stop,snapshot_value
 
@@ -8,12 +10,15 @@ from migration_engine import Stop,snapshot_value
 def validate_external(s,record,*,now=None):
     fields={'version','operation_id','step_id','attempt_id','endpoint_fingerprint','token_fingerprint',
             'observed_at','outcome','provenance'}
-    if not isinstance(record,dict) or set(record)!=fields or type(record['version']) is not int or record['version']!=1:
+    extra = {'digest','source_fingerprint','target_fingerprint','kind'}
+    if not isinstance(record,dict) or not fields <= set(record) or set(record)-fields-extra or type(record['version']) is not int or record['version']!=1:
         raise ValueError('incomplete independent evidence')
     step=record['step_id']
     if step not in s['steps'] or not s['steps'][step]:
         raise ValueError('unknown evidence attempt')
     attempt=s['steps'][step][-1]
+    if 'digest' in record and record['digest'] != s['digest']:
+        raise ValueError('evidence digest mismatch')
     side='source' if step.startswith('source_') else 'target'
     for n,v in [('operation_id',s['plan']['operation_id']),('attempt_id',attempt['id']),
                 ('endpoint_fingerprint',s['plan'][side+'_fingerprint']),('token_fingerprint',s['plan']['token_fingerprint'])]:
@@ -37,7 +42,11 @@ def validate_external(s,record,*,now=None):
     return step
 
 
-def apply_external(journal,s,record):
+def apply_external(journal,s,record,verifier=None):
+    if not s['plan']['fixture']:
+        if verifier is None:
+            raise ValueError('trusted independent provider required')
+        record = verifier(record, kind='effect', state=s)
     step=validate_external(s,record)
     if journal.outcome(s,step)!='unknown':
         raise ValueError('evidence requires an unknown attempt')
@@ -81,7 +90,7 @@ def reconcile_allowed(engine,s):
             if not matched:
                 raise Stop('target_authorization_unresolved')
         else:
-            if r.drop:
+            if r.drop or r.profile.get('mode') == 'full':
                 raise Stop('drop_effect_requires_independent_evidence')
             info=snapshot_value(engine.observe(r.target,'getWebhookInfo'))
             wanted='' if r.action=='polling' else r.profile['url']
@@ -92,7 +101,13 @@ def reconcile_allowed(engine,s):
             j.finish(s,step,'confirmed','target_configuration_observed',evidence=evidence)
 
 
-def apply_delivery(journal,s,record):
+def apply_delivery(journal,s,record,verifier=None):
+    if not s['plan']['fixture']:
+        if verifier is None:
+            raise ValueError('trusted delivery provider required')
+        payload = verifier(record, kind='delivery', state=s)
+        record = {k:v for k,v in payload.items() if k in {
+            'operation_id','target_fingerprint','received_at','update_id','payload_digest','consumer_id','mode','provenance'}}
     fields={'operation_id','target_fingerprint','received_at','update_id','payload_digest','consumer_id','mode','provenance'}
     if not isinstance(record,dict) or set(record)!=fields:
         raise ValueError('incomplete delivery receipt')
@@ -112,3 +127,48 @@ def apply_delivery(journal,s,record):
     journal.checkpoint(s,'delivery',canonical(record))
     s['results']['delivery_verification']=record['mode']
     journal.save(s)
+
+
+class TrustedReceipts:
+    """Explicit HMAC audit-provider boundary; operators provision private keys.
+
+    Possession of a JSON document or an arbitrary verified_by field is not
+    trust. Provider keys must be independent of the journal binding key.
+    No provider is installed or implicitly trusted by this module.
+    """
+    def __init__(self, config):
+        if not isinstance(config,dict) or set(config) != {'providers'} or not isinstance(config['providers'],dict):
+            raise ValueError('invalid trusted provider configuration')
+        self.providers = config['providers']
+        for name, value in self.providers.items():
+            if (not re.fullmatch('[A-Za-z0-9_-]{1,64}',name) or not isinstance(value,dict)
+                    or set(value) != {'key_hex','kinds','fixture'}
+                    or not isinstance(value['key_hex'],str) or not re.fullmatch('[0-9a-f]{64,128}',value['key_hex'])
+                    or len(value['key_hex']) % 2 or not isinstance(value['kinds'],list)
+                    or any(k not in ('effect','quiescence','endpoint_change','application_start','state_transfer','delivery') for k in value['kinds'])
+                    or type(value['fixture']) is not bool):
+                raise ValueError('invalid trusted provider')
+
+    def __call__(self, envelope, *, kind, state):
+        if not isinstance(envelope,dict) or set(envelope) != {'provider','payload','signature'}:
+            raise ValueError('signed provider receipt required')
+        provider = self.providers.get(envelope['provider'])
+        if not provider or kind not in provider['kinds'] or provider['fixture'] != state['plan']['fixture']:
+            raise ValueError('provider is not trusted for this operation')
+        value = envelope['payload']
+        signature = hmac.new(bytes.fromhex(provider['key_hex']),canonical(value).encode(),hashlib.sha256).hexdigest()
+        if not isinstance(envelope['signature'],str) or not hmac.compare_digest(signature,envelope['signature']):
+            raise ValueError('invalid provider signature')
+        required = dict(version=1,kind=kind,operation_id=state['plan']['operation_id'],digest=state['digest'],
+                        source_fingerprint=state['plan']['source_fingerprint'],target_fingerprint=state['plan']['target_fingerprint'],
+                        token_fingerprint=state['plan']['token_fingerprint'])
+        if not isinstance(value,dict) or any(value.get(k) != v for k,v in required.items()):
+            raise ValueError('provider receipt binding mismatch')
+        observed = value.get('observed_at')
+        if type(observed) not in (int,float) or not 0 <= time.time()-observed <= 300:
+            raise ValueError('provider receipt is not fresh')
+        if kind == 'quiescence' and value.get('no_writers') is not True:
+            raise ValueError('quiescence is not verified')
+        if kind in ('endpoint_change','application_start') and value.get('endpoint_fingerprint') != state['plan']['target_fingerprint']:
+            raise ValueError('application endpoint is not verified')
+        return value
