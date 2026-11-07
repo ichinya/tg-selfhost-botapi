@@ -93,7 +93,7 @@ def reconcile_allowed(engine,s):
             if r.drop or r.profile.get('mode') == 'full':
                 raise Stop('drop_effect_requires_independent_evidence')
             info=snapshot_value(engine.observe(r.target,'getWebhookInfo'))
-            wanted='' if r.action=='polling' else r.profile['url']
+            wanted='' if r.profile['mode']=='polling' else r.profile['url']
             if info['url']!=wanted:
                 raise Stop('target_configuration_unresolved')
             # URL-only is an explicit limitation, never a hidden-profile claim.

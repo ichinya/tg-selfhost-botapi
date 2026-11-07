@@ -5,6 +5,15 @@ from migration_contract import build_plan, validate_plan, validate_binding, plan
 
 
 class ContractTests(unittest.TestCase):
+    def test_preserve_polling_and_reject_destructive_noop(self):
+        plan = self.plan(action='preserve', profile={'mode': 'polling'}, drop=False)
+        self.assertEqual(plan['profile_scope'], 'polling')
+        with self.assertRaises(ValueError):
+            self.plan(direction='webhook_only', target='https://api.telegram.org',
+                      action='preserve', profile={'mode': 'polling'}, drop=True)
+        with self.assertRaises(ValueError):
+            self.plan(action='set', profile={'mode': 'polling'})
+
     def plan(self, **overrides):
         values = dict(operation_id='op1', bot_id='123', source='https://api.telegram.org',
                       target='https://target.example/prefix/', token='123:synthetic',

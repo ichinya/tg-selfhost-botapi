@@ -103,7 +103,7 @@ def decode_json(value):
 
 
 def validate_profile(profile, action):
-    if action == 'polling':
+    if action == 'polling' or action == 'preserve' and profile == {'mode': 'polling'}:
         if profile != {'mode': 'polling'}:
             raise ValueError('polling profile required')
     else:
@@ -313,7 +313,9 @@ def validate_plan(plan):
             raise ValueError('invalid identifier')
     if not __import__('re').fullmatch('[1-9][0-9]*', plan['bot_id']):
         raise ValueError('numeric bot identity required')
-    if plan['profile_scope'] not in ('polling','url_only','full') or (plan['profile_scope']=='polling') != (plan['action']=='polling'):
+    if (plan['profile_scope'] not in ('polling','url_only','full')
+            or plan['action'] == 'polling' and plan['profile_scope'] != 'polling'
+            or plan['action'] == 'set' and plan['profile_scope'] == 'polling'):
         raise ValueError('invalid delivery profile scope')
     try:
         Direction(plan['direction'])
@@ -325,6 +327,8 @@ def validate_plan(plan):
             raise ValueError('invalid fingerprint')
     if type(plan['drop']) is not bool or not isinstance(plan['steps'], list) or not plan['steps']:
         raise ValueError('invalid plan')
+    if plan['direction'] == 'webhook_only' and plan['action'] == 'preserve' and plan['drop']:
+        raise ValueError('no-op preserve cannot drop pending updates')
     if plan['drop_step'] != ('target_configure' if plan['drop'] else None):
         raise ValueError('drop must occur only on target configuration')
     if type(plan['local_mode']) is not bool or type(plan['queue_ack']) is not bool:

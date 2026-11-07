@@ -21,6 +21,7 @@
     {"id": "webhook-set", "direction": "webhook_only", "action": "set", "acceptance": ["AC2", "AC8"]},
     {"id": "webhook-polling", "direction": "webhook_only", "action": "polling", "acceptance": ["AC2", "AC8"]}
   ],
+  "variants": ["preserve_source_polling"],
   "acceptance_tests": {
     "AC1": ["test_migration_contract.py", "test_migration_directions.py"],
     "AC2": ["test_migration_interfaces.py", "test_migration_export.py", "test_migration_directions.py"],

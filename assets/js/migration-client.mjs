@@ -101,7 +101,7 @@ export async function boot(document, location, dependencies = {}) {
   const runtime = () => {
     const action = $('action').value;
     if (!action) throw Error('Choose an explicit delivery action / Выберите действие');
-    const profile = action === 'polling' ? {mode: 'polling'} :
+    const profile = action === 'polling' || $('scope').value === 'polling' ? {mode: 'polling'} :
       {mode: $('scope').value, url: $('webhook').value, ...(json('profile') || {})};
     return {source: $('source').value, target: $('target').value, token: $('token').value, profile,
       action, drop: $('drop').checked, direction: $('direction').value, local_mode: $('local-mode').value === 'true',

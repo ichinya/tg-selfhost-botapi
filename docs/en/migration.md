@@ -161,6 +161,13 @@ always uses drop=false; explicit target drop has one durable attempt and cannot
 be inferred from pending_update_count after a lost response. No exactly-once or
 uninterrupted queue guarantee is claimed across the remote API boundary.
 
+To preserve source polling, explicitly select action `preserve` with the private
+profile `{"mode":"polling"}` (the UI has a matching scope option). After detach,
+the executor deletes any old target webhook and requires an empty URL readback.
+Webhook-only preserve is a verified no-op; combining it with drop is rejected
+before API calls. The acceptance matrix includes all twelve direction/action
+combinations plus four preserved-polling variants against loopback HTTP mocks.
+
 See [recovery](maintenance.md#recovering-the-migration-journal),
 [private configuration](configuration.md#private-migration-authority) and the
 [offline fixture walkthrough](maintenance.md#isolated-mock-walkthrough).

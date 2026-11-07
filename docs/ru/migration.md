@@ -161,6 +161,13 @@ allowed_updates, max_connections и ip_address. Храните его в private
 имеет durable attempt и после потери ответа не выводится из pending_update_count.
 Exactly-once и непрерывность очереди через удалённый API не обещаются.
 
+Для сохранения polling источника явно выберите action `preserve` с приватным
+профилем `{"mode":"polling"}` (в UI есть соответствующая область профиля).
+После detach исполнитель удалит старый webhook на target и проверит пустой URL.
+Webhook-only preserve — проверяемый no-op; сочетание с drop отклоняется до API.
+Матрица приёмки проверяет двенадцать сочетаний направления и действия и четыре
+варианта сохранения polling на настоящих HTTP mocks с loopback-адресами.
+
 См. [восстановление](maintenance.md#восстановление-журнала-миграции),
 [private configuration](configuration.md#приватное-состояние-миграции) и
 [изолированный mock walkthrough](maintenance.md#isolated-mock-walkthrough).

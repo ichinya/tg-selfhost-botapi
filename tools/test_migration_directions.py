@@ -31,14 +31,16 @@ class DirectionMatrixTests(unittest.TestCase):
                 self.assertEqual([step['dependencies'] for step in graph],
                                  [config['steps'][max(0, i - 1):i] for i in range(len(graph))])
 
-    def test_all_twelve_actions_finish_without_repeating_mutations(self):
+    def test_matrix_and_preserved_polling_finish_without_repeating_mutations(self):
         trace = []
         source, target = Bot('source', trace), Bot('target', trace)
         self.addCleanup(source.close)
         self.addCleanup(target.close)
-        for row in CASES['cases']:
+        variants = [{**row, 'id': row['id'] + '-source-polling', 'source_polling': True}
+                    for row in CASES['cases'] if row['action'] == 'preserve']
+        for row in CASES['cases'] + variants:
             with self.subTest(case=row['id']):
-                source.url = 'https://fixture.example/old'
+                source.url = '' if row.get('source_polling') else 'https://fixture.example/old'
                 target.url = 'https://fixture.example/preexisting-target'
                 for bot in (source, target):
                     bot.active = bot is source
@@ -50,7 +52,7 @@ class DirectionMatrixTests(unittest.TestCase):
                 direction, action = row['direction'], row['action']
                 config = CASES['directions'][direction]
                 selected = source if direction == 'webhook_only' else target
-                profile = ({'mode': 'polling'} if action == 'polling' else
+                profile = ({'mode': 'polling'} if action == 'polling' or row.get('source_polling') else
                            {'mode': 'url_only', 'url': source.url if action == 'preserve'
                             else 'https://fixture.example/replacement'})
                 runtime = Runtime(source.endpoint, selected.endpoint, TOKEN, profile, action,
@@ -83,7 +85,7 @@ class DirectionMatrixTests(unittest.TestCase):
                 result = engine.run(state, **arguments)
                 self.assertEqual(result['results']['migration_outcome'], 'confirmed')
                 self.assertEqual(result['results']['delivery_verification'], 'NOTRUN')
-                self.assertEqual(selected.url, '' if action == 'polling' else profile['url'])
+                self.assertEqual(selected.url, '' if profile['mode'] == 'polling' else profile['url'])
                 if config['detach']:
                     detach = (source.side, config['detach'])
                     actions = [(side, method) for side, method, _ in trace]
@@ -98,4 +100,3 @@ class DirectionMatrixTests(unittest.TestCase):
                 self.assertEqual((source.effects, target.effects), before)
                 self.assertTrue(all(params.get('drop_pending_updates') != 'true'
                                     for side, method, params in trace if side == 'source'))
-

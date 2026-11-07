@@ -152,7 +152,8 @@ class Engine:
     def prepare_snapshot(self, state):
         self.identity(self.r.source)
         snapshot=snapshot_value(self.observe(self.r.source,'getWebhookInfo'))
-        if self.r.action=='preserve' and snapshot['url']!=self.r.profile['url']:
+        wanted = '' if self.r.profile['mode'] == 'polling' else self.r.profile['url']
+        if self.r.action=='preserve' and snapshot['url']!=wanted:
             raise Stop('preserve_profile_does_not_match_source')
         if self.r.action == 'preserve' and self.r.profile.get('mode') == 'full':
             raise Stop('full_preserve_requires_original_private_profile_verification')
@@ -268,7 +269,7 @@ class Engine:
                     self.j.finish(s,step,'confirmed','target_configuration_observed',evidence=s['snapshot'])
                     continue
                 params={'drop_pending_updates':'true' if self.r.drop else 'false'}
-                method='deleteWebhook' if self.r.action=='polling' else 'setWebhook'
+                method='deleteWebhook' if self.r.profile['mode']=='polling' else 'setWebhook'
                 if method=='setWebhook':
                     params.update({k:v for k,v in self.r.profile.items() if k != 'mode'})
                 self.mutate(s,step,self.r.target,method,params)
@@ -315,7 +316,7 @@ class Engine:
 
     def verify_target(self,s):
         info=snapshot_value(self.observe(self.r.target,'getWebhookInfo'))
-        wanted='' if self.r.action=='polling' else self.r.profile['url']
+        wanted='' if self.r.profile['mode']=='polling' else self.r.profile['url']
         if info['url']!=wanted:
             s['results']['webhook_configuration']='failed'
             s['results']['migration_outcome']='partial'
