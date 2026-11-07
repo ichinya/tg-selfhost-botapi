@@ -15,9 +15,8 @@ services:
     container_name: tg_gateway
     restart: always
     ports:
-      - "18080:80"
+      - "${GATEWAY_BIND:-127.0.0.1}:18080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./data:/var/lib/telegram-bot-api:ro
     depends_on:
       - botapi

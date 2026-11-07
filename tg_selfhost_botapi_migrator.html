@@ -113,7 +113,7 @@
                     <button id="btnCopyCurl" class="btn-ghost">Скопировать curl-план</button>
                 </div>
                 <div class="hint" style="margin-top: 10px; font-size: 13px; color: #666;">
-                    Примечание: выполнение команд в браузере может быть заблокировано CORS. В случае ошибки используйте curl-план ниже.
+                    Запросы с токеном требуют подтверждения. При CORS/UNKNOWN сначала сверяйте состояние вручную; повторный план может повторить уже выполненную операцию.
                 </div>
             </div>
             
@@ -146,8 +146,8 @@
             <div class="card">
                 <h2>5. Curl-план</h2>
                 <div class="hint" style="margin-bottom: 10px;">
-                    Этот план можно выполнить вручную на сервере. 
-                    Кнопка "Выполнить команды" пытается сделать это прямо в браузере (но может быть заблокировано CORS).
+                    Для cloud → local и webhook-only: Bash-план с подтверждением и проверкой ответов.
+                    Для local → local и local → official: отдельные ручные этапы; автоматическое выполнение отключено.
                 </div>
                 <pre id="curlPlan" class="curl-plan">Сначала выбери режим и нажми «Проверить состояние».</pre>
             </div>
@@ -156,663 +156,287 @@
 
   <script>
     const officialApi = 'https://api.telegram.org';
-    const cookieKey = 'tg_selfhost_addresses';
-
-    const els = {
-      modeGrid: document.getElementById('modeGrid'),
-      botToken: document.getElementById('botToken'),
-      oldApi: document.getElementById('oldApi'),
-      newApi: document.getElementById('newApi'),
-      webhookUrl: document.getElementById('webhookUrl'),
-      dropPending: document.getElementById('dropPending'),
-      btnCheck: document.getElementById('btnCheck'),
-      btnExecute: document.getElementById('btnExecute'),
-      btnCopyCurl: document.getElementById('btnCopyCurl'),
-      logBox: document.getElementById('logBox'),
-      summaryBox: document.getElementById('summaryBox'),
-      curlPlan: document.getElementById('curlPlan'),
-      oldApiBlock: document.getElementById('oldApiBlock'),
-      newApiBlock: document.getElementById('newApiBlock'),
-      chkToken: document.getElementById('chkToken'),
-      chkOldApi: document.getElementById('chkOldApi'),
-      chkNewApi: document.getElementById('chkNewApi'),
-      chkHook: document.getElementById('chkHook'),
-      chkHookTls: document.getElementById('chkHookTls'),
-      chkCors: document.getElementById('chkCors')
-    };
-
-    let state = {
-      mode: 'official-to-self',
-      currentWebhookFromCheck: '',
-      currentBotName: '',
-      currentBotUsername: '',
-      currentBotId: ''
-    };
-
-    function log(msg = '', type = 'info') {
-      if (els.logBox.dataset.initialized !== 'true') {
-        els.logBox.innerHTML = '';
-        els.logBox.dataset.initialized = 'true';
-      }
-      const ts = new Date().toLocaleTimeString();
-      const entry = document.createElement('div');
-      entry.className = `step-log ${type}`;
-      entry.textContent = `[${ts}] ${msg}`;
-      els.logBox.appendChild(entry);
-      els.logBox.scrollTop = els.logBox.scrollHeight;
-    }
-
-    function setSummary(html) {
-      els.summaryBox.innerHTML = html;
-    }
-
-    function setCheck(el, text, status = '') {
-      el.className = 'check-item ' + status;
-      el.textContent = text;
-    }
-
-    function tokenLooksValid(token) {
-      return /^\d+:[A-Za-z0-9_-]{20,}$/.test(token || '');
-    }
-
-    function urlLooksValid(url) {
+    const els = Object.fromEntries([
+      'modeGrid','botToken','oldApi','newApi','webhookUrl','dropPending','btnCheck',
+      'btnExecute','btnCopyCurl','logBox','summaryBox','curlPlan','oldApiBlock','newApiBlock',
+      'chkToken','chkOldApi','chkNewApi','chkHook','chkHookTls','chkCors'
+    ].map(id => [id, document.getElementById(id)]));
+    const state = {mode:'official-to-self', currentWebhookFromCheck:'', checkedConfig:'',
+      busy:false, needsReconcile:false, completedMigration:false};
+    const norm = value => (value || '').trim().replace(/\/$/, '');
+    const tokenLooksValid = value => /^\d+:[A-Za-z0-9_-]{20,}$/.test(value || '');
+    function apiUrlValid(value) {
       try {
-        const u = new URL(url);
-        return u.protocol === 'https:' || u.protocol === 'http:';
-      } catch {
-        return false;
-      }
+        const u = new URL(value);
+        return ['http:','https:'].includes(u.protocol) && !u.username && !u.password && !u.search && !u.hash;
+      } catch { return false; }
     }
-
-    function httpsUrlLooksValid(url) {
-      try {
-        const u = new URL(url);
-        return u.protocol === 'https:';
-      } catch {
-        return false;
-      }
+    function hookUrlValid(value, targetIsCloud) {
+      if (!value) return true;
+      try { const u = new URL(value); return (u.protocol === 'https:' || (!targetIsCloud && u.protocol === 'http:')) && !u.username && !u.password && !u.hash; }
+      catch { return false; }
     }
-
-    function norm(url) {
-      return (url || '').trim().replace(/\/$/, '');
-    }
-
-    function escapeHtml(s) {
-      return String(s || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-    }
-
-    function applyMode() {
-      const modes = [...document.querySelectorAll('.mode-btn')];
-      modes.forEach(m => m.classList.toggle('active', m.dataset.mode === state.mode));
-
-      const modeDesc = document.getElementById('modeDescription');
-      let desc = '';
-
-      if (state.mode === 'official-to-self') {
-        els.oldApi.value = officialApi;
-        els.oldApi.parentElement.style.display = 'none'; // Скрываем старый API, он не нужен
-        els.newApi.parentElement.style.display = 'block';
-        els.oldApi.readOnly = true;
-        els.newApi.readOnly = false;
-        desc = 'Official → Self: Переезд с api.telegram.org на свой Bot API. Включает logOut на official.';
-      } else if (state.mode === 'self-to-self') {
-        els.oldApi.parentElement.style.display = 'block';
-        els.newApi.parentElement.style.display = 'block';
-        els.oldApi.readOnly = false;
-        els.newApi.readOnly = false;
-        desc = 'Self → Self: Перенос между двумя self-hosted серверами. Включает close на старом сервере.';
-      } else if (state.mode === 'self-to-official') {
-        els.oldApi.parentElement.style.display = 'block';
-        els.newApi.parentElement.style.display = 'none';
-        els.oldApi.readOnly = false;
-        desc = 'Self → Official: Возврат с self-hosted сервера на api.telegram.org. Включает close на старом сервере.';
-      } else {
-        els.oldApi.parentElement.style.display = 'block';
-        els.newApi.parentElement.style.display = 'none';
-        els.oldApi.readOnly = false;
-        desc = 'Webhook only: Только чтение/смена webhook без смены Bot API.';
-      }
-      
-      if (modeDesc) modeDesc.textContent = desc;
-      runLocalChecks();
-    }
-
     function currentConfig() {
-      return {
-        token: els.botToken.value.trim(),
-        oldApi: state.mode === 'official-to-self' ? officialApi : norm(els.oldApi.value),
-        newApi: norm(els.newApi.value),
-        webhook: els.webhookUrl.value.trim(),
-        dropPending: !!els.dropPending.checked,
-        mode: state.mode
-      };
+      return {mode:state.mode, token:els.botToken.value.trim(),
+        oldApi:state.mode === 'official-to-self' ? officialApi : norm(els.oldApi.value),
+        newApi:state.mode === 'self-to-official' ? officialApi : norm(els.newApi.value),
+        webhook:els.webhookUrl.value.trim(), dropPending:!!els.dropPending.checked};
     }
-
-
-
+    const targetIsCloud = cfg => (cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi) === officialApi;
+    const fingerprint = cfg => JSON.stringify(cfg);
+    const isManual = cfg => ['self-to-self','self-to-official'].includes(cfg.mode);
+    function validate(cfg) {
+      if (!tokenLooksValid(cfg.token)) throw new Error('Проверьте формат токена.');
+      if (!apiUrlValid(cfg.oldApi)) throw new Error('Укажите известный исходный Bot API без credentials, query или fragment.');
+      if (cfg.mode !== 'hook-only' && (!apiUrlValid(cfg.newApi) || cfg.newApi === cfg.oldApi)) {
+        throw new Error('Укажите отдельный целевой Bot API.');
+      }
+      if (cfg.mode.startsWith('self-to-') && cfg.oldApi === officialApi) throw new Error('Укажите исходный local API.');
+      if (!hookUrlValid(cfg.webhook, targetIsCloud(cfg))) throw new Error(targetIsCloud(cfg) ? 'Для облачного Bot API webhook должен быть HTTPS URL без credentials и fragment.' : 'Для local Bot API webhook должен быть HTTP или HTTPS URL без credentials и fragment.');
+    }
+    function log(message, type = 'info') {
+      if (els.logBox.dataset.initialized !== 'true') { els.logBox.textContent = ''; els.logBox.dataset.initialized = 'true'; }
+      const entry = document.createElement('div');
+      entry.className = 'step-log ' + type;
+      entry.textContent = message;
+      els.logBox.appendChild(entry);
+    }
+    function setSummary(message) { els.summaryBox.textContent = message; }
+    function setCheck(el, message, good) { el.textContent = message; el.className = 'check-item ' + (good ? 'good' : 'warn'); }
     function runLocalChecks() {
       const cfg = currentConfig();
-      setCheck(els.chkToken, `Формат токена: ${tokenLooksValid(cfg.token) ? 'похоже на валидный' : 'нужен формат 123456:AA...'}`, tokenLooksValid(cfg.token) ? 'good' : 'bad');
-
-      const oldOk = !cfg.oldApi ? false : urlLooksValid(cfg.oldApi);
-      setCheck(els.chkOldApi, `Старый API: ${cfg.oldApi ? (oldOk ? 'URL корректен' : 'некорректный URL') : 'не заполнено'}`, cfg.oldApi ? (oldOk ? 'good' : 'bad') : 'warn');
-
-      const newApiNeeded = cfg.mode !== 'hook-only';
-      const newOk = !newApiNeeded || (cfg.newApi && urlLooksValid(cfg.newApi));
-      setCheck(els.chkNewApi, `Новый API: ${newApiNeeded ? (cfg.newApi ? (newOk ? 'URL корректен' : 'некорректный URL') : 'не заполнено') : 'не нужен'}`, newApiNeeded ? (cfg.newApi ? (newOk ? 'good' : 'bad') : 'warn') : 'info');
-
-      const hookValue = cfg.webhook || state.currentWebhookFromCheck;
-      if (hookValue) {
-        const hookOk = httpsUrlLooksValid(hookValue);
-        setCheck(els.chkHook, `Webhook: ${hookOk ? 'HTTPS корректен' : 'должен быть HTTPS'}`, hookOk ? 'good' : 'bad');
-      } else {
-        setCheck(els.chkHook, 'Webhook: не указан (возможен polling)', 'warn');
-      }
-
-      setCheck(els.chkHookTls, 'Сертификат: проверяется из браузера', 'info');
-      setCheck(els.chkCors, 'CORS: браузер может блокировать запросы', 'warn');
+      setCheck(els.chkToken, 'Формат токена: ' + (tokenLooksValid(cfg.token) ? 'корректен' : 'проверьте'), tokenLooksValid(cfg.token));
+      setCheck(els.chkOldApi, 'Исходный API: URL проверяется локально; автоматического определения нет', apiUrlValid(cfg.oldApi));
+      setCheck(els.chkNewApi, 'Целевой API: проверка адреса не авторизует бота', cfg.mode === 'hook-only' || apiUrlValid(cfg.newApi));
+      setCheck(els.chkHook, cfg.webhook ? (targetIsCloud(cfg) ? 'Webhook: для cloud обязателен HTTPS' : 'Webhook: для local допускаются HTTP и HTTPS') : 'Пусто: наследовать прежний webhook, если он задан', hookUrlValid(cfg.webhook, targetIsCloud(cfg)));
+      setCheck(els.chkHookTls, 'Доставка и TLS проверяются отдельно; запросы на webhook не отправляются', false);
+      setCheck(els.chkCors, 'CORS может скрыть ответ уже выполненной операции', false);
     }
-
+    function invalidate() {
+      state.currentWebhookFromCheck = ''; state.checkedConfig = '';
+      setSummary('Настройки изменены. Предыдущее состояние сброшено.');
+      runLocalChecks(); buildPlan();
+    }
+    function applyMode() {
+      if (state.busy) return;
+      document.querySelectorAll('.mode-btn').forEach(card => card.classList.toggle('active', card.dataset.mode === state.mode));
+      els.oldApiBlock.style.display = state.mode === 'official-to-self' ? 'none' : 'block';
+      els.newApiBlock.style.display = ['hook-only','self-to-official'].includes(state.mode) ? 'none' : 'block';
+      els.oldApi.readOnly = state.mode === 'official-to-self';
+      if (state.mode === 'official-to-self') els.oldApi.value = officialApi;
+      else if (els.oldApi.value === officialApi) els.oldApi.value = '';
+      els.btnExecute.disabled = isManual(currentConfig()) || state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+      els.btnCopyCurl.disabled = state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+      document.getElementById('modeDescription').textContent = {
+        'official-to-self':'Остановите старых API-клиентов. После согласия: source logOut, затем первый запрос к target. Очередь не гарантируется.',
+        'self-to-self':'Только ручные этапы: detach/close → перенос согласованного state → target. Одношаговое выполнение отключено.',
+        'self-to-official':'Только ручной план: local logOut перед cloud. Локальный state в облако не переносится; очередь может быть очищена.',
+        'hook-only':'Изменение webhook на явно выбранном API; без logOut и close. Пустое поле наследует прежний URL.'
+      }[state.mode];
+      invalidate();
+    }
     async function fetchJson(url, options = {}) {
-      const res = await fetch(url, options);
-      const text = await res.text();
-      let json = null;
-      try { json = JSON.parse(text); } catch {}
-      return { ok: res.ok, status: res.status, text, json };
-    }
-
-    async function checkWebhookReachability(url) {
-      if (!url) return { status: 'skip', message: 'Webhook не задан' };
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
       try {
-        const u = new URL(url);
-        if (u.protocol !== 'https:') {
-          return { status: 'bad', message: 'Webhook должен быть HTTPS' };
-        }
-      } catch {
-        return { status: 'bad', message: 'Некорректный URL webhook' };
-      }
-
+        const res = await fetch(url, {...options, redirect:'error', signal:controller.signal});
+        const text = await res.text();
+        return {ok:res.ok, status:res.status, json:JSON.parse(text)};
+      } finally { clearTimeout(timer); }
+    }
+    async function probe(base) {
       try {
-        await fetch(url, { method: 'HEAD', mode: 'cors' });
-        return { status: 'good', message: 'HEAD/fetch сработал, TLS похож на живой' };
-      } catch (e) {
-        return { status: 'warn', message: 'Не удалось проверить из браузера. Часто это CORS, а не проблема сертификата.' };
+        const r = await fetchJson(base + '/');
+        if (r.status !== 404 || r.json.ok !== false || r.json.error_code !== 404 || r.json.description !== 'Not Found') throw new Error();
+      } catch { throw new Error('Target не прошёл проверку без токена. Исходный сервер не изменён.'); }
+    }
+    async function api(base, token, method, data) {
+      const mutation = !['getMe','getWebhookInfo'].includes(method);
+      const options = mutation ? {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams(data || {}).toString()} : {};
+      let r;
+      try { r = await fetchJson(`${base}/bot${token}/${method}`, options); }
+      catch {
+        if (mutation) state.needsReconcile = true;
+        throw new Error(mutation ? `${method}: UNKNOWN. Сверьте состояние вручную; не повторяйте операцию вслепую.` : `${method}: ответ не получен или некорректен.`);
+      }
+      if (!r.ok || r.json?.ok !== true || (mutation && r.json.result !== true)) {
+        if (mutation) state.needsReconcile = true;
+        throw new Error(`${method}: отказ API/HTTP или неверный result. Цепочка остановлена; требуется сверка состояния.`);
+      }
+      if (method === 'getMe' && typeof r.json.result?.id !== 'number') throw new Error('getMe: неверный result.');
+      if (method === 'getWebhookInfo' && typeof r.json.result?.url !== 'string') throw new Error('getWebhookInfo: неверный result.url.');
+      return r.json.result;
+    }
+    function consent(cfg, action) {
+      return confirm(`${action}\nSource: ${cfg.oldApi}\nTarget: ${cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi}\nWebhook: ${cfg.webhook || 'наследовать прежний, если задан'}\nDrop updates: ${cfg.dropPending}\nПроверка адреса не подтверждает подлинность узла. Старые API-клиенты остановлены? Разрешить запросы с токеном?`);
+    }
+    async function withLock(action) {
+      if (state.busy) return;
+      state.busy = true;
+      const controls = [els.botToken,els.oldApi,els.newApi,els.webhookUrl,els.dropPending,els.btnCheck,els.btnExecute,els.btnCopyCurl];
+      controls.forEach(el => el.disabled = true);
+      try { await action(); }
+      catch (error) { log(error.message, 'error'); setSummary(error.message); }
+      finally {
+        state.busy = false;
+        controls.forEach(el => el.disabled = false);
+        els.btnExecute.disabled = isManual(currentConfig()) || state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+        els.btnCheck.disabled = state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+        els.btnCopyCurl.disabled = state.needsReconcile || (state.completedMigration && state.mode === 'official-to-self');
+        buildPlan();
       }
     }
-
-    function buildCommands(cfg, currentHook = '') {
-      const token = cfg.token;
-      const drop = cfg.dropPending ? 'true' : 'false';
-      const qWebhook = cfg.webhook || currentHook || '';
-      const cmds = [];
-
-      if (!token) return ['# Сначала введи токен бота'];
-
-      if (cfg.mode === 'official-to-self') {
-        cmds.push(`# Проверка текущего состояния на official`,
-          `curl "${officialApi}/bot${token}/getMe"`,
-          `curl "${officialApi}/bot${token}/getWebhookInfo"`,
-          '',
-          '# Удаление webhook на official',
-          `curl -X POST "${officialApi}/bot${token}/deleteWebhook" --data-urlencode "drop_pending_updates=${drop}"`,
-          '',
-          '# Выход из official перед переходом на local',
-          `curl -X POST "${officialApi}/bot${token}/logOut"`,
-          '',
-          '# Первый запрос к self-hosted API',
-          `curl "${cfg.newApi}/bot${token}/getMe"`
-        );
-        if (qWebhook) {
-          cmds.push('', '# Установка webhook на self-hosted API', `curl -X POST "${cfg.newApi}/bot${token}/setWebhook" --data-urlencode "url=${qWebhook}" --data-urlencode "drop_pending_updates=${drop}"`);
-        }
-        cmds.push('', '# Итоговая проверка', `curl "${cfg.newApi}/bot${token}/getWebhookInfo"`);
-      }
-
-      if (cfg.mode === 'self-to-self') {
-        cmds.push(`# Проверка старого local API`,
-          `curl "${cfg.oldApi}/bot${token}/getMe"`,
-          `curl "${cfg.oldApi}/bot${token}/getWebhookInfo"`,
-          '',
-          '# Удаление webhook на старом local API',
-          `curl -X POST "${cfg.oldApi}/bot${token}/deleteWebhook" --data-urlencode "drop_pending_updates=${drop}"`,
-          '',
-          '# Закрытие старого local инстанса',
-          `curl -X POST "${cfg.oldApi}/bot${token}/close"`,
-          '',
-          '# Первый запрос к новому local API',
-          `curl "${cfg.newApi}/bot${token}/getMe"`
-        );
-        if (qWebhook) {
-          cmds.push('', '# Установка webhook на новом local API', `curl -X POST "${cfg.newApi}/bot${token}/setWebhook" --data-urlencode "url=${qWebhook}" --data-urlencode "drop_pending_updates=${drop}"`);
-        }
-        cmds.push('', '# Итоговая проверка', `curl "${cfg.newApi}/bot${token}/getWebhookInfo"`);
-      }
-
-      if (cfg.mode === 'self-to-official') {
-        cmds.push(`# Проверка старого local API`,
-          `curl "${cfg.oldApi}/bot${token}/getMe"`,
-          `curl "${cfg.oldApi}/bot${token}/getWebhookInfo"`,
-          '',
-          '# Удаление webhook на старом local API',
-          `curl -X POST "${cfg.oldApi}/bot${token}/deleteWebhook" --data-urlencode "drop_pending_updates=${drop}"`,
-          '',
-          '# Закрытие local инстанса',
-          `curl -X POST "${cfg.oldApi}/bot${token}/close"`,
-          '',
-          '# Проверка official Bot API',
-          `curl "${officialApi}/bot${token}/getMe"`
-        );
-        if (qWebhook) {
-          cmds.push('', '# Установка webhook на official API', `curl -X POST "${officialApi}/bot${token}/setWebhook" --data-urlencode "url=${qWebhook}" --data-urlencode "drop_pending_updates=${drop}"`);
-        }
-        cmds.push('', '# Итоговая проверка', `curl "${officialApi}/bot${token}/getWebhookInfo"`);
-      }
-
-      if (cfg.mode === 'hook-only') {
-        const api = cfg.oldApi || cfg.newApi || officialApi;
-        cmds.push(`# Чтение текущего webhook`, `curl "${api}/bot${token}/getWebhookInfo"`);
-        if (qWebhook) {
-          cmds.push('', '# Установка нового webhook', `curl -X POST "${api}/bot${token}/setWebhook" --data-urlencode "url=${qWebhook}" --data-urlencode "drop_pending_updates=${drop}"`);
-        } else {
-          cmds.push('', '# Удаление webhook', `curl -X POST "${api}/bot${token}/deleteWebhook" --data-urlencode "drop_pending_updates=${drop}"`);
-        }
-        cmds.push('', '# Итоговая проверка', `curl "${api}/bot${token}/getWebhookInfo"`);
-      }
-
-      return cmds;
-    }
-
     async function checkCurrentState() {
-      const cfg = currentConfig();
-      runLocalChecks();
-      log('Старт проверки текущего состояния…');
-
-      if (!tokenLooksValid(cfg.token)) {
-        log('Токен выглядит неверно. Проверка прервана.');
-        setSummary('<span class="bad">Нужен корректный токен бота.</span>');
-        return;
-      }
-
-      let apiForRead = cfg.oldApi;
-      if (cfg.mode === 'official-to-self') apiForRead = officialApi;
-      if (cfg.mode === 'hook-only') apiForRead = cfg.oldApi || officialApi;
-
-      if (!urlLooksValid(apiForRead)) {
-        log('Не удалось определить API для чтения текущего состояния.');
-        setSummary('<span class="bad">Нужно заполнить корректный Bot API URL.</span>');
-        return;
-      }
-
-      try {
-        log(`getMe → ${apiForRead}`, 'info');
-        const me = await fetchJson(`${apiForRead}/bot${cfg.token}/getMe`);
-        if (!me.json || me.json.ok !== true) {
-          const errorMsg = me.text || 'неизвестная ошибка';
-          // Проверяем, не вышел ли бот из системы
-          if (me.text && me.text.includes('Logged out')) {
-            log(`getMe вернул ошибку: Logged out (это нормально для миграции)`, 'info');
-            setSummary('<div class="warning">Бот уже выведен из системы (Logged out). Это нормально для миграции с Official на Self-Hosted. Используйте curl-план ниже.</div>');
-          } else if (me.json && me.json.description) {
-            log(`getMe вернул ошибку API: ${me.json.description}`, 'warning');
-            setSummary(`<div class="warning">Ошибка API: ${escapeHtml(me.json.description)}. Ниже есть curl-план.</div>`);
-          } else {
-            log(`getMe не дал ok=true: ${errorMsg}`, 'warning');
-            setSummary('<div class="warning">Проверка getMe из браузера не удалась. Ниже всё равно есть точный curl-план.</div>');
-          }
-        } else {
-          state.currentBotId = me.json.result.id || '';
-          state.currentBotName = me.json.result.first_name || '';
-          state.currentBotUsername = me.json.result.username || '';
-          log(`Бот: ${state.currentBotName} (@${state.currentBotUsername})`, 'success');
-        }
-
-        // Пытаемся получить webhook info, но если бот выведен, пропускаем
-        const isLoggedOut = me.text && me.text.includes('Logged out');
-        if (!isLoggedOut) {
-          log(`getWebhookInfo → ${apiForRead}`, 'info');
-          const hook = await fetchJson(`${apiForRead}/bot${cfg.token}/getWebhookInfo`);
-          if (hook.json && hook.json.ok === true) {
-            state.currentWebhookFromCheck = hook.json.result.url || '';
-            if (!cfg.webhook && state.currentWebhookFromCheck) els.webhookUrl.value = state.currentWebhookFromCheck;
-            log(`Текущий webhook: ${state.currentWebhookFromCheck || '(не установлен)'}`, 'info');
-          } else {
-            const errorMsg = hook.json && hook.json.description ? hook.json.description : 'неизвестная ошибка';
-            log(`getWebhookInfo вернул ошибку: ${errorMsg}`, 'warning');
-          }
-        } else {
-          log('Пропускаем getWebhookInfo (бот уже выведен)', 'info');
-        }
-
-        const tlsCheck = await checkWebhookReachability(els.webhookUrl.value.trim() || state.currentWebhookFromCheck);
-        setCheck(els.chkHookTls, `Сертификат: ${tlsCheck.message}`, tlsCheck.status);
-        
-        let summaryHtml = '';
-        if (state.currentBotName) {
-          summaryHtml = `
-            <div><strong>Бот:</strong> ${escapeHtml(state.currentBotName)} ${state.currentBotUsername ? `(@${escapeHtml(state.currentBotUsername)})` : ''}</div>
-            <div><strong>Текущий webhook:</strong> <span>${escapeHtml(state.currentWebhookFromCheck || '(не установлен)')}</span></div>
-            <div><strong>Режим:</strong> ${escapeHtml(cfg.mode)}</div>
-          `;
-        } else {
-          summaryHtml = `
-            <div><strong>Режим:</strong> ${escapeHtml(cfg.mode)}</div>
-            <div class="warning">Бот не идентифицирован (возможно, выведен из системы). Используйте curl-план ниже.</div>
-          `;
-        }
-        setSummary(summaryHtml);
-      } catch (e) {
-        log(`Ошибка проверки: ${e.message}`, 'error');
-        setSummary('<div class="error">Браузер не смог дочитать ответы. Это часто связано с CORS. Используй curl-план ниже.</div>');
-      }
-
-      buildPlan();
+      return withLock(async () => {
+        const cfg = currentConfig(); validate(cfg);
+        if (state.completedMigration && cfg.mode === 'official-to-self') throw new Error('Перенос завершён. Выберите target явно в webhook-only; не входите снова на прежний source.');
+        if (state.needsReconcile) throw new Error('Сначала вручную сверьте исход предыдущей операции, затем откройте страницу заново.');
+        state.currentWebhookFromCheck = ''; state.checkedConfig = '';
+        if (!consent(cfg, 'Чтение только известного source; это не обнаружение текущего сервера.')) return;
+        await api(cfg.oldApi, cfg.token, 'getMe');
+        const hook = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
+        state.currentWebhookFromCheck = hook.url;
+        state.checkedConfig = fingerprint(cfg);
+        setSummary('Состояние source прочитано. Профиль и secret_token сохраняйте отдельно.');
+        buildPlan();
+      });
     }
-
+    // A generated local migration is deliberately a checklist, never copy-all code.
+    function manualPlan(cfg) {
+      if (cfg.mode === 'self-to-self') return [
+        '# Этап 1 — только исходный сервер ' + cfg.oldApi,
+        '# Остановите API-клиентов/pollers/retries, сохраните профиль и согласованную резервную копию.',
+        '# На source: deleteWebhook без намеренного сброса, затем close; требуются HTTP success, ok=true, result=true.',
+        '# Ошибка, 429/retry_after или UNKNOWN: СТОП, target не вызывайте.',
+        '# СТОП — внешний перенос и проверка state. Выполнение из браузера отключено.',
+        '# Перенос per-bot каталога не переносит общую tqueue.binlog. Не объединяйте shared binlogs.',
+        '# Этап 2 — отдельно, после подтверждённого переноса и отсутствия прежних writers:',
+        '# На target ' + cfg.newApi + ': первый getMe, затем восстановление полного webhook-профиля или явного polling.',
+        '# Проверьте конфигурацию и доставку тестового update; только затем возобновите API-клиентов.',
+        '# Подробный per-bot/cold-transfer runbook: docs/ru/migration.html'
+      ];
+      return [
+        '# Ручной возврат local → official; browser execution отключён.',
+        '# Обработайте backlog или явно примите потерю очереди; остановите старые API-клиенты.',
+        '# На source ' + cfg.oldApi + ': сохраните профиль, deleteWebhook, затем успешный logOut.',
+        '# logOut может очистить локальную очередь. drop_pending_updates=false это не отменяет.',
+        '# Ошибка/UNKNOWN: СТОП. Нельзя входить на обе стороны для проверки.',
+        '# После подтверждённого source logOut и доступности cloud: первый getMe на ' + officialApi,
+        '# Локальный state в cloud не копируется. Восстановите профиль/явный polling и проверьте доставку.'
+      ];
+    }
+    const shellQuote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
+    function buildCommands(cfg, currentHook = '') {
+      if (isManual(cfg)) return manualPlan(cfg);
+      const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
+      const hook = cfg.webhook || currentHook || '';
+      const drop = cfg.dropPending ? 'true' : 'false';
+      const commands = [
+        '# Bash + curl + jq. Остановите старых API-клиентов; проверьте адреса и полный профиль.',
+        'set -euo pipefail',
+        'api() {',
+        '  local base="$1" method="$2" response status; shift 2',
+        '  response=$(curl -q -sS --connect-timeout 5 --max-time 30 -w "\\n%{http_code}" "$base/bot$BOT_TOKEN/$method" "$@" 2>/dev/null) || { echo "UNKNOWN: stop and reconcile" >&2; return 1; }',
+        "  status=${response##*$'\\n'}; [[ $status =~ ^2[0-9][0-9]$ ]] || return 1",
+        "  response=${response%$'\\n'*}",
+        '  jq -e ".ok == true" >/dev/null <<<"$response" || return 1',
+        '  case "$method" in',
+        '    getMe) jq -e \'.result.id | type == "number"\' >/dev/null <<<"$response" ;;',
+        '    getWebhookInfo) jq -e \'.result.url | type == "string"\' >/dev/null <<<"$response" ;;',
+        '    *) jq -e ".result == true" >/dev/null <<<"$response" ;;',
+        '  esac || return 1',
+        '  printf "%s" "$response"',
+        '}'
+      ];
+      if (cfg.mode === 'official-to-self') commands.push(
+        `probe=$(curl -q -sS --connect-timeout 5 --max-time 10 -w '\\n%{http_code}' ${shellQuote(target + '/')})`,
+        "[[ ${probe##*$'\\n'} == 404 ]]",
+        "jq -e '.ok == false and .error_code == 404 and .description == \"Not Found\"' >/dev/null <<<\"${probe%$'\\n'*}\""
+      );
+      commands.push(
+        `printf '%s\\n' ${shellQuote('Source: ' + cfg.oldApi)} ${shellQuote('Target: ' + target)} ${shellQuote('Webhook: ' + (hook || 'inherit source if present'))} ${shellQuote('Drop updates: ' + drop)}`,
+        'read -r -p "Allow token-bearing requests? [y/N]: " answer || exit 0',
+        'case "$answer" in y|Y|yes|YES) ;; *) exit 0 ;; esac',
+        'read -rsp "Bot token: " BOT_TOKEN; printf "\\n"',
+        `api ${shellQuote(cfg.oldApi)} getMe >/dev/null`,
+        `source_hook=$(api ${shellQuote(cfg.oldApi)} getWebhookInfo)`,
+        `hook=${shellQuote(cfg.webhook)}`,
+        'if [[ -z "$hook" ]]; then hook=$(jq -r .result.url <<<"$source_hook"); fi'
+      );
+      if (cfg.mode === 'official-to-self') commands.push(
+        `api ${shellQuote(cfg.oldApi)} deleteWebhook -X POST --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`,
+        `api ${shellQuote(cfg.oldApi)} logOut -X POST >/dev/null`,
+        `api ${shellQuote(target)} getMe >/dev/null`
+      );
+      commands.push('if [[ -n "$hook" ]]; then',
+        `  api ${shellQuote(target)} setWebhook -X POST --data-urlencode "url=$hook" --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`);
+      if (cfg.mode === 'hook-only') commands.push('else',
+        `  api ${shellQuote(target)} deleteWebhook -X POST --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`);
+      commands.push('fi', `final=$(api ${shellQuote(target)} getWebhookInfo)`,
+        'jq -e --arg expected "$hook" \'.result.url == $expected\' >/dev/null <<<"$final"',
+        'unset BOT_TOKEN', '# URL readback не доказывает доставку. Проверьте полный профиль и тестовый update.');
+      return commands;
+    }
     function buildPlan() {
       const cfg = currentConfig();
-      const cmds = buildCommands(cfg, state.currentWebhookFromCheck);
-      els.curlPlan.textContent = cmds.join('\n');
-      log('Curl-план обновлён.', 'info');
+      if (state.needsReconcile || (state.completedMigration && cfg.mode === 'official-to-self')) {
+        els.curlPlan.textContent = state.needsReconcile
+          ? '# Сначала вручную сверьте исход предыдущей операции; повторное выполнение заблокировано.'
+          : '# Сверьте состояние через getWebhookInfo на целевом API. Повторные запросы с токеном к source заблокированы.';
+        return;
+      }
+      const hook = state.checkedConfig === fingerprint(cfg) ? state.currentWebhookFromCheck : '';
+      els.curlPlan.textContent = buildCommands(cfg, hook).join('\n');
     }
-
     async function copyCurlPlan() {
+      if (state.busy) return;
       buildPlan();
-      try {
-        await navigator.clipboard.writeText(els.curlPlan.textContent);
-        log('Curl-план скопирован в буфер обмена.', 'success');
-      } catch {
-        log('Не удалось скопировать автоматически. Скопируй блок вручную.', 'warning');
-      }
+      try { await navigator.clipboard.writeText(els.curlPlan.textContent); log('План скопирован.'); }
+      catch { log('Скопируйте план вручную.', 'warning'); }
     }
-
     async function executeInBrowser() {
-      const cfg = currentConfig();
-      buildPlan();
-      log('Старт выполнения в браузере...', 'info');
-      
-      if (!tokenLooksValid(cfg.token)) {
-        log('Токен выглядит неверно. Выполнение прервано.', 'error');
-        return;
-      }
-
-      const api = cfg.mode === 'official-to-self' ? officialApi : 
-                  (cfg.mode === 'self-to-self' || cfg.mode === 'self-to-official' ? cfg.oldApi : 
-                   (cfg.oldApi || officialApi));
-      
-      if (!urlLooksValid(api)) {
-        log('Не удалось определить API для выполнения.', 'error');
-        return;
-      }
-
-      // Пытаемся выполнить getMe
-      let loggedOut = false;
-      try {
-        log(`getMe → ${api}`, 'info');
-        const me = await fetchJson(`${api}/bot${cfg.token}/getMe`);
-        if (me.json && me.json.ok === true) {
-          log(`✓ Бот: ${me.json.result.first_name} (@${me.json.result.username})`, 'success');
-        } else {
-          const errorMsg = me.json && me.json.description ? me.json.description : me.text;
-          log(`✗ getMe не удался: ${errorMsg}`, 'error');
-          // Проверяем, не вышел ли бот из системы (только для official API в режиме official-to-self)
-          if (cfg.mode === 'official-to-self' && me.text && me.text.includes('Logged out')) {
-            loggedOut = true;
-            log('Бот уже выведен из системы (Logged out). Продолжаем миграцию...', 'warning');
-          }
-        }
-      } catch (e) {
-        log(`✗ Ошибка при выполнении getMe: ${e.message} (возможно CORS)`, 'error');
-        log('Выполнение в браузере заблокировано. Используй curl-план ниже.', 'warning');
-        return;
-      }
-
-      // Пытаемся получить webhook info
-      try {
-        log(`getWebhookInfo → ${api}`, 'info');
-        const hook = await fetchJson(`${api}/bot${cfg.token}/getWebhookInfo`);
-        if (hook.json && hook.json.ok === true) {
-          const url = hook.json.result.url || '(не установлен)';
-          log(`✓ Текущий webhook: ${url}`, 'success');
-          state.currentWebhookFromCheck = hook.json.result.url || '';
-        } else {
-          const errorMsg = hook.json && hook.json.description ? hook.json.description : hook.text;
-          log(`✗ getWebhookInfo не удался: ${errorMsg}`, 'error');
-        }
-      } catch (e) {
-        log(`✗ Ошибка при выполнении getWebhookInfo: ${e.message}`, 'error');
-      }
-
-      // Если режим hook-only, обрабатываем webhook
-      if (cfg.mode === 'hook-only') {
-        const webhookTarget = cfg.webhook || state.currentWebhookFromCheck;
-        if (webhookTarget) {
-          try {
-            log(`setWebhook → ${api}`, 'info');
-            const set = await fetch(`${api}/bot${cfg.token}/setWebhook`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: `url=${encodeURIComponent(webhookTarget)}&drop_pending_updates=${cfg.dropPending ? 'true' : 'false'}`
-            });
-            const setText = await set.text();
-            const setJson = JSON.parse(setText);
-            if (setJson.ok) {
-              log(`✓ Webhook установлен: ${webhookTarget}`, 'success');
-            } else {
-              const errorMsg = setJson.description || setText;
-              log(`✗ setWebhook не удался: ${errorMsg}`, 'error');
-            }
-          } catch (e) {
-            log(`✗ Ошибка при установке webhook: ${e.message}`, 'error');
-          }
-        } else {
-          try {
-            log(`deleteWebhook → ${api}`, 'info');
-            const del = await fetch(`${api}/bot${cfg.token}/deleteWebhook`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: `drop_pending_updates=${cfg.dropPending ? 'true' : 'false'}`
-            });
-            const delText = await del.text();
-            const delJson = JSON.parse(delText);
-            if (delJson.ok) {
-              log('✓ Webhook удален', 'success');
-            } else {
-              const errorMsg = delJson.description || delText;
-              log(`✗ deleteWebhook не удался: ${errorMsg}`, 'error');
-            }
-          } catch (e) {
-            log(`✗ Ошибка при удалении webhook: ${e.message}`, 'error');
-          }
-        }
-        
-        // Итоговая проверка
+      return withLock(async () => {
+        const cfg = currentConfig(); validate(cfg); buildPlan();
+        if (state.completedMigration && cfg.mode === 'official-to-self') throw new Error('Перенос уже завершён. Повторный вход на source заблокирован.');
+        if (isManual(cfg)) throw new Error('Этот переход выполняется только по отдельным ручным этапам; см. план.');
+        if (state.needsReconcile) throw new Error('Сначала сверьте исход предыдущей операции вручную; повторное выполнение заблокировано.');
+        if (cfg.mode === 'official-to-self') await probe(cfg.newApi);
+        if (!consent(cfg, 'Выполнение изменит webhook/сессию. Полный профиль восстанавливается отдельно.')) return;
+        await api(cfg.oldApi, cfg.token, 'getMe');
+        const info = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
+        const hook = cfg.webhook || info.url;
+        const drop = {drop_pending_updates:String(cfg.dropPending)};
+        let changed = false;
         try {
-          log(`getWebhookInfo → ${api}`, 'info');
-          const final = await fetchJson(`${api}/bot${cfg.token}/getWebhookInfo`);
-          if (final.json && final.json.ok === true) {
-            const url = final.json.result.url || '(не установлен)';
-            log(`✓ Итоговый webhook: ${url}`, 'success');
-          } else {
-            log(`✗ Итоговая проверка не удалась: ${final.text}`, 'error');
-          }
-        } catch (e) {
-          log(`✗ Ошибка при итоговой проверке: ${e.message}`, 'error');
-        }
-      } else {
-        // Режим не hook-only, пробуем выполнить миграцию
-        const targetApi = cfg.mode === 'official-to-self' ? cfg.newApi : 
-                         (cfg.mode === 'self-to-self' ? cfg.newApi : officialApi);
-        
-        if (!urlLooksValid(targetApi)) {
-          log('Не удалось определить целевой API.', 'error');
-          return;
-        }
-
-        // deleteWebhook и logOut/close только если бот не выведен из системы
-        if (!loggedOut) {
-          // deleteWebhook
-          try {
-            log(`deleteWebhook → ${api}`, 'info');
-            const del = await fetch(`${api}/bot${cfg.token}/deleteWebhook`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: `drop_pending_updates=${cfg.dropPending ? 'true' : 'false'}`
-            });
-            const delText = await del.text();
-            const delJson = JSON.parse(delText);
-            if (delJson.ok) {
-              log('✓ Webhook удален', 'success');
-            } else {
-              const errorMsg = delJson.description || delText;
-              log(`✗ deleteWebhook не удался: ${errorMsg}`, 'error');
-            }
-          } catch (e) {
-            log(`✗ Ошибка при удалении webhook: ${e.message}`, 'error');
-          }
-
-          // logOut или close
+          const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
           if (cfg.mode === 'official-to-self') {
-            try {
-              log(`logOut → ${api}`, 'info');
-              const out = await fetch(`${api}/bot${cfg.token}/logOut`, { method: 'POST' });
-              const outText = await out.text();
-              const outJson = JSON.parse(outText);
-              if (outJson.ok) {
-                log('✓ Выход из official выполнен', 'success');
-              } else {
-                const errorMsg = outJson.description || outText;
-                log(`✗ logOut не удался: ${errorMsg}`, 'error');
-              }
-            } catch (e) {
-              log(`✗ Ошибка при выходе: ${e.message}`, 'error');
-            }
-          } else {
-            try {
-              log(`close → ${api}`, 'info');
-              const close = await fetch(`${api}/bot${cfg.token}/close`, { method: 'POST' });
-              const closeText = await close.text();
-              const closeJson = JSON.parse(closeText);
-              if (closeJson.ok) {
-                log('✓ Сессия закрыта', 'success');
-              } else {
-                const errorMsg = closeJson.description || closeText;
-                log(`✗ close не удался: ${errorMsg}`, 'error');
-              }
-            } catch (e) {
-              log(`✗ Ошибка при закрытии сессии: ${e.message}`, 'error');
-            }
+            await api(cfg.oldApi, cfg.token, 'deleteWebhook', drop); changed = true;
+            await api(cfg.oldApi, cfg.token, 'logOut', {});
+            await api(target, cfg.token, 'getMe');
           }
-        } else {
-          log('Пропускаем deleteWebhook и logOut/close (бот уже выведен)', 'info');
-        }
-
-        // getMe на целевом API
-        try {
-          log(`getMe → ${targetApi}`, 'info');
-          const meNew = await fetchJson(`${targetApi}/bot${cfg.token}/getMe`);
-          if (meNew.json && meNew.json.ok === true) {
-            log(`✓ Новый бот: ${meNew.json.result.first_name} (@${meNew.json.result.username})`, 'success');
-          } else {
-            log(`✗ getMe на новом API не удался: ${meNew.text}`, 'error');
-          }
-        } catch (e) {
-          log(`✗ Ошибка при проверке нового API: ${e.message}`, 'error');
-        }
-
-        // setWebhook если указан
-        const webhookTarget = cfg.webhook || state.currentWebhookFromCheck;
-        if (webhookTarget) {
-          try {
-            log(`setWebhook → ${targetApi}`, 'info');
-            const set = await fetch(`${targetApi}/bot${cfg.token}/setWebhook`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: `url=${encodeURIComponent(webhookTarget)}&drop_pending_updates=${cfg.dropPending ? 'true' : 'false'}`
-            });
-            const setText = await set.text();
-            const setJson = JSON.parse(setText);
-            if (setJson.ok) {
-              log(`✓ Webhook установлен: ${webhookTarget}`, 'success');
-            } else {
-              const errorMsg = setJson.description || setText;
-              log(`✗ setWebhook не удался: ${errorMsg}`, 'error');
-            }
-          } catch (e) {
-            log(`✗ Ошибка при установке webhook: ${e.message}`, 'error');
-          }
-        }
-
-        // Итоговая проверка
-        try {
-          log(`getWebhookInfo → ${targetApi}`, 'info');
-          const final = await fetchJson(`${targetApi}/bot${cfg.token}/getWebhookInfo`);
-          if (final.json && final.json.ok === true) {
-            const url = final.json.result.url || '(не установлен)';
-            log(`✓ Итоговый webhook: ${url}`, 'success');
-          } else {
-            log(`✗ Итоговая проверка не удалась: ${final.text}`, 'error');
-          }
-        } catch (e) {
-          log(`✗ Ошибка при итоговой проверке: ${e.message}`, 'error');
-        }
-      }
-
-      log('Выполнение в браузере завершено.', 'success');
-      
-      // Обновляем резюме
-      const effectiveWebhook = cfg.webhook || state.currentWebhookFromCheck || '';
-      const modeMap = {
-        'official-to-self': 'Official → Self',
-        'self-to-self': 'Self → Self',
-        'self-to-official': 'Self → Official',
-        'hook-only': 'Webhook only'
-      };
-      setSummary(`
-        <div><strong>Режим:</strong> ${escapeHtml(modeMap[cfg.mode] || cfg.mode)}</div>
-        <div><strong>Старый API:</strong> <span>${escapeHtml(cfg.oldApi || '—')}</span></div>
-        <div><strong>Новый API:</strong> <span>${escapeHtml(cfg.newApi || '—')}</span></div>
-        <div><strong>Итоговый webhook:</strong> <span>${escapeHtml(effectiveWebhook || '(polling / пусто)')}</span></div>
-        <div><strong>Drop pending updates:</strong> ${cfg.dropPending ? 'true' : 'false'}</div>
-        <div style="margin-top:10px; color: var(--success);">Выполнение в браузере завершено. Если все запросы прошли успешно, миграция выполнена.</div>
-        <div style="margin-top:5px;">Если возникли ошибки CORS, используй curl-план ниже.</div>
-      `);
-    }
-
-    function bindModeCards() {
-      [...document.querySelectorAll('.mode-btn')].forEach(card => {
-        card.addEventListener('click', () => {
-          state.mode = card.dataset.mode;
-          applyMode();
-        });
+          if (hook) { await api(target, cfg.token, 'setWebhook', {...drop,url:hook}); changed = true; }
+          else if (cfg.mode === 'hook-only') { await api(target, cfg.token, 'deleteWebhook', drop); changed = true; }
+          const final = await api(target, cfg.token, 'getWebhookInfo');
+          if (final.url !== hook) throw new Error('Итоговый webhook не совпадает; проверьте состояние вручную.');
+          if (cfg.mode === 'official-to-self') state.completedMigration = true;
+          log('Конфигурация проверена. Проверьте полный профиль и доставку тестового update.', 'success');
+          setSummary('Запросы завершены успешно; фактическая доставка требует отдельной проверки.');
+        } catch (error) { if (changed) state.needsReconcile = true; throw error; }
       });
     }
+    document.querySelectorAll('.mode-btn').forEach(card => card.addEventListener('click', () => {
+      if (state.busy) return;
+      state.mode = card.dataset.mode; applyMode();
+    }));
+    [els.botToken,els.oldApi,els.newApi,els.webhookUrl,els.dropPending].forEach(el => {
+      for (const event of ['input','change']) el.addEventListener(event, () => { if (!state.busy) invalidate(); });
+    });
+    els.btnCheck.addEventListener('click', checkCurrentState);
+    els.btnExecute.addEventListener('click', executeInBrowser);
+    els.btnCopyCurl.addEventListener('click', copyCurlPlan);
+    applyMode();
 
-    function bindInputs() {
-      [els.botToken, els.oldApi, els.newApi, els.webhookUrl, els.dropPending].forEach(el => {
-        el.addEventListener('input', runLocalChecks);
-        el.addEventListener('change', runLocalChecks);
-      });
-
-      els.btnCheck.addEventListener('click', checkCurrentState);
-      els.btnExecute.addEventListener('click', executeInBrowser);
-      els.btnCopyCurl.addEventListener('click', copyCurlPlan);
-    }
-
-    function initDefaults() {
-      els.oldApi.value = officialApi;
-      runLocalChecks();
-      applyMode();
-      buildPlan();
-    }
-
-    bindModeCards();
-    bindInputs();
-    initDefaults();
   </script>
 </body>
 </html>

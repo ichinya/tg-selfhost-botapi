@@ -40,4 +40,5 @@ jobs:
           source: ./
           destination: ./.site-check
       - name: Check rendered links and the original migrator URL
-        run: python3 tools/check_docs.py .site-check
+        timeout-minutes: 2
+        run: timeout 60 python3 tools/check_docs.py .site-check

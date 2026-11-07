@@ -25,6 +25,7 @@ application and receives updates sent by the server. They are different addresse
 | --- | --- |
 | `API_ID` | Required application API ID |
 | `API_HASH` | Required application API hash |
+| `GATEWAY_BIND` | Gateway host address; defaults to `127.0.0.1` |
 | `BOTAPI_IMAGE` | Optional image tag or digest; defaults to `ghcr.io/ichinya/tg-selfhost-botapi:latest` |
 
 For a tested build, set:
@@ -35,6 +36,10 @@ BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
 
 An image digest can be used instead. The local build override uses
 `tg-selfhost-botapi:local`, independently of `BOTAPI_IMAGE`.
+
+## Migration helper environment
+
+The Bash migration helper reads only `SELF_BOT_URL`, `TELEGRAM_BOT_URL`, `WEBHOOK_URL`, `WEB_HOOK` and `DROP_PENDING_UPDATES` from its trusted `.env` file; other values there are not exported to the helper. `OFFICIAL_BOT_URL` is an advanced testing override for the source endpoint and is read from the process environment, not from that file.
 
 ## Container environment
 
@@ -83,11 +88,15 @@ A remote authenticated file handler is tracked in
 
 ## Current limitations
 
-- The nginx `/file/` alias exposes the state directory; it is not an authenticated
-  file-download API. Restrict access; [issue #3](https://github.com/ichinya/tg-selfhost-botapi/issues/3).
+- nginx forwards `/file/` requests to the Bot API; it does not serve the state directory.
 - No upload-size override is configured in nginx. Large multipart requests can
   receive HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
-- Compose publishing `18080:80` does not limit access to localhost.
-- Access logs and token-bearing URLs need care; do not share unredacted diagnostics.
+- The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`
+  only if remote clients, such as a webhook receiver, must reach it; protect external
+  access with HTTPS and appropriate network controls.
+- Access logs redact bot tokens and omit query strings. nginx error logs use the
+  `crit` threshold to suppress request-bearing errors; warning and error diagnostics
+  are not logged. Critical messages can still contain secrets: filter logs before
+  exporting them and do not share unredacted diagnostics.
 
 [Getting started](getting-started.md) · [Maintenance](maintenance.md)

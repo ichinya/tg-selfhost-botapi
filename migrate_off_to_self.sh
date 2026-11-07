@@ -2,22 +2,44 @@
 set -euo pipefail
 
 # =========================
-# Load .env if exists
+# Load a trusted shell file without overriding process configuration.
 # =========================
 
-if [[ -f .env ]]; then
-  echo "Loading environment variables from .env"
-  set -a
-  source .env
-  set +a
+process_self="${SELF_BOT_URL:-${TELEGRAM_BOT_URL:-}}"
+process_hook="${WEBHOOK_URL:-${WEB_HOOK:-}}"
+process_drop="${DROP_PENDING_UPDATES:-}"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ${ENV_FILE+x} ]]; then
+  env_path="$ENV_FILE"
+  [[ -n "$env_path" && -f "$env_path" && -r "$env_path" && -s "$env_path" ]] || {
+    echo "Error: invalid ENV_FILE" >&2; exit 1;
+  }
+else
+  env_path="$script_dir/.env"
+fi
+file_self= file_hook= file_drop=
+if [[ -e "$env_path" ]]; then
+  [[ -f "$env_path" && -r "$env_path" ]] && bash -n "$env_path" 2>/dev/null || {
+    echo "Error: cannot load environment file" >&2; exit 1;
+  }
+  # The file is trusted Bash. Capture only supported helper settings.
+  if ! file_values="$(bash -e -c '
+    unset SELF_BOT_URL TELEGRAM_BOT_URL WEBHOOK_URL WEB_HOOK DROP_PENDING_UPDATES
+    source "$1" >/dev/null 2>&1
+    printf "file_self=%q\nfile_hook=%q\nfile_drop=%q\n" \
+      "${SELF_BOT_URL:-${TELEGRAM_BOT_URL:-}}" "${WEBHOOK_URL:-${WEB_HOOK:-}}" "${DROP_PENDING_UPDATES:-}"
+  ' _ "$env_path")"; then
+    echo "Error: cannot load environment file" >&2; exit 1
+  fi
+  eval "$file_values"
 fi
 
-OFFICIAL_BOT_URL="https://api.telegram.org"
+OFFICIAL_BOT_URL="${OFFICIAL_BOT_URL:-https://api.telegram.org}"
 
 BOT_TOKEN="${1:-}"
-SELF_BOT_URL="${2:-${SELF_BOT_URL:-${TELEGRAM_BOT_URL:-}}}"
-WEBHOOK_URL_ARG="${3:-${WEBHOOK_URL:-${WEB_HOOK:-}}}"
-DROP_PENDING_UPDATES="${DROP_PENDING_UPDATES:-false}"
+SELF_BOT_URL="${2:-${process_self:-$file_self}}"
+WEBHOOK_URL_ARG="${3:-${process_hook:-$file_hook}}"
+DROP_PENDING_UPDATES="${process_drop:-${file_drop:-false}}"
 
 # =========================
 # checks
@@ -46,6 +68,15 @@ fi
 SELF_BOT_URL="${SELF_BOT_URL%/}"
 OFFICIAL_BOT_URL="${OFFICIAL_BOT_URL%/}"
 
+for endpoint in "$SELF_BOT_URL" "$OFFICIAL_BOT_URL"; do
+  if [[ ! "$endpoint" =~ ^https?://[^/@?#[:space:]]+(/[^?#[:space:]]*)?$ ]]; then
+    echo "Invalid API endpoint" >&2; exit 1
+  fi
+done
+if [[ -n "$WEBHOOK_URL_ARG" && ! "$WEBHOOK_URL_ARG" =~ ^https?://[^/@?#[:space:]]+([^@[:space:]]*)?$ ]]; then
+  echo "Invalid webhook URL" >&2; exit 1
+fi
+
 if [[ "$SELF_BOT_URL" == "$OFFICIAL_BOT_URL" ]]; then
   echo "SELF_BOT_URL must not be api.telegram.org"
   exit 1
@@ -63,8 +94,22 @@ esac
 # api helpers
 # =========================
 
+request() {
+  local response status
+  response="$(curl -q -sS --connect-timeout 5 --max-time 30 -w '\n%{http_code}' "$@" 2>/dev/null)" || {
+    echo 'Request failed; a mutation may have an UNKNOWN outcome. Stop and reconcile before retrying.' >&2
+    return 1
+  }
+  status="${response##*$'\n'}"
+  [[ "$status" =~ ^2[0-9][0-9]$ ]] || {
+    echo "Request failed with HTTP $status; stopping before dependent actions." >&2
+    return 1
+  }
+  printf '%s' "${response%$'\n'*}"
+}
+
 api_get() {
-  curl -fsS "$1/bot$BOT_TOKEN/$2"
+  request "$1/bot$BOT_TOKEN/$2"
 }
 
 api_post() {
@@ -72,7 +117,7 @@ api_post() {
   local method="$2"
   shift 2
 
-  curl -fsS -X POST "$base/bot$BOT_TOKEN/$method" "$@"
+  request -X POST "$base/bot$BOT_TOKEN/$method" "$@"
 }
 
 assert_ok() {
@@ -84,7 +129,6 @@ assert_ok() {
 
   if [[ "$ok" != "true" ]]; then
     echo "Error: $name failed"
-    echo "$json"
     exit 1
   fi
 }
@@ -93,21 +137,20 @@ assert_ok() {
 # 0 Preflight self
 # =========================
 
-echo "== 0/7 Preflight self =="
-
-if PREFLIGHT="$(api_get "$SELF_BOT_URL" getMe 2>/dev/null)"; then
-
-  if [[ "$(jq -r '.ok' <<<"$PREFLIGHT")" == "true" ]]; then
-    echo "Self-hosted API OK"
-  else
-    echo "Warning: self API reachable but not ready"
-  fi
-
-else
-
-  echo "Warning: self API not responding yet"
-
+echo "== 0/7 Token-free target probe =="
+if ! PREFLIGHT="$(curl -q -sS --connect-timeout 5 --max-time 10 -w '\n%{http_code}' "$SELF_BOT_URL/" 2>/dev/null)" ||
+   [[ "${PREFLIGHT##*$'\n'}" != 404 ]] ||
+   ! jq -e '.ok == false and .error_code == 404 and .description == "Not Found"' >/dev/null 2>&1 <<<"${PREFLIGHT%$'\n'*}"; then
+  echo "Target did not return the expected Bot API response; stopped before token requests." >&2
+  exit 1
 fi
+echo "Probe does not authenticate the host. Verify the endpoint independently."
+echo "Source: $OFFICIAL_BOT_URL"
+echo "Target: $SELF_BOT_URL"
+echo "Webhook: ${WEBHOOK_URL_ARG:-inherit source if present}"
+echo "Drop updates: $DROP_PENDING_UPDATES"
+if ! read -r -p "Continue with token-bearing requests? [y/N]: " c; then exit 0; fi
+case "$c" in y|Y|yes|YES) ;; *) exit 0 ;; esac
 
 
 # =========================
@@ -119,6 +162,7 @@ echo "== 1/7 Official getMe =="
 
 GETME="$(api_get "$OFFICIAL_BOT_URL" getMe)"
 assert_ok "$GETME" "getMe official"
+jq -e '.result.id | type == "number"' >/dev/null <<<"$GETME" || exit 1
 
 BOT_ID="$(jq -r '.result.id' <<<"$GETME")"
 BOT_NAME="$(jq -r '.result.first_name' <<<"$GETME")"
@@ -139,6 +183,7 @@ echo "== 2/7 Webhook official =="
 
 HOOK_INFO="$(api_get "$OFFICIAL_BOT_URL" getWebhookInfo)"
 assert_ok "$HOOK_INFO" "getWebhookInfo official"
+jq -e '.result.url | type == "string"' >/dev/null <<<"$HOOK_INFO" || exit 1
 
 CURRENT_WEBHOOK="$(jq -r '.result.url' <<<"$HOOK_INFO")"
 
@@ -187,14 +232,6 @@ fi
 echo "Drop updates: $DROP_PENDING_UPDATES"
 echo
 
-read -r -p "Continue? [y/N]: " c
-
-case "$c" in
-  y|Y|yes|YES) ;;
-  *) exit 0 ;;
-esac
-
-
 # =========================
 # 3 delete webhook
 # =========================
@@ -207,6 +244,7 @@ DEL="$(api_post "$OFFICIAL_BOT_URL" deleteWebhook \
 )"
 
 assert_ok "$DEL" deleteWebhook
+jq -e '.result == true' >/dev/null <<<"$DEL" || { echo "deleteWebhook result is not true" >&2; exit 1; }
 
 echo "$DEL"
 
@@ -220,6 +258,7 @@ echo "== 4/7 logOut =="
 
 LOGOUT="$(api_post "$OFFICIAL_BOT_URL" logOut)"
 assert_ok "$LOGOUT" logOut
+jq -e '.result == true' >/dev/null <<<"$LOGOUT" || { echo "logOut result is not true" >&2; exit 1; }
 
 echo "$LOGOUT"
 
@@ -233,6 +272,7 @@ echo "== 5/7 self getMe =="
 
 SELF_GETME="$(api_get "$SELF_BOT_URL" getMe)"
 assert_ok "$SELF_GETME" "getMe self"
+jq -e '.result.id | type == "number"' >/dev/null <<<"$SELF_GETME" || exit 1
 
 echo "$SELF_GETME"
 
@@ -252,6 +292,7 @@ if [[ -n "$TARGET_WEBHOOK" ]]; then
   )"
 
   assert_ok "$SET" setWebhook
+  jq -e '.result == true' >/dev/null <<<"$SET" || { echo "setWebhook result is not true" >&2; exit 1; }
 
   echo "$SET"
 
@@ -272,6 +313,7 @@ echo "== 7/7 check =="
 
 FINAL="$(api_get "$SELF_BOT_URL" getWebhookInfo)"
 assert_ok "$FINAL" final
+jq -e '.result.url | type == "string"' >/dev/null <<<"$FINAL" || exit 1
 
 echo "$FINAL"
 

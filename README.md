@@ -27,8 +27,8 @@ See [installation](docs/en/getting-started.md) for networking and verification.
 - Checked image builds and nightly upstream checks.
 - Bash migration helper and browser-based migration planner.
 
-The gateway currently exposes the data directory through `/file/`; restrict access
-before starting it on a public host. See [current limitations](docs/en/configuration.md#current-limitations)
-and the [work plan](https://github.com/ichinya/tg-selfhost-botapi/issues/19).
+The gateway binds to localhost by default and forwards file requests to the Bot API
+without exposing its state directory. See [configuration](docs/en/configuration.md)
+before enabling external access.
 
 [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/ichinya/tg-selfhost-botapi/issues)
