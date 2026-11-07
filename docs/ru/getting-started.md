@@ -31,7 +31,8 @@ UI/API работают с одного origin. Pages только объясн�
 - Для doctor: Python 3.11+ на host (только stdlib). Полная runtime-проверка требует
   локального Linux Engine с доступом к bridge; pure-проверки работают и на Windows.
 - API ID и API hash приложения Telegram с [my.telegram.org](https://my.telegram.org).
-- Для Bash-мигратора: Bash, curl и jq.
+- Для миграции: Linux/WSL, Python 3.11+; Bash для совместимого адаптера.
+- Node 24 нужен для разработки/UI-приёмки, а не для работы helper.
 
 API ID/hash приложения и токен бота от BotFather — разные учётные данные.
 

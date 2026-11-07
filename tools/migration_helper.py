@@ -13,7 +13,7 @@ from migration_contract import canonical, decode_json, normalize_endpoint
 from migration_engine import Engine, Runtime, Stop
 from migration_export import export_operation
 from migration_http import Client
-from migration_probe import Readiness, private_json
+from migration_probe import Readiness, CloudReadiness, private_json
 from migration_reconcile import TrustedReceipts, apply_external, apply_delivery
 from migration_store import Journal, StateStore, StateError, _name
 
@@ -26,7 +26,7 @@ ASSETS = {'/': ('tg_selfhost_botapi_migrator.html', 'text/html; charset=utf-8'),
 class Application:
     def __init__(self, config):
         fields={'state_dir','allowed_endpoints','evidence_file','trust_file','fixture'}
-        if not isinstance(config,dict) or not fields <= set(config) or set(config)-fields-{'runtime'}:
+        if not isinstance(config,dict) or not fields <= set(config) or set(config)-fields-{'runtime','forbidden_state_roots'}:
             raise ValueError('invalid helper configuration')
         if type(config['fixture']) is not bool or not isinstance(config['allowed_endpoints'],list):
             raise ValueError('invalid helper endpoint policy')
@@ -41,8 +41,11 @@ class Application:
 
     @contextmanager
     def context(self, *, create=False):
-        evidence=private_json(self.config['evidence_file'])
-        store=StateStore(self.config['state_dir'],create=create,data_dirs=evidence['local_forbidden_roots'])
+        evidence=private_json(self.config['evidence_file']) if create and self.config['evidence_file'] else None
+        roots=list(self.config.get('forbidden_state_roots',[]))
+        if evidence:
+            roots.extend(evidence['local_forbidden_roots'])
+        store=StateStore(self.config['state_dir'],create=create,data_dirs=roots)
         try:
             yield Journal(store,read_only=not create), evidence
         finally:
@@ -62,7 +65,7 @@ class Application:
 
     def engine(self,journal,runtime):
         client=Client(fixture=runtime.fixture)
-        readiness=Readiness(client,lambda:private_json(self.config['evidence_file']),journal.key,state_root=journal.store.root)
+        readiness=CloudReadiness(client,journal.key) if runtime.direction=='local_to_cloud' and not runtime.fixture else Readiness(client,lambda:private_json(self.config['evidence_file']),journal.key,state_root=journal.store.root)
         return Engine(journal,client,readiness,runtime,verifier=self.verifier)
 
     def status(self, operation, *, export=False):

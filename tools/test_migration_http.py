@@ -88,3 +88,28 @@ class HttpTests(unittest.TestCase):
         with mock.patch('subprocess.run',side_effect=subprocess.TimeoutExpired(['docker','inspect','synthetic'],20)):
             with self.assertRaisesRegex(ValueError,'managed deployment inspection failed'):
                 DockerEvidence.run('inspect','synthetic')
+
+    def test_managed_direct_file_credentials_and_actual_mode_with_local_build(self):
+        from pathlib import Path
+        work,temp='/var/lib/telegram-bot-api','/tmp/telegram-bot-api'
+        for file_credentials in (False,True):
+            for local_flag in (False,True):
+                env=['TELEGRAM_WORK_DIR='+work,'TELEGRAM_TEMP_DIR='+temp,'TELEGRAM_LOCAL=true']
+                env+=['TELEGRAM_API_ID_FILE=/run/secrets/id','TELEGRAM_API_HASH_FILE=/run/secrets/hash'] if file_credentials else [
+                    'TELEGRAM_API_ID=12345','TELEGRAM_API_HASH='+'a'*32]
+                info={'Image':'sha256:'+'1'*64,'Id':'fixture','State':{'Running':True},'Config':{'Env':env},
+                      'Mounts':[{'Destination':work,'Source':str(Path(__file__).resolve().parent),'RW':True}]}
+                def run(*args):
+                    if args[0]=='inspect': return json.dumps([info])
+                    if args[:2]==('image','inspect'): return json.dumps([{'RepoDigests':[]}])
+                    if args[2:]==('cat','/proc/1/cmdline'):
+                        return '\x00'.join(['/usr/local/bin/telegram-bot-api','--dir='+work,'--temp-dir='+temp]+(['--local'] if local_flag else []))
+                    if 'id' in args: return '1000'
+                    return ''
+                adapter=DockerEvidence('fixture',self.endpoint,info['Image'],b'x'*32)
+                with mock.patch.object(adapter,'run',side_effect=run):
+                    record=adapter()
+                self.assertEqual(record['local_mode'],local_flag)
+                self.assertIsNone(record['image_digest'])
+                self.assertIsNone(record['temp_mount_id'])
+                validate_evidence(record,self.endpoint)

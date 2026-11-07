@@ -51,6 +51,20 @@ class Authority(MemoryStore):
 
 
 class InterfaceTests(unittest.TestCase):
+    def test_offline_status_does_not_require_provider_or_deployment_inputs(self):
+        store=Authority()
+        journal=Journal(store)
+        runtime=Runtime('https://api.telegram.org','https://target.example',TOKEN,{'mode':'polling'},'polling')
+        with journal.lock('123'):
+            journal.create(runtime.plan('offline',journal.key),None)
+        output=io.StringIO()
+        with patch.dict(os.environ,{'MIGRATION_TRUST_FILE':'unavailable'},clear=True), \
+             patch('migration_cli.StateStore',return_value=store), \
+             patch('migration_cli.private_json',side_effect=AssertionError('offline status read private provider inputs')), \
+             patch('migration_cli.Client') as client,contextlib.redirect_stdout(output):
+            self.assertEqual(main(['status','--operation','offline']),0)
+            client.assert_not_called()
+
     def test_plan_parity_core_cli_helper_and_export_all_directions(self):
         for direction in ('cloud_to_local','local_to_local','local_to_cloud','webhook_only'):
             with self.subTest(direction=direction):

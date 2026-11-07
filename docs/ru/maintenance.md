@@ -215,3 +215,67 @@ identity, restart count, effective Compose или on-disk snapshot nginx.
 При `quota_accounting_unverified` отдельно проверьте фактический quota headroom
 для identity сервера. `unsafe_input_permissions` даёт BLOCKED/1; нечитаемый или
 неверный private input — exit 2, непроверенная приватность платформы — UNKNOWN/3.
+## Isolated mock walkthrough
+
+Используйте Linux/WSL и loopback-only fixture ниже. Он не может обратиться
+к Telegram. Для каждого сценария запускаются новые fixture servers/state;
+это не способ восстановления реального бота. Перед запуском задайте
+`MIGRATION_FIXTURE_DIRECTION` одним из четырёх direction names. Завершите
+проверку за TTL evidence (пять минут), иначе перезапустите изолированный fixture.
+
+```sh
+umask 077
+PYTHONPATH=tools python3 - <<'PY'
+import json, os, tempfile
+from pathlib import Path
+from migration_mock import Bot, TOKEN, deployment
+from migration_helper import Application, Server
+root = Path(tempfile.mkdtemp(prefix="botapi-fixture-"))
+source, target = Bot("source"), Bot("target")
+direction = os.environ.get("MIGRATION_FIXTURE_DIRECTION", "cloud_to_local")
+endpoint = source.endpoint if direction == "webhook_only" else target.endpoint
+evidence = root / "deployment.json"
+record = deployment(endpoint)
+record["local_mode"] = direction != "local_to_cloud"
+evidence.write_text(json.dumps(record))
+evidence.chmod(0o600)
+app = Application({"state_dir": str(root / "state"), "allowed_endpoints": [source.endpoint, target.endpoint],
+                   "evidence_file": str(evidence), "trust_file": None, "fixture": True})
+server = Server(app, 8765)
+print("Synthetic fixture only:", server.origin, "code:", server.bootstrap, flush=True)
+print("Source:", source.endpoint, "Target:", endpoint, "Token:", TOKEN, "Direction:", direction, flush=True)
+print("Retained fixture authority:", root, flush=True)
+try:
+    server.serve_forever()
+except KeyboardInterrupt:
+    pass
+finally:
+    server.server_close(); app.close(); target.close(); source.close()
+PY
+```
+
+1. Введите одноразовый код из терминала. Укажите напечатанные endpoints/token,
+   соответствующие direction/mode, явный polling и quiescence JSON `"fixture"`.
+   Для Local → Cloud также отметьте queue acknowledgement и cooldown 0.
+2. Plan, проверка digest, Apply. Source detach предшествует target authorization.
+   Миграция остаётся partial до endpoint/start checkpoints.
+3. Введите `"fixture"` в endpoint-change и application-start receipts, затем
+   Resume. Delivery остаётся NOTRUN до отдельного receiver receipt.
+4. В Local → Local выполнение сначала остановится после close. Fixture transfer
+   receipt требует точных operation_id/digest/close_attempt/source_fingerprint/
+   target_fingerprint, target_deployment равного deployment fingerprint плана,
+   совпадающих 64-hex source_manifest/target_manifest, 64-hex source_deployment,
+   uid/gid 1000, текущего observed_at и true source_closed/no_writers/layout_valid.
+   Это проверка границы аттестации, а не реальный перенос каталога TDLib.
+5. Обновите вкладку и прочитайте status. Повторный Resume не увеличивает counters
+   подтверждённых мутаций. Потерю ответов отдельно внедряют автоматические тесты.
+
+Реальные providers задаются в private `MIGRATION_TRUST_FILE`:
+`{"providers":{"audit":{"key_hex":"<private-64-hex-key>","kinds":["quiescence","effect","endpoint_change","application_start","state_transfer","delivery"],"fixture":false}}}`.
+Подписанный envelope содержит provider/payload/signature. Signature — HMAC-SHA256
+канонического sorted compact ASCII JSON payload на независимом ключе. Общие
+поля payload: version 1, kind, operation_id, digest, source_fingerprint,
+target_fingerprint, token_fingerprint, observed_at. Quiescence также требует
+no_writers=true, endpoint/start — endpoint_fingerprint. Provider проверяет
+внешние факты до подписи. По умолчанию доверенных providers нет; fixture
+providers не могут подтверждать реальные операции.

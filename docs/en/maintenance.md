@@ -214,3 +214,67 @@ count, effective Compose model or the on-disk nginx snapshot changes.
 For `quota_accounting_unverified`, verify the service identity's actual quota
 headroom separately. `unsafe_input_permissions` is BLOCKED/1; unreadable or
 malformed private input is exit 2, and unverified platform privacy is UNKNOWN/3.
+## Isolated mock walkthrough
+
+Use Linux/WSL and the following loopback-only fixture. It cannot send requests
+to Telegram. Each scenario starts fresh fixture servers and private state; this
+is not a recovery recipe for a real bot. Set `MIGRATION_FIXTURE_DIRECTION` to
+one of the four direction names before starting. Complete within the evidence
+TTL (five minutes), otherwise restart the fixture for a new isolated scenario.
+
+```sh
+umask 077
+PYTHONPATH=tools python3 - <<'PY'
+import json, os, tempfile
+from pathlib import Path
+from migration_mock import Bot, TOKEN, deployment
+from migration_helper import Application, Server
+root = Path(tempfile.mkdtemp(prefix="botapi-fixture-"))
+source, target = Bot("source"), Bot("target")
+direction = os.environ.get("MIGRATION_FIXTURE_DIRECTION", "cloud_to_local")
+endpoint = source.endpoint if direction == "webhook_only" else target.endpoint
+evidence = root / "deployment.json"
+record = deployment(endpoint)
+record["local_mode"] = direction != "local_to_cloud"
+evidence.write_text(json.dumps(record))
+evidence.chmod(0o600)
+app = Application({"state_dir": str(root / "state"), "allowed_endpoints": [source.endpoint, target.endpoint],
+                   "evidence_file": str(evidence), "trust_file": None, "fixture": True})
+server = Server(app, 8765)
+print("Synthetic fixture only:", server.origin, "code:", server.bootstrap, flush=True)
+print("Source:", source.endpoint, "Target:", endpoint, "Token:", TOKEN, "Direction:", direction, flush=True)
+print("Retained fixture authority:", root, flush=True)
+try:
+    server.serve_forever()
+except KeyboardInterrupt:
+    pass
+finally:
+    server.server_close(); app.close(); target.close(); source.close()
+PY
+```
+
+1. Connect using the printed one-time code. Enter the printed fixture endpoints/
+   synthetic token, matching direction/mode, explicit polling and quiescence JSON
+   `"fixture"`. Local → Cloud also selects queue acknowledgement and cooldown 0.
+2. Plan, review the digest, then Apply. Confirm source detach precedes target
+   authorization. The migration remains partial until endpoint/start checkpoints.
+3. Enter `"fixture"` for endpoint-change and application-start receipts, then
+   Resume. Keep delivery as NOTRUN until a separate receiver receipt is imported.
+4. For Local → Local, execution first blocks after close. A fixture transfer
+   receipt needs exact operation_id/digest/close_attempt/source_fingerprint/
+   target_fingerprint, target_deployment equal to the plan deployment fingerprint,
+   matching 64-hex source_manifest/target_manifest, a 64-hex source_deployment,
+   uid/gid 1000, current observed_at and true source_closed/no_writers/layout_valid.
+   This tests the attestation boundary, not a real TDLib directory transfer.
+5. Reload the browser and read status. Repeated Resume does not increase confirmed
+   mutation counters. Automated fault tests separately inject lost responses.
+
+Provision real providers in a private `MIGRATION_TRUST_FILE` with shape
+`{"providers":{"audit":{"key_hex":"<private-64-hex-key>","kinds":["quiescence","effect","endpoint_change","application_start","state_transfer","delivery"],"fixture":false}}}`.
+A signed envelope has provider/payload/signature. Signature is HMAC-SHA256 of
+canonical sorted compact ASCII JSON payload using that independent key. Common
+payload fields: version 1, kind, operation_id, digest, source_fingerprint,
+target_fingerprint, token_fingerprint and observed_at. Quiescence additionally
+requires no_writers=true; endpoint/start require endpoint_fingerprint. Provider
+implementations must verify the external facts before signing. No provider is
+trusted by default, and fixture providers cannot attest real operations.

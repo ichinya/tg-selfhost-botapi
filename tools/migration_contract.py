@@ -170,6 +170,7 @@ def build_plan(*, operation_id, bot_id, source, target, token, profile, action, 
                             'token_file':'BOT_TOKEN_FILE','webhook':'WEBHOOK_URL'},
                 drop_step='target_configure' if drop else None,
                 local_mode=local_mode, queue_ack=queue_ack, cloud_not_before=cloud_not_before,
+                profile_scope=profile['mode'],
                 deployment_fingerprint=deployment or fingerprint(key, 'unbound-deployment'),
                 steps=registry(direction),
                 **{n + '_fingerprint': fingerprint(key, v) for n, v in
@@ -296,7 +297,7 @@ def validate_transition(previous, current, evidence=None):
 def validate_plan(plan):
     fields = {'operation_id', 'bot_id', 'direction', 'engine_version', 'drop_step', 'references', 'fixture', 'source_fingerprint',
               'target_fingerprint', 'token_fingerprint', 'action', 'profile_fingerprint', 'drop', 'steps',
-              'local_mode', 'queue_ack', 'cloud_not_before', 'deployment_fingerprint'}
+              'local_mode', 'queue_ack', 'cloud_not_before', 'deployment_fingerprint', 'profile_scope'}
     if not isinstance(plan, dict) or set(plan) != fields:
         raise ValueError('invalid plan fields')
     if type(plan['fixture']) is not bool:
@@ -310,6 +311,10 @@ def validate_plan(plan):
     for field in ('operation_id', 'bot_id'):
         if not isinstance(plan[field], str) or not _IDENTIFIER.fullmatch(plan[field]):
             raise ValueError('invalid identifier')
+    if not __import__('re').fullmatch('[1-9][0-9]*', plan['bot_id']):
+        raise ValueError('numeric bot identity required')
+    if plan['profile_scope'] not in ('polling','url_only','full') or (plan['profile_scope']=='polling') != (plan['action']=='polling'):
+        raise ValueError('invalid delivery profile scope')
     try:
         Direction(plan['direction'])
         WebhookAction(plan['action'])

@@ -61,6 +61,7 @@ class ContractTests(unittest.TestCase):
                 normalize_endpoint(endpoint)
 
     def test_profile_boundary(self):
-        self.plan(action='set', profile={'mode':'url_only', 'url':'https://receiver.example/path'})
+        p=self.plan(action='set', profile={'mode':'url_only', 'url':'https://receiver.example/path'})
+        self.assertEqual(p['profile_scope'],'url_only')
         with self.assertRaises(ValueError):
             self.plan(action='set', profile={'mode':'full', 'secret':'synthetic'})

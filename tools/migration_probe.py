@@ -154,6 +154,10 @@ h=${TELEGRAM_API_HASH:-}; [ -z "${TELEGRAM_API_HASH_FILE:-}" ] || h=$(cat "$TELE
 '''
         self.run('exec',self.container,'sh','-c',credentials)
         work,temp=env.get('TELEGRAM_WORK_DIR','/var/lib/telegram-bot-api'),env.get('TELEGRAM_TEMP_DIR','/tmp/telegram-bot-api')
+        argv=self.run('exec',self.container,'cat','/proc/1/cmdline').split('\x00')
+        if (not argv or PurePosixPath(argv[0]).name!='telegram-bot-api'
+                or '--dir='+work not in argv or '--temp-dir='+temp not in argv):
+            raise ValueError('managed runtime arguments do not match deployment configuration')
         mounts={m['Destination']:m for m in info['Mounts']}
         if work not in mounts or not mounts[work]['RW'] or temp in mounts and not mounts[temp]['RW']:
             raise ValueError('managed persistent mount must be writable')
@@ -171,7 +175,7 @@ h=${TELEGRAM_API_HASH:-}; [ -z "${TELEGRAM_API_HASH_FILE:-}" ] || h=$(cat "$TELE
                     persistent_mount_id=mounts[work].get('Name',mounts[work]['Source']),
                     temp_mount_id=mounts[temp].get('Name',mounts[temp]['Source']) if temp in mounts else None,
                     local_forbidden_roots=[m['Source'] for m in info['Mounts']],
-                    local_mode=env.get('TELEGRAM_LOCAL','0').lower() in ('1','true','yes'),
+                    local_mode='--local' in argv,
                     runtime_uid=uid,runtime_gid=gid,write_verified=True)
 
 

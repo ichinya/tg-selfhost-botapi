@@ -31,7 +31,8 @@ UI/API share this origin. Pages only explains this workflow. For a remote host:
 - For doctor: host Python 3.11+ (stdlib only). Full runtime evidence requires a
   local Linux engine with bridge access; pure checks also work on Windows.
 - A Telegram application API ID and hash from [my.telegram.org](https://my.telegram.org).
-- For the Bash migration helper: Bash, curl and jq.
+- For migration: Linux/WSL, Python 3.11+; Bash for the compatibility adapter.
+- Node 24 is required for development/UI acceptance, not for operating the helper.
 
 The application API ID/hash identify your Telegram application. They are different
 from a bot token issued by BotFather.

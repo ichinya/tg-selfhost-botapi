@@ -172,7 +172,7 @@ def view(j,s):
                 aggregate=aggregate,results=results,checkpoints=list(s['checkpoints']),plan=s['plan'],
                 attempts={name:a[-1]['id'] if a else None for name,a in s['steps'].items()},
                 receipts={name:a[-1]['events'] if a else [] for name,a in s['steps'].items()},
-                profile_scope='bound_private_profile',freshness='saved_receipts_only')
+                profile_scope=s['plan']['profile_scope'],freshness='saved_receipts_only')
 
 
 def receipt(args, name):
@@ -215,7 +215,8 @@ def main(argv=None):
         store=StateStore(root,create=args.command=='plan',data_dirs=excluded)
         j=Journal(store,read_only=args.command!='plan')
         verifier_path=args.trust_file or env.get('MIGRATION_TRUST_FILE')
-        verifier=TrustedReceipts(private_json(verifier_path)) if verifier_path else None
+        needs_verifier=online or args.command=='reconcile'
+        verifier=TrustedReceipts(private_json(verifier_path)) if verifier_path and needs_verifier else None
         if args.command=='status' and not args.refresh:
             print(canonical(view(j,j.load(args.operation))))
             return 0
