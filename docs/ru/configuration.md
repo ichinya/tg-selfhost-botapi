@@ -83,8 +83,84 @@ nginx или запрос `setWebhook` этот исходящий заголо�
 произвольный абсолютный путь в HTTP URL скачивания простым склеиванием строк.
 
 Ранее описанная схема скачивания с `X-Telegram-Bot-Token` не реализована.
-Авторизованная удалённая выдача файлов запланирована в
-[issue #5](https://github.com/ichinya/tg-selfhost-botapi/issues/5).
+Локальный reader принимает один `file_id`, вызывает getFile на приватном endpoint
+оператора и читает исходный абсолютный путь без преобразования в URL. Read-only
+mount содержит только полный token/DC каталог своего бота по тому же абсолютному
+пути. Одного numeric bot ID недостаточно: test DC добавляет `:T`, альтернативный
+layout заменяет `:` на `~`. Token читается из отдельного защищённого regular file
+(владелец root/reader, mode `0640` или строже, без symlink/hardlink), не из аргумента.
+
+Общий opener требует Linux/amd64, kernel >= 5.6 и рабочий openat2 под seccomp.
+Он закрепляет root и открывает один regular single-link FD внутри него. Symlink,
+nested mount, traversal и внешние пути отклоняются без pathname fallback.
+Изоляцию local-доступа задают mounts и Unix permissions. Writer и оператор
+доверенные; FD не создаёт snapshot изменяемого writer файла.
+
+После подготовки приватных путей и проверенной пары образов по инструкции
+`examples/files/README.md` local reader запускается так:
+
+```sh
+docker compose -f docker-compose.yml -f examples/files/compose.local.yml run --rm reader '<FILE_ID>' > downloaded.bin
+```
+
+### Удалённая выдача (opt-in)
+
+Базовый gateway не предоставляет HTTP-скачивание файлов. Отдельный handler
+принимает `POST /downloads/<bot-alias>`, ровно `Content-Type: application/json`,
+один `Authorization: Bearer <DOWNLOAD_CREDENTIAL>` и только
+`{"file_id":"<FILE_ID>"}`. Приватный registry связывает alias с уникальным credential
+из не менее 32 случайных символов, полным Telegram token/DC, endpoint и bot-root.
+Клиент не задаёт path, token, endpoint или root. Лишние/дублированные JSON keys,
+query string, повторные auth/framing headers, chunked body и legacy auth запрещены.
+
+Нет credential, неверный/отозванный/дублированный credential — 401. Валидный
+credential к чужому либо неизвестному alias — одинаковый 403 до getFile/open.
+Неверный input/Content-Type — 400, method — 405, Range — 416, превышение размера —
+413, отсутствующий/запрещённый файл — 404, upstream failure/timeout — 502/504,
+перегрузка — 503. Успех: octet-stream, фиксированное attachment имя, Content-Length
+из FD, no-store/nosniff. Приватные пути и raw upstream diagnostics не возвращаются.
+
+Лимиты: 4 workers и очередь 8; headers/body <= 16 KiB; file_id <= 1024 байт UTF-8;
+upstream connect/read 5/60 секунд; client idle 30 секунд; chunks 64 KiB.
+HEAD/Range/resume и прозрачных retries нет. Ошибка после начала stream закрывает
+соединение без добавления JSON. Для отзыва смените credential в приватном registry
+и пересоздайте handler. Нужен HTTPS, Telegram token остаётся на сервере.
+Недоверенные клиенты не должны иметь прямого доступа к local Bot API: handler
+не обеспечивает tenant-изоляцию всех его методов.
+
+После приватного заполнения `.env` и registry:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.downloads.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.downloads.yml up -d downloads downloads-gateway
+curl --config /absolute/private/download.curl --fail-with-body \
+  --header 'Content-Type: application/json' --data '{"file_id":"<FILE_ID>"}' \
+  https://downloads.example.com/downloads/bot-a --output downloaded.bin
+```
+
+Bearer header хранится в приватном curl-файле. Backend не публикует host port;
+отдельный proxy слушает `127.0.0.1:18082`, disk buffering/cache отключены.
+Используйте `examples/files/nginx.downloads-tls.conf` на HTTPS ingress оператора.
+Каждому боту нужен отдельный read-only bind; отсутствующий source останавливает
+запуск. Registry/token находятся вне media; token/DC пути нельзя публиковать.
+
+## Разделённое хранение
+
+Compose хранит приватное состояние в `./data` (`/var/lib/telegram-bot-api`), а медиа
+в `./files` (`/var/lib/telegram-bot-api-files`). `TELEGRAM_FILES_DIR` передаётся как
+`--files-dir`; без переменной отдельный образ сохраняет upstream legacy default.
+Entry point отклоняет неканонические, пересекающиеся пути и symlink в предках.
+Temp и журналы должны быть вне media; относительный `TELEGRAM_LOG_FILE` считается
+от `TELEGRAM_WORK_DIR`. Явные CLI-аргументы обходят проверку профиля и переменных;
+`--help` и `--version` доступны без API credentials.
+
+Writer работает как `101:101`, media root должен иметь владельца `101:101` и mode
+`770`, umask writer — `007`. Подготовьте только нужный bot-root с mode `2750`;
+reader `10001:101` получает group read/traverse либо адресный ACL оператора.
+Рекурсивные chown/chmod состояния не выполняются. Несовместимый владелец или mode
+существующего media root останавливает запуск. Реальные права файлов TDLib должен
+подтвердить runtime gate проверенной пары образов: umask и shell fixture этого
+сами по себе не доказывают.
 
 ## Текущие ограничения
 

@@ -23,6 +23,20 @@ cp .env.example .env
 
 Заполните `API_ID` и `API_HASH` в `.env`. Не публикуйте этот файл.
 
+Для split file profile в Linux подготовьте `./files` перед запуском:
+
+```sh
+sudo install -d -o 101 -g 101 -m 0770 ./files
+```
+
+Reader/handler требуют Linux/amd64, kernel >= 5.6 и openat2. Используйте проверенную
+пару Bot API/downloads образов. Приватные token и registry хранятся вне media;
+reader получает read-only только выбранный полный token bot-root по тому же
+абсолютному пути. См. [файловый контракт](configuration.md) и команды в репозитории
+`examples/files/README.md`; исходники examples исключены из Pages. Базовый gateway
+не поддерживает HTTP-скачивание; remote требует opt-in override и HTTPS ingress
+оператора перед proxy на `18082`.
+
 По умолчанию gateway слушает `127.0.0.1` и не раздаёт каталог состояния.
 Если удалённым клиентам, включая получатель webhook, нужен доступ к Bot API,
 задайте `GATEWAY_BIND=0.0.0.0` в `.env` и обеспечьте HTTPS и сетевые ограничения.

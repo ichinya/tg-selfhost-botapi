@@ -25,6 +25,8 @@ a webhook User-Agent patch, and migration helpers.
 | Official tdlib server | Bot API implementation |
 | This project's image | Builds the server, applies the webhook patch and starts it from environment variables |
 | nginx gateway | Forwards HTTP requests to the server |
+| Local file reader | Reads one bot-root through a matching read-only mount by file_id |
+| Opt-in downloads handler | Separate per-bot authorization, HTTPS ingress and FD-only file streaming |
 | Bash helper | Automates cloud → local migration with a confirmation step |
 | Browser tool | Reads an explicitly selected source with consent; executes cloud → local or webhook-only; gives manual stages for local transitions |
 

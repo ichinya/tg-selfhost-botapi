@@ -48,6 +48,42 @@ Update [English](docs/en/README.md) and [Russian](docs/ru/README.md) documentati
 together. Keep the root README short. Documentation changes get a Jekyll build
 and internal-link check in CI; the existing migrator URL must keep working.
 
+## File contract qualification
+
+For the file contract, qualify an exact pair from a clean checkout:
+
+```sh
+python3 -m unittest tools.test_check_file_contract tools.test_image_inputs tools.test_file_access tools.test_file_contract tools.test_download_server tools.test_file_site_privacy tools.test_entrypoint
+python3 tools/check_file_contract.py --state-isolation-only --models-only
+python3 tools/check_file_contract.py --models-only
+python3 tools/check_file_contract.py --botapi-image botapi-candidate:check --downloads-image downloads-candidate:check --permissions-image permissions-candidate:check --report file-contract-receipt.json
+```
+
+The full fixture requires native Linux/amd64, openat2/default seccomp, Docker
+Compose volume subpaths and the `permissions-probe` target built from the same
+resolved revision. It uses isolated synthetic storage and never reads live `.env`,
+`./data` or `./files`. Run builds sequentially with BUILD_JOBS=1 and explicit
+CPU/memory/PID limits. Windows static/model checks can pass while runtime is
+NOTRUN; this does not qualify publication.
+
+The callable file-contract workflow resolves the upstream SHA and both immutable
+base digests, fingerprints actual sources, tests docs/context privacy, requalifies
+pulled candidates, and seals exact image IDs plus an archive checksum. The offline
+probe checks pinned TDLib FileLoaderUtils/tdutils create/rename semantics and group
+reader access without Telegram. Source drift, missing mandatory proof or UNKNOWN
+registry status fails closed. `image.yml` publishes the sealed pair without a
+rebuild, validates registry digests against those image IDs and only then promotes
+latest. Receipts distinguish qualification, publish and production; no CI result
+proves an operator deployment. Jekyll must retain the original migrator bytes/URL.
+
+Файловый контракт проверяется командами выше в чистом кандидате. Native Linux,
+Docker/openat2, offline probe и Jekyll обязательны для квалификации; Windows SKIP
+и локальный NOTRUN не разрешают выпуск. Используются только изолированные
+synthetic volumes. Не запускайте fixture против рабочих storage/env. Архив
+проверенной пары содержит точные image IDs; publish/promote не пересобирает образы.
+Результат CI не подтверждает deploy. При локальных ограничениях указывайте
+`verification deferred to CI/gates`, сохраняя реальные PASS/FAIL/NOTRUN/UNKNOWN.
+
 ## По-русски
 
 В Windows выполняйте `python3 tools/test_entrypoint.py` в WSL или CI: нативный

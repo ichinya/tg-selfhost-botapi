@@ -1,0 +1,236 @@
+# Disposable synthetic fixture only. Never merge with the operator's live stack.
+x-limits: &limits
+  cpus: 1
+  mem_limit: 256m
+  pids_limit: 64
+  restart: "no"
+services:
+  state-setup:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "0:0"
+    entrypoint: [python, /fixture/mock_botapi.py, state_setup]
+    network_mode: none
+    volumes:
+      - ${FIXTURE_DIR:?}:/fixture:ro
+      - state-canary:/private-state
+  state-mock:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "10001:101"
+    entrypoint: [python, /fixture/mock_botapi.py, state_serve]
+    networks:
+      state-net:
+        aliases: [botapi]
+    volumes:
+      - ${FIXTURE_DIR:?}:/fixture:ro
+      - state-canary:/private-state:ro
+  state-gateway:
+    <<: *limits
+    image: nginx:alpine
+    entrypoint: [nginx, -g, "daemon off;"]
+    networks: [state-net]
+    volumes:
+      - ${ROOT_DIR:?}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  state-client:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "10001:101"
+    read_only: true
+    entrypoint: [python, /fixture/mock_botapi.py, state_client]
+    networks: [state-net]
+    volumes:
+      - ${FIXTURE_DIR:?}:/fixture:ro
+  setup:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "0:0"
+    entrypoint: [python, /fixture/mock_botapi.py]
+    command: [setup]
+    network_mode: none
+    volumes:
+      - ${FIXTURE_DIR:?}:/fixture:ro
+      - media:/var/lib/telegram-bot-api-files
+      - state:/private-state
+      - ${FIXTURE_REGISTRY_DIR:?}:/registry
+      - ${FIXTURE_TOKEN_DIR:?}:/token
+      - backup:/backup
+  writer:
+    <<: *limits
+    image: ${BOTAPI_TEST_IMAGE:?}
+    user: "101:101"
+    entrypoint: [sh, -ec]
+    command:
+      - |
+        umask 007
+        for bot in 12345:SYNTHETIC_A 12345:SYNTHETIC_B; do
+          mkdir -p "/var/lib/telegram-bot-api-files/$$bot/documents"
+          printf 'EXACT_SYNTHETIC_BYTES' > "/var/lib/telegram-bot-api-files/$$bot/documents/fixture.bin"
+        done
+        printf 'STATE_CANARY' > /private-state/webhooks_db.binlog
+    network_mode: none
+    volumes:
+      - media:/var/lib/telegram-bot-api-files
+      - state:/private-state
+  permissions-writer:
+    <<: *limits
+    image: ${PERMISSIONS_TEST_IMAGE:?}
+    user: "101:101"
+    network_mode: none
+    volumes:
+      - media:/var/lib/telegram-bot-api-files
+  entrypoint:
+    <<: *limits
+    image: ${BOTAPI_TEST_IMAGE:?}
+    network_mode: none
+    environment:
+      TELEGRAM_API_ID: "12345"
+      TELEGRAM_API_HASH: SYNTHETIC_ONLY
+      TELEGRAM_FILES_DIR: /var/lib/telegram-bot-api-files
+      TELEGRAM_LOG_FILE: synthetic.log
+      TELEGRAM_LOCAL: "true"
+    volumes:
+      - entry-state:/var/lib/telegram-bot-api
+      - entry-media:/var/lib/telegram-bot-api-files
+      - entry-temp:/tmp/telegram-bot-api
+  botapi:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "10001:101"
+    entrypoint: [python, /fixture/mock_botapi.py, serve]
+    networks: [private]
+    volumes:
+      - ${FIXTURE_DIR:?}:/fixture:ro
+  downloads:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "10001:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on: [botapi]
+    networks: [private]
+    volumes:
+      - type: bind
+        source: ${FIXTURE_REGISTRY_DIR:?}/downloads.config.json
+        target: /run/secrets/downloads.config.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: volume
+        source: media
+        target: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
+        read_only: true
+        volume:
+          subpath: 12345:SYNTHETIC_A
+      - type: volume
+        source: media
+        target: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_B
+        read_only: true
+        volume:
+          subpath: 12345:SYNTHETIC_B
+  reader:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "10001:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [private]
+    entrypoint: [python, /fixture/mock_botapi.py]
+    command: [local]
+    volumes:
+      - ${FIXTURE_DIR:?}:/fixture:ro
+      - type: volume
+        source: media
+        target: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
+        read_only: true
+        volume:
+          subpath: 12345:SYNTHETIC_A
+      - type: bind
+        source: ${FIXTURE_TOKEN_DIR:?}/bot-token
+        target: /run/secrets/bot-token
+        read_only: true
+        bind:
+          create_host_path: false
+  downloads-gateway:
+    <<: *limits
+    image: nginx:alpine
+    entrypoint: [nginx, -g, "daemon off;"]
+    depends_on: [downloads]
+    networks: [private, front]
+    ports: ["127.0.0.1::80"]
+    volumes:
+      - ${ROOT_DIR:?}/examples/files/nginx.downloads.conf:/etc/nginx/conf.d/default.conf:ro
+  downloads-tls:
+    <<: *limits
+    image: nginx:alpine
+    entrypoint: [nginx, -g, "daemon off;"]
+    depends_on: [downloads-gateway]
+    networks: [front]
+    ports: ["127.0.0.1::443"]
+    volumes:
+      - ${TLS_CONFIG:?}:/etc/nginx/conf.d/default.conf:ro
+      - tls:/etc/operator-tls:ro
+  certs:
+    <<: *limits
+    image: ${BOTAPI_TEST_IMAGE:?}
+    user: "0:0"
+    entrypoint: [sh, -ec]
+    command:
+      - >-
+        openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=downloads-tls
+        -addext subjectAltName=DNS:downloads-tls -keyout /tls/privkey.pem -out /tls/fullchain.pem
+    network_mode: none
+    volumes: [tls:/tls]
+  client:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "10001:101"
+    read_only: true
+    entrypoint: [python, /fixture/mock_botapi.py]
+    command: [remote]
+    networks: [front]
+    volumes:
+      - ${FIXTURE_DIR:?}:/fixture:ro
+      - tls:/tls:ro
+  probe:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "10001:101"
+    read_only: true
+    entrypoint: [python, /fixture/mock_botapi.py]
+    command: [overload]
+    networks: [private]
+    volumes:
+      - ${FIXTURE_DIR:?}:/fixture:ro
+  mountcheck:
+    <<: *limits
+    image: ${DOWNLOADS_TEST_IMAGE:?}
+    user: "0:0"
+    privileged: true
+    entrypoint: [sh, -ec]
+    command:
+      - >-
+        mount -t tmpfs tmpfs /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A/nested &&
+        python /fixture/mock_botapi.py mountcheck
+    network_mode: none
+    volumes:
+      - ${FIXTURE_DIR:?}:/fixture:ro
+      - media:/var/lib/telegram-bot-api-files
+volumes:
+  state-canary:
+  media:
+  state:
+  tls:
+  backup:
+  entry-state:
+  entry-media:
+  entry-temp:
+networks:
+  state-net:
+    internal: true
+  private:
+    internal: true
+  front:
+    internal: true

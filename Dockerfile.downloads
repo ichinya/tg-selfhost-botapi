@@ -1,0 +1,18 @@
+ARG PYTHON_IMAGE
+FROM ${PYTHON_IMAGE}
+ARG PYTHON_IMAGE
+ARG DOWNLOADS_FINGERPRINT=local
+LABEL org.opencontainers.image.source="https://github.com/ichinya/tg-selfhost-botapi" \
+      io.tg-selfhost.downloads-key="${DOWNLOADS_FINGERPRINT}" \
+      io.tg-selfhost.python-image="${PYTHON_IMAGE}"
+RUN python -c 'import re,sys; assert re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", sys.argv[1]), "immutable Python base required"' "$PYTHON_IMAGE" \
+ && addgroup -S -g 101 media \
+ && adduser -S -D -H -u 10001 -G media reader
+WORKDIR /app
+COPY tools/file_access.py tools/file_contract.py tools/download_server.py /app/tools/
+COPY examples/files/local_reader.py /app/examples/files/local_reader.py
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER 10001:101
+EXPOSE 8083/tcp
+ENTRYPOINT ["python", "-m", "tools.download_server"]
+CMD ["--registry", "/run/secrets/downloads.config.json"]

@@ -17,91 +17,83 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  qualify:
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/file-contract.yml
   image:
+    needs: qualify
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version: '24'
-      - name: Install migration test prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bash curl jq
-      - name: Test build input handling
-        timeout-minutes: 4
-        run: timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
-      - name: Check Compose
+          name: ${{ needs.qualify.outputs.artifact_name }}
+      - name: Load exact qualified pair
         env:
-          API_ID: '12345'
-          API_HASH: test-placeholder
+          BOTAPI_ID: ${{ needs.qualify.outputs.botapi_image_id }}
+          DOWNLOADS_ID: ${{ needs.qualify.outputs.downloads_image_id }}
+          BUILD_KEY: ${{ needs.qualify.outputs.build_key }}
+          DOWNLOADS_KEY: ${{ needs.qualify.outputs.downloads_key }}
         run: |
-          docker compose config --quiet
-          docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
-      - name: Login to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
+          sha256sum --check candidate-pair.sha256
+          gzip -dc candidate-pair.tar.gz | docker load
+          python3 - <<'PY'
+          import json, os, subprocess
+          pair = json.load(open('candidate-pair.json'))
+          assert pair['source_sha'] == os.environ['GITHUB_SHA']
+          for name in ('unit', 'docs', 'runtime', 'tdlib_permissions'):
+              assert pair[name] == 'PASS', name
+          expected = dict(build_key='BUILD_KEY', downloads_key='DOWNLOADS_KEY', botapi_image_id='BOTAPI_ID', downloads_image_id='DOWNLOADS_ID')
+          for key, env in expected.items(): assert pair[key] == os.environ[env]
+          images = json.loads(subprocess.check_output(['docker', 'image', 'inspect', 'botapi-candidate:check', 'downloads-candidate:check']))
+          assert images[0]['Id'] == pair['botapi_image_id']
+          assert images[1]['Id'] == pair['downloads_image_id']
+          PY
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Resolve immutable upstream inputs
-        id: inputs
-        run: python3 tools/image_inputs.py >> "$GITHUB_OUTPUT"
-      - name: Check previously published build
-        id: existing
-        env:
-          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          image="ghcr.io/${REPOSITORY,,}"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT" > /dev/null 2>registry-error.txt; then
-            echo 'exists=true' >> "$GITHUB_OUTPUT"
-          else
-            # A missing/private package also fails inspection on the first build.
-            # Never treat an unconfirmed registry response as a successful build.
-            cat registry-error.txt >&2
-            echo 'exists=false' >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build candidate (patch must apply)
-        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64
-          load: true
-          push: false
-          tags: botapi-candidate:check
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
-            ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
-            BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
-            BUILD_JOBS=2
-      - name: Smoke-test built binary
-        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
-        run: |
-          docker run --rm botapi-candidate:check --version
-          docker run --rm --entrypoint sh botapi-candidate:check -ec \
-            'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
-      - name: Publish tested build then promote latest
+      - uses: docker/setup-buildx-action@v4
+      - name: Publish and promote qualified digests without rebuilding
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
-          IMAGE: ${{ steps.existing.outputs.image }}
-          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
-          EXISTS: ${{ steps.existing.outputs.exists }}
+          BUILD_KEY: ${{ needs.qualify.outputs.build_key }}
+          DOWNLOADS_KEY: ${{ needs.qualify.outputs.downloads_key }}
         run: |
-          if [ "$EXISTS" != true ]; then
-            docker tag botapi-candidate:check "$IMAGE:build-$BUILD_FINGERPRINT"
-            docker push "$IMAGE:build-$BUILD_FINGERPRINT"
-          fi
-          # Existing immutable builds have already passed the same checks.
-          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:build-$BUILD_FINGERPRINT"
-          echo "Published $IMAGE:build-$BUILD_FINGERPRINT" >> "$GITHUB_STEP_SUMMARY"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker tag botapi-candidate:check "$image:build-$BUILD_KEY"
+          docker tag downloads-candidate:check "$image-downloads:build-$DOWNLOADS_KEY"
+          docker push "$image:build-$BUILD_KEY"
+          docker push "$image-downloads:build-$DOWNLOADS_KEY"
+          docker buildx imagetools inspect "$image:build-$BUILD_KEY" --format '{{json .Manifest}}' > botapi-manifest.json
+          docker buildx imagetools inspect "$image-downloads:build-$DOWNLOADS_KEY" --format '{{json .Manifest}}' > downloads-manifest.json
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          pair = json.load(open('candidate-pair.json'))
+          base = 'ghcr.io/' + os.environ['GITHUB_REPOSITORY'].lower()
+          for name, image in [('botapi', base), ('downloads', base + '-downloads')]:
+              digest = json.load(open(name + '-manifest.json'))['digest']
+              assert re.fullmatch(r'sha256:[0-9a-f]{64}', digest)
+              ref = image + '@' + digest
+              subprocess.run(['docker', 'pull', '--platform', 'linux/amd64', ref], check=True)
+              actual = json.loads(subprocess.check_output(['docker', 'image', 'inspect', ref]))[0]['Id']
+              assert actual == pair[name + '_image_id']
+              pair[name + '_digest'] = digest
+          for name, image in [('botapi', base), ('downloads', base + '-downloads')]:
+              subprocess.run(['docker', 'buildx', 'imagetools', 'create', '--tag', image + ':latest', image + '@' + pair[name + '_digest']], check=True)
+          pair.update(publish='PASS', production='NOTRUN')
+          with open('published-pair.json', 'w') as output: json.dump(pair, output, indent=2)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        with:
+          name: published-pair-${{ github.run_id }}-${{ github.run_attempt }}
+          path: published-pair.json
+          if-no-files-found: error
