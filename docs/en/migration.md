@@ -40,6 +40,32 @@ an operator checkbox alone are insufficient. The first release supplies the HMAC
 provider boundary, not a platform-specific audit collector. Fixture trust is
 restricted to fixture operations. Historical confirmed receipts survive drift.
 
+## Common CLI and export
+
+Run Python 3.11+ on Linux/WSL. Supply `BOT_TOKEN` or `BOT_TOKEN_FILE`, explicit
+`OLD_BOT_URL`, `SELF_BOT_URL`, `MIGRATION_ACTION` and private deployment evidence.
+The new interface never infers polling/preserve from an empty webhook.
+CLI flags override process environment, which overrides an explicit `--env-file`.
+Env files are parsed as data with an allowlist; shell expansion is rejected.
+The Bash filename remains compatible and forwards subcommands to the same CLI.
+Legacy positional token/target/webhook are translated to environment inputs;
+the original token argv remains visible to its caller and is deprecated.
+Legacy invocation prints a sealed plan and requires a separate apply with its
+digest. It never performs the old independent curl sequence.
+
+```sh
+python3 tools/migration_cli.py plan --operation move-01 --action polling
+python3 tools/migration_cli.py status --operation move-01
+python3 tools/migration_cli.py apply --operation move-01 --confirm-digest PLAN_DIGEST --quiescence-file "$QUIESCENCE_FILE"
+python3 tools/migration_cli.py resume --operation move-01 --endpoint-change-file "$ENDPOINT_RECEIPT" --application-start-file "$START_RECEIPT"
+python3 tools/migration_cli.py export --operation move-01
+```
+
+Exit codes: 0 handled (inspect payload outcome), 1 proven step failure,
+2 UNKNOWN/BLOCKED/checkpoint required, 3 WAITING, 4 invalid input/state.
+Export preserves ID/digest and references `MIGRATION_STATE_DIR`; it cannot create
+a second authority. Keep profile/certificate inputs in a private `--profile-file`.
+
 A migration changes the Bot API endpoint used by your application and may also
 change its webhook. Know the old endpoint before starting. Do not use cloud
 `getMe` as a neutral discovery request: token-bearing calls can affect sessions.

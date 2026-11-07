@@ -41,6 +41,30 @@ PARTIAL. Readiness, миграция, webhook и доставка имеют о�
 сборщик аудита платформы. Fixture trust допустим только для fixture-операций.
 Исторические подтверждения сохраняются при drift.
 
+## Общий CLI и экспорт
+
+Используйте Python 3.11+ в Linux/WSL. Задайте `BOT_TOKEN` либо `BOT_TOKEN_FILE`,
+явные `OLD_BOT_URL`, `SELF_BOT_URL`, `MIGRATION_ACTION` и private deployment evidence.
+Пустой webhook не выбирает polling/preserve. Приоритет: CLI, process environment,
+явный `--env-file`. Env читается как данные с allowlist, shell expansion запрещён.
+Старое имя Bash сохраняется и передаёт субкоманды общему CLI. Positional
+token/target/webhook переводятся в environment; исходный token argv остаётся
+видимым вызывающему процессу и устарел. Legacy-вызов выводит sealed plan;
+для выполнения нужен отдельный apply с его digest. Старой curl-последовательности нет.
+
+```sh
+python3 tools/migration_cli.py plan --operation move-01 --action polling
+python3 tools/migration_cli.py status --operation move-01
+python3 tools/migration_cli.py apply --operation move-01 --confirm-digest PLAN_DIGEST --quiescence-file "$QUIESCENCE_FILE"
+python3 tools/migration_cli.py resume --operation move-01 --endpoint-change-file "$ENDPOINT_RECEIPT" --application-start-file "$START_RECEIPT"
+python3 tools/migration_cli.py export --operation move-01
+```
+
+Коды: 0 — запрос обработан (смотрите outcome), 1 — доказанный отказ шага,
+2 — UNKNOWN/BLOCKED/нужен checkpoint, 3 — WAITING, 4 — input/state error.
+Экспорт сохраняет ID/digest и ссылается на `MIGRATION_STATE_DIR`, новую authority
+не создаёт. Профиль/сертификат подавайте через приватный `--profile-file`.
+
 При переносе меняется Bot API endpoint приложения и, при необходимости, webhook.
 До начала нужно знать старый endpoint. Облачный `getMe` не подходит для нейтрального
 определения текущего сервера: запросы с токеном могут влиять на сессию.
