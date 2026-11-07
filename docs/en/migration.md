@@ -5,6 +5,21 @@ translation: /docs/ru/migration.html
 
 # Migration
 
+## Executor contract
+
+The version 2 migration contract uses an immutable operation ID and digest,
+keyed endpoint/token/profile commitments and a single target-only drop step.
+Version 1 plans are rejected. Runtime secrets and URLs are supplied separately;
+they are not part of the public plan. A confirmed step is historical evidence,
+while a lost response remains UNKNOWN until permitted reconciliation proves it.
+
+The shared registry describes Cloud → Local (delete without drop, logOut,
+authorize, configure), Local → Local (delete, close, external state transfer,
+authorize, configure), Local → Cloud (delete, logOut, cooldown, authorize,
+configure) and Webhook only (configure). Each dependency must be confirmed.
+Local → Cloud requires acknowledgement of weaker queue continuity. Full typed
+profiles and explicit `url_only`/polling scope are bound to the sealed plan.
+
 A migration changes the Bot API endpoint used by your application and may also
 change its webhook. Know the old endpoint before starting. Do not use cloud
 `getMe` as a neutral discovery request: token-bearing calls can affect sessions.
