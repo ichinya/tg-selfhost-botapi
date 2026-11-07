@@ -49,6 +49,17 @@ All interfaces share its per-bot lock and unfinished-operation reservation.
 Windows and Windows-mounted WSL state are unsupported. Nested private artifacts
 are rejected by the documentation checker.
 
+Readiness is a fresh token-free protocol probe plus private deployment evidence
+with a five-minute TTL. Bind the image ID, runtime UID/GID, credentials readiness,
+persistent work mount and writable separate temp path. A local-build image need
+not have a RepoDigest; temp storage need not be persistent. `_FILE` credentials
+are supported. Managed Docker diagnostics perform explicit tiny write probes as
+the runtime user; they are not read-only. The HTTP helper cannot select containers.
+Local webhook mode must match deployment evidence: HTTP/private IP/any port is
+allowed in local mode; cloud requires HTTPS, a supported port and public IPv4.
+Unsupported profiles fail before source mutations. Transport has bounded DNS,
+connect/read/total time and body size, no redirects, inherited proxy or retries.
+
 ## Addresses and storage
 
 | Setting | Value |

@@ -51,6 +51,17 @@ HTTP-чтение известного файла. Для неподдержив
 Windows и state на Windows-диске в WSL не поддерживаются. Проверка документации
 отвергает вложенные приватные файлы.
 
+Readiness — свежая проверка протокола без токена и приватное свидетельство
+deployment с TTL пять минут: image ID, UID/GID, готовность credentials,
+persistent work mount и отдельный доступный temp. Для local-build RepoDigest
+не обязателен; temp не обязан быть persistent. Credentials через `_FILE`
+поддерживаются. Явная Docker-диагностика создаёт маленькие write probes от
+runtime user и не является read-only; HTTP-helper не выбирает контейнеры.
+Local mode подтверждается deployment: HTTP/private IP/любой порт разрешены
+в local; cloud требует HTTPS, допустимый порт и публичный IPv4.
+Несовместимый профиль блокируется до мутаций source. Транспорт ограничивает
+DNS/connect/read/total time и body, не наследует proxy, не делает redirects/retry.
+
 ## Адреса и хранение
 
 | Настройка | Значение |
