@@ -163,7 +163,7 @@
     ].map(id => [id, document.getElementById(id)]));
     const state = {mode:'official-to-self', currentWebhookFromCheck:'', checkedConfig:'',
       busy:false, needsReconcile:false, completedMigration:false, revision:0,
-      preflight:null, activeRun:null, history:[], nextOperation:1};
+      preflight:null, activeRun:null, history:[], nextOperation:1, retryNotBefore:null};
     const stages = ['prepared','source_webhook_detached','source_disabled',
       'target_authorized','delivery_configured','target_verified'];
     // Public records deliberately exclude the token and the private configuration fingerprint.
@@ -264,7 +264,9 @@
       try {
         const res = await fetch(url, {...options, redirect:'error', signal:controller.signal});
         const text = await res.text();
-        return {ok:res.ok, status:res.status, json:JSON.parse(text)};
+        let json = null;
+        try { json = JSON.parse(text); } catch { /* preserve HTTP status without trusting the body */ }
+        return {ok:res.ok, status:res.status, json, observedAt:Date.now()};
       } finally { clearTimeout(timer); }
     }
     async function probe(base) {
@@ -279,17 +281,28 @@
         body:new URLSearchParams(data || {}).toString()} : {};
       let r;
       try { r = await fetchJson(`${base}/bot${token}/${method}`, options); }
-      catch {
-        if (mutation) state.needsReconcile = true;
-        throw new Error(mutation ? `${method}: UNKNOWN. Сверьте состояние вручную; не повторяйте операцию вслепую.` : `${method}: ответ не получен или некорректен.`);
+      catch { if (mutation) state.needsReconcile = true; throw apiFailure(method, 'UNKNOWN', null, null, null); }
+      const envelope = r.json;
+      if (!r.ok && envelope?.ok === false && Number.isSafeInteger(envelope.error_code) && envelope.error_code === r.status) {
+        const seconds = envelope.parameters?.retry_after;
+        let deadline = null;
+        if (Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= Math.floor((8640000000000000 - r.observedAt) / 1000)) {
+          deadline = r.observedAt + seconds * 1000;
+        }
+        if (deadline !== null) state.retryNotBefore = deadline;
+        throw apiFailure(method, 'REJECTED', r.status, envelope.error_code, deadline);
       }
-      if (!r.ok || r.json?.ok !== true || (mutation && r.json.result !== true)) {
-        if (mutation) state.needsReconcile = true;
-        throw new Error(`${method}: отказ API/HTTP или неверный result. Цепочка остановлена; требуется сверка состояния.`);
-      }
-      if (method === 'getMe' && typeof r.json.result?.id !== 'number') throw new Error('getMe: неверный result.');
-      if (method === 'getWebhookInfo' && typeof r.json.result?.url !== 'string') throw new Error('getWebhookInfo: неверный result.url.');
+      const valid = r.ok && envelope?.ok === true &&
+        (method === 'getMe' ? Number.isSafeInteger(envelope.result?.id) && envelope.result.id > 0 :
+         method === 'getWebhookInfo' ? typeof envelope.result?.url === 'string' : envelope.result === true);
+      if (!valid) { if (mutation) state.needsReconcile = true; throw apiFailure(method, 'UNKNOWN', r.status, null, null); }
       return r.json.result;
+    }
+    function apiFailure(method, certainty, httpStatus, apiCode, retryNotBefore) {
+      const retry = retryNotBefore === null ? '' : ` Повтор не ранее ${new Date(retryNotBefore).toISOString()} (осталось ${Math.max(0, Math.ceil((retryNotBefore - Date.now()) / 1000))} с).`;
+      const error = new Error(`${method}: ${certainty}; цепочка остановлена.${retry}`);
+      Object.assign(error, {certainty, httpStatus, apiCode, retryNotBefore, method});
+      return error;
     }
     function consent(cfg, action) {
       return confirm(`${action}\nSource: ${cfg.oldApi}\nTarget: ${cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi}\nWebhook: ${cfg.webhook || 'наследовать прежний, если задан'}\nDrop updates: ${cfg.dropPending}\nПроверка адреса не подтверждает подлинность узла. Старые API-клиенты остановлены? Разрешить запросы с токеном?`);
@@ -421,6 +434,7 @@
     async function executeInBrowser() {
       return withLock(async () => {
         const cfg = currentConfig(); validate(cfg); buildPlan();
+        if (state.retryNotBefore !== null && Date.now() < state.retryNotBefore) throw new Error('Действует ограничение retry_after до ' + new Date(state.retryNotBefore).toISOString());
         if (state.completedMigration && cfg.mode === 'official-to-self') throw new Error('Перенос уже завершён. Повторный вход на source заблокирован.');
         if (isManual(cfg)) throw new Error('Этот переход выполняется только по отдельным ручным этапам; см. план.');
         if (state.needsReconcile) throw new Error('Сначала сверьте исход предыдущей операции вручную; повторное выполнение заблокировано.');
