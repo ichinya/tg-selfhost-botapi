@@ -19,6 +19,37 @@ from doctor_runtime import Runner, Budget, RunError, endpoint, STORAGE_METADATA,
 
 FIXTURES = Path(__file__).resolve().parent / "doctor_fixtures"
 SECRET = "synthetic-doctor-credential"
+LOG_SENTINEL = "123456789:synthetic_log_content_canary_0123456789"
+LOG_PATH = "/private-log/server.log"
+UNRESOLVED_ENV_LOG = "unresolved-env/server.log"
+LOG_NGINX = 'server { listen 80; location /log-download/ { alias /served-log/; } location / { proxy_pass http://botapi:8081; } }'
+
+
+def cli_log_cases(log_config, *, linux):
+    """Pure case definitions: unittest discovery never starts Docker."""
+    def override(log, *, shared=False, env_log=None):
+        api = {"command": ["--dir=/var/lib/telegram-bot-api", "--temp-dir=/tmp/telegram-bot-api",
+                           "--http-port=8081", "--local", "--log=" + log],
+               "volumes": [{"type": "volume", "source": "logs", "target": "/private-log"}]}
+        if env_log is not None:
+            api["environment"] = {"TELEGRAM_LOG_FILE": env_log}
+        services = {"botapi": api}
+        if shared:
+            services["gateway"] = {"volumes": [
+                {"type": "bind", "source": str(log_config), "target": "/etc/nginx/conf.d/default.conf", "read_only": True},
+                {"type": "volume", "source": "logs", "target": "/served-log", "read_only": True}]}
+        return {"services": services}
+    return [
+        {"name": "cli-log-unsafe", "override": override(LOG_PATH, shared=True), "expected": 1,
+         "reasons": {"state_mount_accessible": "FAIL", "state_root_exposed": "FAIL"}},
+        {"name": "cli-log-safe", "override": override(LOG_PATH), "expected": 0 if linux else 3,
+         "reasons": {"state_mount_isolated": "PASS"}},
+        # Divergence alone is not a failure: this additional env path cannot be resolved.
+        {"name": "cli-log-divergence", "override": override(LOG_PATH, env_log=UNRESOLVED_ENV_LOG), "expected": 3,
+         "reasons": {"state_isolation_unverified": "UNKNOWN"}},
+        {"name": "cli-log-relative", "override": override("server.log"), "expected": 3,
+         "reasons": {"state_isolation_unverified": "UNKNOWN"}},
+    ]
 
 
 def assert_report(result, code):
@@ -29,8 +60,9 @@ def assert_report(result, code):
         raise AssertionError("report/verdict mismatch")
     if code == 0 and any(c["required"] and c["status"] != "PASS" for c in result["checks"]):
         raise AssertionError("READY with incomplete evidence")
-    if SECRET in json.dumps(result):
-        raise AssertionError("credential escaped report")
+    from urllib.parse import quote
+    if any(value in json.dumps(result) for value in (SECRET, LOG_SENTINEL, quote(LOG_SENTINEL, safe=""), LOG_PATH, UNRESOLVED_ENV_LOG)):
+        raise AssertionError("private fixture data escaped report")
 
 
 class RecordingRunner(Runner):
@@ -85,7 +117,8 @@ def run_case(argv):
     result = json.loads(out.getvalue())
     assert_report(result, code)
     assert_commands(runner.calls)
-    if SECRET in out.getvalue() + err.getvalue() or err.getvalue():
+    from urllib.parse import quote
+    if any(value in out.getvalue() + err.getvalue() for value in (SECRET, LOG_SENTINEL, quote(LOG_SENTINEL, safe=""), LOG_PATH, UNRESOLVED_ENV_LOG)) or err.getvalue():
         raise AssertionError("unexpected diagnostic output")
     return result, code
 
@@ -114,9 +147,11 @@ class Harness:
             raise RunError("fixture_digest_missing")
         return digests[0]
 
-    def snapshot(self):
-        raw = self.command(self.compose + ["exec", "-T", "botapi", "sh", "-c",
-            'sha256sum /var/lib/telegram-bot-api/sentinel; find /var/lib/telegram-bot-api /tmp/telegram-bot-api -name ".doctor-*"'])
+    def snapshot(self, log=False):
+        script = 'sha256sum /var/lib/telegram-bot-api/sentinel; find /var/lib/telegram-bot-api /tmp/telegram-bot-api -name ".doctor-*"'
+        if log:
+            script += '; sha256sum /private-log/server.log; find /private-log -name ".doctor-*"'
+        raw = self.command(self.compose + ["exec", "-T", "botapi", "sh", "-c", script])
         if b".doctor-" in raw:
             raise AssertionError("probe leaked")
         return raw
@@ -156,7 +191,7 @@ class Harness:
                 inputs.chmod(0o600)
                 common = ["--scenario", "official-to-self", "--migration-input", str(inputs), "--format", "json",
                           "--min-free-bytes", "1024", "--min-free-inodes", "8", "--deadline", "90"]
-                def check(name, override=None, extra=(), expected=None):
+                def check(name, override=None, extra=(), expected=None, log=False, reasons=None):
                     files = [str(FIXTURES / "compose.yml")]
                     compose = list(self.compose)
                     if override:
@@ -165,17 +200,28 @@ class Harness:
                         files.append(str(path))
                         compose += ["-f", str(path)]
                     self.command(compose + ["up", "-d", "--wait", "--wait-timeout", "30"])
-                    before = self.snapshot()
+                    if log:
+                        # Only the harness writes its synthetic log; doctor may inspect metadata only.
+                        self.command(compose + ["exec", "-T", "--user", "0:0", "botapi", "sh", "-c",
+                            'printf "%s\\n" "$1" > /private-log/server.log', "fixture", LOG_SENTINEL])
+                    before = self.snapshot(log=log)
+                    private_before = {p.name: hashlib.sha256(p.read_bytes()).digest() for p in private.iterdir() if p.is_file()}
                     argv = ["-p", self.project]
                     for file in files:
                         argv += ["-f", file]
                     result, code = run_case(argv + common + list(extra))
-                    after = self.snapshot()
+                    after = self.snapshot(log=log)
                     if before != after:
                         raise AssertionError("synthetic sentinel changed")
+                    private_after = {p.name: hashlib.sha256(p.read_bytes()).digest() for p in private.iterdir() if p.is_file()}
+                    if private_before != private_after:
+                        raise AssertionError("synthetic private inputs changed")
                     if expected is not None and code != expected:
-                        reasons = [c["reason_code"] for c in result["checks"] if c["required"] and c["status"] != "PASS"]
-                        raise AssertionError(name + " unexpected result: " + ",".join(reasons))
+                        failed_reasons = [c["reason_code"] for c in result["checks"] if c["required"] and c["status"] != "PASS"]
+                        raise AssertionError(name + " unexpected result: " + ",".join(failed_reasons))
+                    for reason, status in (reasons or {}).items():
+                        if not any(c["reason_code"] == reason and c["status"] == status and c["required"] for c in result["checks"]):
+                            raise AssertionError(name + " missing required finding: " + reason)
                     cases.append({"name": name, "exit_code": code, "verdict": result["readiness"]["verdict"]})
                     return argv
                 linux = sys.platform == "linux" and "docker desktop" not in json.loads(self.command(["docker", "info", "--format", "{{json .}}"])).get("OperatingSystem", "").lower()
@@ -190,6 +236,10 @@ class Harness:
                 alternative.write_text('server { listen 80; location /alternate/ { root /var/lib/telegram-bot-api; } location / { proxy_pass http://botapi:8081; } }', encoding="utf-8")
                 unsafe["services"]["gateway"]["volumes"][0]["source"] = str(alternative)
                 check("alternative-root", unsafe, expected=1)
+                log_config = private / "log-alias.conf"
+                log_config.write_text(LOG_NGINX, encoding="utf-8")
+                for case in cli_log_cases(log_config, linux=linux):
+                    check(**case, log=True)
                 wrong = private / "wrong.conf"
                 wrong.write_text((FIXTURES.parent.parent / "nginx.conf").read_text().replace(":8081", ":8089"), encoding="utf-8")
                 check("wrong-port", {"services": {"gateway": {"volumes": [{"type": "bind", "source": str(wrong), "target": "/etc/nginx/conf.d/default.conf", "read_only": True}]}}}, expected=1)

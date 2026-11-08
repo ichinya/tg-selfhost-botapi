@@ -29,3 +29,5 @@ services:
 volumes:
   state:
   audit:
+  # Declared in the base model so scoped down --volumes also removes log-case storage.
+  logs:

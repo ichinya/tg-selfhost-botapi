@@ -331,6 +331,18 @@ def backing(path, mounts):
     return posixpath.normpath(mount["Source"] + "/" + posixpath.relpath(path, mount["Destination"]))
 
 
+def backings(path, mounts):
+    """Backing at a namespace path, plus any mounts below that directory/root."""
+    import posixpath
+    path = posixpath.normpath(path)
+    result = {source for source in [backing(path, mounts)] if source}
+    for mount in mounts:
+        destination = posixpath.normpath(mount["Destination"])
+        if destination.startswith(path.rstrip("/") + "/"):
+            result.add(posixpath.normpath(mount["Source"]))
+    return result
+
+
 INPUT_BOOLS = {"workflow_prepared", "webhook_profile_prepared", "drop_pending_updates", "source_backup_prepared"}
 
 

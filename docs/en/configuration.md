@@ -36,10 +36,12 @@ backing into an HTTP component, including read-only mounts. The shipped nginx
 configuration proxies requests and its logging redaction map is supported.
 Doctor also protects the observed process `--log` path and `TELEGRAM_LOG_FILE`,
 including both if they differ. An explicit command can bypass the entrypoint
-environment mapping. An ambiguous path or namespace leaves isolation UNKNOWN.
+environment mapping. An ambiguous path or namespace, incomplete mount metadata,
+or an unsupported special log file leaves isolation UNKNOWN.
 Path metadata is inspected without reading log contents; external reverse proxies
 outside the selected stack are not certified. Doctor does not repair nginx or Compose.
-Isolation checks parse supported nginx blocks/includes and compare mount backings.
+Isolation checks parse supported nginx blocks/includes and compare mount backings,
+including nested mounts and individual file binds below an HTTP root or alias.
 Dynamic handlers, unresolved includes and unverified media symlinks remain UNKNOWN.
 No binlog, real bot directory, statistics endpoint or state file is fetched.
 Read-only mounts, disabled directory listings and loopback publication do not

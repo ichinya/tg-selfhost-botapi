@@ -108,13 +108,15 @@ fields; a local image without registry digests is reported honestly without pull
 Stopped, paused, restarting, dead or unhealthy containers block readiness;
 pending health remains UNKNOWN. An unavailable endpoint is BLOCKED at a supported
 observation point; an unavailable observation point remains UNKNOWN.
-Exposure findings use parsed nginx includes plus independent mount isolation.
+Exposure findings use parsed nginx includes plus independent mount isolation,
+including nested mounts and individual file binds below an HTTP root or alias.
 A random 404 is not evidence of isolation. A state alias or accessible state mount
 blocks readiness; the shipped proxy and logging map are supported. The observed
 process `--log` and `TELEGRAM_LOG_FILE` are both protected, even when they differ;
 explicit commands may bypass entrypoint environment mapping. Shared backing is
-unsafe even when mounted read-only. Ambiguous path or namespace evidence remains
-UNKNOWN. Metadata inspection does not read the log, and external proxies outside
+unsafe even when mounted read-only. Ambiguous paths or namespaces, incomplete
+mount metadata and unsupported special log files leave isolation UNKNOWN.
+Metadata inspection does not read the log, and external proxies outside
 the selected stack are not certified. Doctor does not reload nginx.
 
 ### Doctor regression checks

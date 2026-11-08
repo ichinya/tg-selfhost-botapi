@@ -57,6 +57,99 @@ class FakeRunner:
 
 
 class DoctorTests(unittest.TestCase):
+    def test_log_reports_verdict_schema_privacy_and_transport(self):
+        from urllib.parse import quote, urlsplit
+        from doctor_mock import StackRunner, FakeHttp
+        from doctor_runtime import collect
+        from check_doctor import assert_commands
+        token = "123456789:synthetic_Doctor_token_canary_0123456789"
+        encoded = quote(token, safe="")
+        private_log = "/private-log/" + token + "/" + encoded + "/server.log"
+        relative = "relative-" + encoded + ".log"
+        cases = [
+            ("safe", {"log_argv": private_log}, 0, "state_mount_isolated"),
+            ("unsafe", {"log_argv": private_log, "share_log": True}, 1, "state_root_exposed"),
+            ("env-only", {"log_env": private_log, "share_log": True}, 1, "state_root_exposed"),
+            ("equal", {"log_argv": private_log, "log_env": private_log, "share_log": True}, 1, "state_root_exposed"),
+            ("unsafe-argv", {"log_argv": private_log, "log_env": "/isolated/server.log", "share_log": True}, 1, "state_root_exposed"),
+            ("unsafe-env", {"log_argv": "/isolated/server.log", "log_env": private_log, "share_log": True}, 1, "state_root_exposed"),
+            ("relative", {"log_argv": relative}, 3, "state_isolation_unverified"),
+            ("divergence", {"log_argv": private_log, "log_env": relative}, 3, "state_isolation_unverified"),
+            ("metadata-error", {"log_argv": private_log, "log_metadata": {private_log: RunError(encoded)}}, 3, "state_isolation_unverified"),
+            ("fail-and-unknown", {"log_argv": private_log, "share_log": True, "log_metadata": {private_log: RunError(token)}}, 1, "state_root_exposed"),
+            ("process-unavailable", {"log_argv": private_log, "process_error": True}, 3, "state_isolation_unverified"),
+            ("missing-setting", {"missing": True}, 1, "missing_setting"),
+            ("stopped-gateway", {"log_argv": private_log, "stopped": True}, 1, "service_stopped"),
+        ]
+        schema = json.loads(pathlib.Path(doctor.__file__).with_name("doctor.schema.json").read_text(encoding="utf-8"))
+        for scenario, role in (("official-to-self", "target"), ("self-to-official", "source")):
+            for name, options, expected, reason in cases:
+                for fmt in ("text", "json"):
+                    with self.subTest(scenario=scenario, case=name, format=fmt):
+                        runner = StackRunner(**options)
+                        http = FakeHttp([(404, "application/json", b'{"ok":false,"error_code":404}')] * 2)
+                        def collector(args, runner, http, checks, images):
+                            # Inject parsed operator declarations; exercise the real collector stages.
+                            args.migration_data = dict(schema_version=1, workflow_prepared=True, file_access="not_used",
+                                delivery_action="polling", drop_pending_updates=False, source_backup_prepared=True,
+                                source_backlog_policy="drain")
+                            args.input_secure = True
+                            collect(args, runner, http, checks, images)
+                        out, err = io.StringIO(), io.StringIO()
+                        with patch("doctor_runtime.sys.platform", "linux"), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                            code = doctor.main(["--scenario", scenario, "--format", fmt], runner=runner, http=http, collector=collector)
+                        self.assertEqual(expected, code, out.getvalue())
+                        for canary in (token, encoded, private_log, relative):
+                            self.assertNotIn(canary, out.getvalue() + err.getvalue())
+                        self.assertEqual("", err.getvalue())
+                        self.assertIn(reason, out.getvalue())
+                        verdict = {0: "READY", 1: "BLOCKED", 3: "UNKNOWN"}[expected]
+                        if fmt == "json":
+                            result = json.loads(out.getvalue())
+                            assert_contract_schema(result, schema)
+                            self.assertEqual((expected, verdict), (result["exit_code"], result["readiness"]["verdict"]))
+                            self.assertEqual([role], result["scope"]["contexts"])
+                            if reason == "state_root_exposed":
+                                findings = {c["check_id"]: c for c in result["checks"]}
+                                for check_id in ("state_exposure", "state_mount_accessible"):
+                                    self.assertEqual("FAIL", findings[role + "." + check_id]["status"])
+                        else:
+                            self.assertIn("Migration preflight: " + verdict, out.getvalue())
+                            self.assertIn("Exit code: " + str(expected), out.getvalue())
+                        assert_commands(runner.calls)
+                        for url in http.calls:
+                            parsed = urlsplit(url)
+                            self.assertEqual("http", parsed.scheme)
+                            self.assertIn(parsed.netloc, {"172.19.0.2:8081", "127.0.0.1:18080"})
+                            self.assertEqual(("/", "", ""), (parsed.path, parsed.query, parsed.fragment))
+
+    def test_log_report_http_failure_and_invalid_invocation(self):
+        from doctor_mock import StackRunner, FakeHttp
+        from doctor_runtime import collect
+        from check_doctor import assert_commands
+        runner = StackRunner(log_argv="/private-log/server.log")
+        http = FakeHttp([RunError("synthetic private response")] * 2)
+        def collector(args, runner, http, checks, images):
+            args.migration_data = dict(schema_version=1, workflow_prepared=True, file_access="not_used",
+                delivery_action="polling", drop_pending_updates=False)
+            args.input_secure = True
+            collect(args, runner, http, checks, images)
+        out, err = io.StringIO(), io.StringIO()
+        with patch("doctor_runtime.sys.platform", "linux"), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = doctor.main(["--scenario", "official-to-self", "--format", "json"], runner=runner, http=http, collector=collector)
+        self.assertEqual(1, code)
+        self.assertEqual("BLOCKED", json.loads(out.getvalue())["readiness"]["verdict"])
+        self.assertNotIn("synthetic private response", out.getvalue() + err.getvalue())
+        assert_commands(runner.calls)
+        for fmt in ("text", "json"):
+            runner = StackRunner(log_argv="/private-log/server.log")
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = doctor.main(["--scenario", "official-to-self", "--format", fmt, "--log=synthetic-private-canary"], runner=runner)
+            self.assertEqual(2, code)
+            self.assertFalse(runner.calls)
+            self.assertNotIn("synthetic-private-canary", out.getvalue() + err.getvalue())
+
     def test_shipped_sources_are_utf8_without_bom_and_lf(self):
         root = pathlib.Path(__file__).resolve().parent
         paths = [root / name for name in (

@@ -15,6 +15,82 @@ from doctor_mock import StackRunner, FakeHttp
 
 
 class HarnessTests(unittest.TestCase):
+    def test_cli_log_cases_use_real_argv_separate_storage_and_ro_alias(self):
+        from check_doctor import cli_log_cases, LOG_PATH, LOG_NGINX, FIXTURES
+        from doctor_checks import process_flags, nginx_config, nginx_routes
+        config = pathlib.Path("private") / "log-alias.conf"
+        cases = cli_log_cases(config, linux=True)
+        self.assertEqual(["cli-log-unsafe", "cli-log-safe", "cli-log-divergence", "cli-log-relative"],
+                         [c["name"] for c in cases])
+        self.assertEqual([1, 0, 3, 3], [c["expected"] for c in cases])
+        for case in cases:
+            services = case["override"]["services"]
+            api = services["botapi"]
+            flags = process_flags(api["command"])
+            self.assertEqual(("/var/lib/telegram-bot-api", "/tmp/telegram-bot-api", "8081", True),
+                             tuple(flags[k] for k in ("dir", "temp-dir", "http-port", "local")))
+            self.assertEqual("server.log" if case["name"] == "cli-log-relative" else LOG_PATH, flags["log"])
+            self.assertNotIn("entrypoint", api)
+            mount = api["volumes"][0]
+            self.assertEqual(("logs", "/private-log"), (mount["source"], mount["target"]))
+            self.assertNotEqual("state", mount["source"])
+            if case["name"] == "cli-log-unsafe":
+                config_mount, shared = services["gateway"]["volumes"]
+                self.assertEqual(str(config), config_mount["source"])
+                self.assertTrue(config_mount["read_only"])
+                self.assertEqual(mount["source"], shared["source"])
+                self.assertEqual("/served-log", shared["target"])
+                self.assertTrue(shared["read_only"])
+            else:
+                self.assertNotIn("gateway", services)
+            if case["name"] == "cli-log-divergence":
+                self.assertNotEqual(flags["log"], api["environment"]["TELEGRAM_LOG_FILE"])
+            else:
+                self.assertNotIn("environment", api)
+        roots, proxies, listens, dynamic = nginx_routes(nginx_config(LOG_NGINX))
+        self.assertEqual((["/served-log/"], ["http://botapi:8081"], [80], False), (roots, proxies, listens, dynamic))
+        self.assertIn("\n  logs:\n", (FIXTURES / "compose.yml").read_text(encoding="utf-8"))
+
+    def test_cli_log_case_verdicts_and_reasons_without_docker(self):
+        from check_doctor import cli_log_cases
+        from doctor_checks import process_flags
+        from doctor_runtime import LOG_CANONICAL
+        for linux in (True, False):
+            for case in cli_log_cases("private/log-alias.conf", linux=linux):
+                with self.subTest(case=case["name"], linux=linux):
+                    services = case["override"]["services"]
+                    api = services["botapi"]
+                    runner = StackRunner(log_argv=process_flags(api["command"])["log"],
+                        log_env=api.get("environment", {}).get("TELEGRAM_LOG_FILE"), share_log="gateway" in services)
+                    args = parser().parse_args(["--scenario", "official-to-self"])
+                    args.migration_data = dict(schema_version=1, workflow_prepared=True, file_access="not_used",
+                        delivery_action="polling", drop_pending_updates=False)
+                    args.input_secure = True
+                    checks, images = [], []
+                    http = FakeHttp([(404, "application/json", b'{"ok":false,"error_code":404}')] * 2)
+                    with patch("doctor_runtime.sys.platform", "linux" if linux else "win32"):
+                        collect(args, runner, http, checks, images)
+                    result = report(args.scenario, checks)
+                    self.assertEqual(case["expected"], result["exit_code"], result)
+                    for reason, status in case["reasons"].items():
+                        self.assertTrue(any(c["reason_code"] == reason and c["status"] == status and c["required"]
+                                            for c in result["checks"]), (reason, result))
+                    assert_commands(runner.calls)
+                    metadata_calls = [argv for argv in runner.calls if LOG_CANONICAL in argv]
+                    self.assertEqual(0 if case["name"] == "cli-log-relative" else 1, len(metadata_calls))
+
+    def test_log_snapshot_checks_sentinel_and_cleanup(self):
+        harness = Harness()
+        with patch.object(harness, "command", return_value=b"synthetic hashes\n") as command:
+            self.assertEqual(b"synthetic hashes\n", harness.snapshot(log=True))
+        argv = command.call_args.args[0]
+        self.assertEqual(harness.compose, argv[:len(harness.compose)])
+        self.assertIn("sha256sum /private-log/server.log", argv[-1])
+        self.assertIn('find /private-log -name ".doctor-*"', argv[-1])
+        with patch.object(harness, "command", return_value=b"/private-log/.doctor-leftover\n"):
+            with self.assertRaisesRegex(AssertionError, "probe leaked"):
+                harness.snapshot(log=True)
+
     def test_log_metadata_command_is_whitelisted(self):
         from doctor_runtime import LOG_CANONICAL
         assert_commands([["docker", "exec", "fixture", "timeout", "-s", "TERM", "-k", "0.5", "2", "sh", "-c", LOG_CANONICAL, "doctor", "/private/log"]])

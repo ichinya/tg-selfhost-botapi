@@ -104,6 +104,26 @@ class ExposureTests(unittest.TestCase):
         self.assertEqual({"log": "/logs/file"}, process_flags(["--log=/logs/file"]))
         self.assertEqual({"log": "/logs/file"}, process_flags(["--log", "/logs/file"]))
 
+    def test_missing_or_partial_mount_evidence_is_unknown_but_preserves_fail(self):
+        for service in ("botapi", "gateway"):
+            for evidence in (None, {}, [None], [{"Destination": "/unmapped"}]):
+                for shared in (False, True):
+                    with self.subTest(service=service, evidence=evidence, shared=shared):
+                        obj = Installation(parser().parse_args(["--scenario", "official-to-self"]), None, None, [], [])
+                        obj.process = {"flags": {}, "port": "8081"}
+                        mount = {"Destination": "/var/lib/telegram-bot-api", "Source": "/state"}
+                        obj.containers = {
+                            "botapi": {"Config": {}, "Mounts": [mount]},
+                            "gateway": {"Mounts": [mount] if shared else [], "NetworkSettings": {"Ports": {}}},
+                        }
+                        # Preserve confirmed mappings alongside an incomplete additional entry.
+                        obj.containers[service]["Mounts"] = ([mount] + evidence if shared and isinstance(evidence, list) else evidence)
+                        obj.exec = lambda *a, **kw: b"server { listen 80; root /var/lib/telegram-bot-api; location / { proxy_pass http://botapi:8081; } }"
+                        obj.exposure()
+                        finding = next(c for c in obj.checks if c["id"].endswith(".state_exposure"))
+                        expected = "fail" if shared and isinstance(evidence, list) else "unknown"
+                        self.assertEqual(expected, finding["status"])
+
     def test_canonical_path_keeps_spaces(self):
         from doctor_runtime import LOG_CANONICAL
         obj = Installation(parser().parse_args(["--scenario", "official-to-self"]), None, None, [], [])
@@ -119,6 +139,48 @@ class ExposureTests(unittest.TestCase):
             b"server { listen 80; location / { proxy_pass http://botapi:8081; } }")
         obj.exposure()
         self.assertTrue(any(c["id"].endswith(".state_mount_accessible") and c["status"] == "fail" for c in obj.checks))
+
+    def test_log_backing_namespace_file_mount_and_canonical_matrix(self):
+        from doctor_runtime import LOG_CANONICAL
+        state = {"Destination": "/var/lib/telegram-bot-api", "Source": "/host/state"}
+        for name, log, canonical, api_mounts, http_mounts, expected in (
+            ("bind-directory", "/logs/server.log", "/logs/server.log",
+             [{"Type": "bind", "Destination": "/logs", "Source": "/host/logs"}],
+             [{"Type": "bind", "Destination": "/served", "Source": "/host/logs", "RW": False}], "fail"),
+            ("bind-file-below-root", "/logs/server.log", "/logs/server.log",
+             [{"Type": "bind", "Destination": "/logs/server.log", "Source": "/host/file"}],
+             [{"Type": "bind", "Destination": "/served/file", "Source": "/host/file", "RW": False}], "fail"),
+            ("named-volume", "/logs/server.log", "/logs/server.log",
+             [{"Type": "volume", "Destination": "/logs", "Source": "/volumes/logs/_data"}],
+             [{"Type": "volume", "Destination": "/served", "Source": "/volumes/logs/_data", "RW": False}], "fail"),
+            ("canonical-symlink", "/link/server.log", "/logs/server.log",
+             [{"Destination": "/logs", "Source": "/host/logs"}],
+             [{"Destination": "/served", "Source": "/host/logs"}], "fail"),
+            ("private-layer", "/logs/server.log", "/logs/server.log", [], [], "pass"),
+            ("separate-namespace", "/logs/server.log", "/logs/server.log",
+             [{"Destination": "/logs", "Source": "/host/private"}],
+             [{"Destination": "/logs", "Source": "/host/public"}], "pass"),
+            ("nested-mount", "/logs/nested/server.log", "/logs/nested/server.log",
+             [{"Destination": "/logs", "Source": "/host/logs"}, {"Destination": "/logs/nested", "Source": "/host/nested"}],
+             [{"Destination": "/served", "Source": "/host/nested"}], "fail"),
+            ("nested-shadow", "/logs/nested/server.log", "/logs/nested/server.log",
+             [{"Destination": "/logs", "Source": "/host/logs"}, {"Destination": "/logs/nested", "Source": "/host/nested"}],
+             [{"Destination": "/served", "Source": "/host/logs"}], "pass"),
+        ):
+            with self.subTest(name=name):
+                obj = Installation(parser().parse_args(["--scenario", "official-to-self"]), None, None, [], [])
+                obj.process = {"flags": {"log": log}, "port": "8081"}
+                obj.containers = {
+                    "botapi": {"Config": {}, "Mounts": [state] + api_mounts},
+                    "gateway": {"Mounts": http_mounts, "NetworkSettings": {"Ports": {}}},
+                }
+                obj.exec = lambda service, *args, **kwargs: ((canonical + "\n").encode() if LOG_CANONICAL in args else
+                    b"server { listen 80; location /alternate { alias /served; } location / { proxy_pass http://botapi:8081; } }")
+                obj.exposure()
+                result = next(c for c in obj.checks if c["id"].endswith(".state_exposure"))
+                self.assertEqual(expected, result["status"])
+                if expected == "fail":
+                    self.assertEqual("state_root_exposed", result["reason_code"])
 
     def test_stats_and_alternative_root(self):
         roots, proxies, _, dynamic = nginx_routes(nginx_config('server { location /alternative { root /var/lib/telegram-bot-api; } location /s { proxy_pass http://botapi:8082; } }'))

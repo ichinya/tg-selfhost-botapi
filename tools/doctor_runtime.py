@@ -36,6 +36,11 @@ while [ ! -e "$path" ] && [ ! -L "$path" ]; do
     path=${path%/*}
     test -n "$path" || path=/
 done
+if [ -n "$suffix" ]; then
+    test -d "$path" && test -x "$path" || exit 20
+else
+    test -f "$path" || exit 20
+fi
 resolved=$(readlink -f "$path")
 test -n "$resolved" || exit 21
 printf '%s%s\n' "${resolved%/}" "$suffix"
@@ -755,14 +760,24 @@ class Installation:
                 self.add(role + ".storage", "unknown", "storage_unverified", "Directory, counters or required container utilities could not be verified.")
 
     def exposure(self):
-        from doctor_checks import nginx_config, nginx_routes, overlaps, backing, environment
+        from doctor_checks import nginx_config, nginx_routes, overlaps, backings, environment
+        def observed_mounts(container):
+            raw = container.get("Mounts")
+            if not isinstance(raw, list):
+                return [], False
+            valid = [m for m in raw if isinstance(m, dict) and all(
+                isinstance(m.get(k), str) and m[k].startswith("/") and "\x00" not in m[k]
+                for k in ("Source", "Destination"))]
+            return valid, len(valid) == len(raw)
+
         api = self.containers.get("botapi", {})
         env = environment(api.get("Config", {}).get("Env"))
         work = (self.process or {}).get("work") or env.get("TELEGRAM_WORK_DIR", "/var/lib/telegram-bot-api")
         temp = (self.process or {}).get("temp") or env.get("TELEGRAM_TEMP_DIR", "/tmp/telegram-bot-api")
         protected = [p for p in (work, temp, env.get("TELEGRAM_API_ID_FILE"), env.get("TELEGRAM_API_HASH_FILE")) if isinstance(p, str) and p.startswith("/")]
         process = self.process
-        incomplete = not process or not isinstance(process.get("flags"), dict) or not isinstance(api.get("Mounts"), list)
+        api_mounts, mounts_known = observed_mounts(api)
+        incomplete = not process or not isinstance(process.get("flags"), dict) or not mounts_known
         logs = [env.get("TELEGRAM_LOG_FILE")]
         if process and isinstance(process.get("flags"), dict):
             logs.append(process["flags"].get("log"))
@@ -786,20 +801,14 @@ class Installation:
                     incomplete = True
             except (RunError, ValueError, UnicodeError):
                 incomplete = True
-        mounts = api.get("Mounts", [])
-        if not isinstance(mounts, list):
-            mounts = []
-        sensitive = [backing(p, mounts) for p in set(protected)]
-        sensitive = [s for s in sensitive if s]
-        if any(not isinstance(m, dict) or not m.get("Destination") or not m.get("Source") for m in mounts):
-            incomplete = True
+        sensitive = list({s for p in set(protected) for s in backings(p, api_mounts)})
         if self.args.migration_input and os.name == "posix":
             sensitive.append(os.path.abspath(self.args.migration_input))
         # All HTTP-facing components in the selected stack participate in isolation.
         for service, container in self.containers.items():
             if service == "botapi":
                 continue
-            mounts = container.get("Mounts", [])
+            mounts, http_mounts_known = observed_mounts(container)
             accessible = any(overlaps(m.get("Source", "/"), s) for m in mounts for s in sensitive)
             if accessible:
                 self.add("state_mount_accessible", "fail", "state_mount_accessible", "An HTTP component can access a backing of state, temp or secrets, even through a read-only mount.")
@@ -811,10 +820,10 @@ class Installation:
                 self.nginx_snapshot = hashlib.sha256(snapshot).digest()
                 raw = snapshot.decode("utf-8")
                 roots, proxies, listens, dynamic = nginx_routes(nginx_config(raw))
-                unsafe = any(overlaps(b, s) for root in roots for b in [backing(root, mounts)] if b for s in sensitive)
+                unsafe = any(overlaps(b, s) for root in roots for b in backings(root, mounts) for s in sensitive)
                 if unsafe:
                     self.add("state_exposure", "fail", "state_root_exposed", "HTTP root/alias intersects state, temp or secret storage; read-only and loopback do not make it safe.", remediation="Isolate the HTTP component from state and serve only an authenticated media root (issues #3/#5).")
-                elif accessible or dynamic or not sensitive or incomplete:
+                elif accessible or dynamic or not sensitive or incomplete or not http_mounts_known:
                     self.add("state_exposure", "unknown", "state_isolation_unverified", "On-disk nginx config alone cannot establish loaded runtime isolation.")
                 else:
                     # Independent lack of a mount to private storage is stronger than a 404.
@@ -833,7 +842,7 @@ class Installation:
                 self.gateway_route_verified = bool(self.process and compatible and not dynamic and published in listens and not stats_proxy and not stats_published)
                 # Mount-backed roots could hide symlinks into another mount. Never read their contents.
                 for root in roots:
-                    if backing(root, mounts):
+                    if backings(root, mounts):
                         self.add("webroot_symlinks", "unknown", "webroot_symlinks_unverified", "Mounted media roots need independent symlink and nested-mount isolation evidence.")
                         break
             except (RunError, ValueError, UnicodeError):

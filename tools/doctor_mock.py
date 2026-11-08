@@ -36,11 +36,18 @@ class FakeHttp:
 
 class StackRunner:
     """Complete synthetic Docker model for pure orchestration regressions."""
-    def __init__(self, *, missing=False, stopped=False, unsafe=False, drift=False, changed=False, pinned=False):
+    def __init__(self, *, missing=False, stopped=False, unsafe=False, drift=False, changed=False, pinned=False,
+                 log_argv=None, log_env=None, share_log=False, log_metadata=None, process_error=False):
         self.budget, self.calls = Budget(), []
         self.unsafe, self.changed = unsafe, changed
+        self.share_log, self.log_metadata, self.process_error = share_log, log_metadata or {}, process_error
+        self.argv = ["--dir=/var/lib/telegram-bot-api", "--temp-dir=/tmp/telegram-bot-api", "--http-port=8081", "--local"]
+        if log_argv is not None:
+            self.argv.append("--log=" + log_argv)
         self.defaults = ["TELEGRAM_WORK_DIR=/var/lib/telegram-bot-api", "TELEGRAM_TEMP_DIR=/tmp/telegram-bot-api"]
         env = {"TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "xy" if not missing else "", "TELEGRAM_LOCAL": "true"}
+        if log_env is not None:
+            env["TELEGRAM_LOG_FILE"] = log_env
         self.model = {"name": "doctor-unit", "services": {
             "botapi": {"image": "synthetic@sha256:" + "9" * 64 if pinned else "synthetic", "environment": env,
                        "volumes": [{"type": "volume", "source": "state", "target": "/var/lib/telegram-bot-api"}]},
@@ -64,6 +71,19 @@ class StackRunner:
                                   "Config": {"Env": self.defaults if service == "botapi" else [], "Labels": {}}}
         if drift:
             self.containers[0]["Config"]["Env"][-1] = "TELEGRAM_LOCAL=false"
+        if log_argv is not None:
+            self.model["services"]["botapi"]["command"] = list(self.argv)
+            self.containers[0]["Config"]["Cmd"] = list(self.argv)
+        if log_argv is not None or log_env is not None:
+            for service, container in zip(("botapi", "gateway"), self.containers):
+                if service == "gateway" and not share_log:
+                    continue
+                target = "/private-log" if service == "botapi" else "/served-log"
+                readonly = service == "gateway"
+                self.model["services"][service].setdefault("volumes", []).append(
+                    {"type": "volume", "source": "logs", "target": target, "read_only": readonly})
+                container["Mounts"].append({"Type": "volume", "Name": "doctor-unit_logs",
+                    "Destination": target, "Source": "/volumes/doctor-log", "RW": not readonly})
 
     def run(self, argv):
         self.calls.append(list(argv))
@@ -89,9 +109,20 @@ class StackRunner:
                 return 0, b"nginx version: nginx/1.28.0\n"
             if any("nginx -T" in value for value in argv):
                 alias = "location /file/ { alias /var/lib/telegram-bot-api/; }" if self.unsafe else ""
+                if self.share_log:
+                    alias += "location /alternative/ { alias /served-log/; }"
                 return 0, ("server { listen 80; " + alias + " location / { proxy_pass http://botapi:8081; } }").encode()
             if any("DOCTOR_ARGV" in value for value in argv):
-                return 0, b"/usr/local/bin/telegram-bot-api\nUid:\t101\t101\t101\t101\nGid:\t101\t101\t101\t101\nGroups:\t101\n\nDOCTOR_ARGV\ntelegram-bot-api\0--dir=/var/lib/telegram-bot-api\0--temp-dir=/tmp/telegram-bot-api\0--http-port=8081\0--local\0"
+                if self.process_error:
+                    return 1, b"synthetic private process error"
+                head = b"/usr/local/bin/telegram-bot-api\nUid:\t101\t101\t101\t101\nGid:\t101\t101\t101\t101\nGroups:\t101\n\nDOCTOR_ARGV\ntelegram-bot-api\0"
+                return 0, head + b"\0".join(a.encode() for a in self.argv) + b"\0"
+            from doctor_runtime import LOG_CANONICAL
+            if LOG_CANONICAL in argv:
+                result = self.log_metadata.get(argv[-1], argv[-1] + "\n")
+                if isinstance(result, Exception):
+                    raise result
+                return 0, result.encode()
             if any("stat -f" in value for value in argv):
                 return 0, b"1:2\nsynthetic-fs 4096 9999999 999999\n101\n101\n101\nDOCTOR_MOUNTINFO\n1 0 0:1 / / rw - ext4 /synthetic rw\n"
             if "timeout" in argv:
