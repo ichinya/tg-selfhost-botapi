@@ -11,7 +11,10 @@ translation: /docs/en/getting-started.html
 - Для doctor: Python 3.11+ на host (только stdlib). Полная runtime-проверка требует
   локального Linux Engine с доступом к bridge; pure-проверки работают и на Windows.
 - API ID и API hash приложения Telegram с [my.telegram.org](https://my.telegram.org).
-- Для Bash-мигратора: Bash, curl и jq.
+- Для Bash-мигратора: Bash, curl, jq и GNU coreutils на POSIX-хосте
+  (`mktemp`, `date`, `stat`, `mkdir`, `mv`, `chmod`, `rm`, `rmdir`, `cat`). Приватной
+  диагностике нужны POSIX-права только для владельца; runtime-проверка в Windows
+  отложена до Linux CI. Python и Node нужны только для тестов.
 
 API ID/hash приложения и токен бота от BotFather — разные учётные данные.
 

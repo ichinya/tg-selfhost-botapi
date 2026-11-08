@@ -36,7 +36,7 @@ const watchdog = setTimeout(() => {
         if (scenario.failure === 'redirect') { res.writeHead(302, {Location:urls[2]}); return res.end(); }
         res.writeHead(scenario.failure === 'unauthorized' ? 401 : scenario.failure === 'http' ? 500 : 200, {'Content-Type':'application/json'});
         return res.end(scenario.failure === 'malformed' ? '{' : JSON.stringify(
-          scenario.failure === 'false-result' ? {ok:true,result:false} : {ok:false,error_code:429}));
+          scenario.failure === 'false-result' ? {ok:true,result:false} : {ok:false,error_code:429,description:'Synthetic rejection'}));
       }
       let result = true;
       if (req.url.endsWith('/getMe')) result = {id:123,first_name:'Test',username:'test'};
@@ -59,10 +59,13 @@ const watchdog = setTimeout(() => {
   async function run(answer, target, options = {}) {
     events.length = 0;
     scenario = options; targetHook = '';
+    const runRoot = fs.mkdtempSync(path.join(tmp, 'run-'));
+    fs.copyFileSync(helper, path.join(runRoot, 'helper.sh'));
+    fs.copyFileSync(helper, path.join(runRoot, 'migrate_off_to_self.sh'));
     return await new Promise((resolve, reject) => {
       const child = activeChild = spawn(bash, ['-c', options.command ||
         'bash ./helper.sh "$1" "$2"', '_', '123:synthetic', target], {
-        cwd:tmp,
+        cwd:runRoot,
         env: {...baseEnv, OFFICIAL_BOT_URL:urls[0], SELF_BOT_URL:urls[1], NO_PROXY:'127.0.0.1', no_proxy:'127.0.0.1'},
         stdio:['pipe','pipe','pipe']
       });
@@ -82,8 +85,9 @@ const watchdog = setTimeout(() => {
   try {
     let unauthorized = await run('y\n', urls[1], {fail:'source:getMe', failure:'unauthorized'});
     assert.notStrictEqual(unauthorized.code, 0);
-    assert(unauthorized.stderr.includes('Request failed with HTTP 401'));
-    assert(!unauthorized.stderr.includes('error_code'));
+    assert(unauthorized.stderr.includes('HTTP 401'));
+    assert(unauthorized.stderr.includes('error_code=429'));
+    assert(!unauthorized.output.includes('123:synthetic'));
     assert(!events.some(([role,url]) => role === 'target' && url.includes('/bot')));
     let result = await run('n\n', urls[1]);
     assert.strictEqual(result.code, 0, result.output);

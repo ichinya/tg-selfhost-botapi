@@ -182,3 +182,26 @@ count, effective Compose model or the on-disk nginx snapshot changes.
 For `quota_accounting_unverified`, verify the service identity's actual quota
 headroom separately. `unsafe_input_permissions` is BLOCKED/1; unreadable or
 malformed private input is exit 2, and unverified platform privacy is UNKNOWN/3.
+
+### Private migration evidence
+
+The root helper keeps schema version 1 intent/receipt/summary evidence under
+`logs/migration` beside the script, with directories 0700 and files 0600. Keep
+this outside public hosting; the publication checker rejects `logs`. Retention
+continues until deliberate manual deletion after reconciliation. Never attach
+raw capture or the dossier to public issues. A crash can retain private raw;
+normal capture removes it only after successful sanitization. The summary marks
+possible retention when finalization fails.
+
+An active/stale lock, unfinished intent, UNKNOWN authenticated attempt or partial
+migration blocks the next run before HTTP. Stop and inspect independent evidence;
+there is no automatic unlock, retry or resume. Schema v1 is an input contract for
+an explicit future #2 adapter, not that issue's final durable journal. See
+[outcomes and private diagnostics](migration.md#outcomes-and-private-diagnostics).
+
+For manual recovery, stop every helper, reconcile all attempts with independent
+evidence, and decide the safe next procedure. Archive the complete dossier in an
+owner-only location outside `logs/migration` before removing reconciled run
+directories and a stale lock. Keep the archive until resolution. A lock must
+never be removed merely to retry an unknown request. An unfinished token-free
+probe without a surviving lock does not block; authenticated unfinished attempts do.

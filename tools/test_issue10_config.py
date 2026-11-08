@@ -26,13 +26,30 @@ class ConfigTests(unittest.TestCase):
         self.bin = self.root / 'bin'
         self.bin.mkdir()
         for name, contents in {'curl': '''printf "%s\\n" "$*" >> "$CALLS"
+[ "${API_ID+x}" != x ] || printf 'API_ID_EXPORTED\\n' >> "$CALLS"
+[ "${API_HASH+x}" != x ] || printf 'API_HASH_EXPORTED\\n' >> "$CALLS"
+output= url= hook=
 while [ "$#" -gt 0 ]; do
-  if [ "$1" = --output ]; then shift; output=$1; fi
+  case "$1" in
+    --output) output="$2"; shift;;
+    --data-urlencode) case "$2" in url=*) hook="${2#url=}";; esac; shift;;
+    http://*|https://*) url="$1";;
+  esac
   shift
 done
-printf '{"ok":false,"error_code":404,"description":"Not Found"}' > "$output"
-printf 404''',
-                               'jq': 'exit 0'}.items():
+case "$url" in
+  */getMe) printf '{"ok":true,"result":{"id":123}}' > "$output";;
+  */getWebhookInfo)
+    saved_hook=
+    [ ! -f "$CALLS.hook" ] || saved_hook=$(cat "$CALLS.hook")
+    printf '{"ok":true,"result":{"url":"%s"}}' "$saved_hook" > "$output";;
+  */setWebhook)
+    printf '%s' "$hook" > "$CALLS.hook"
+    printf '{"ok":true,"result":true}' > "$output";;
+  */deleteWebhook|*/logOut) printf '{"ok":true,"result":true}' > "$output";;
+  *) printf '{"ok":false,"error_code":404,"description":"Not Found"}' > "$output"; printf '404'; exit 0;;
+esac
+printf '200' '''}.items():
             path = self.bin / name
             path.write_text('#!/bin/sh\n' + contents + '\n', encoding='utf-8', newline='\n')
             path.chmod(0o755)
@@ -40,10 +57,10 @@ printf 404''',
                     if key.upper() in ('PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'COMSPEC')}
         self.env.update(CALLS=(self.root / 'calls').as_posix())
 
-    def run_helper(self, *args, **env):
+    def run_helper(self, *args, answer='n\n', **env):
         return subprocess.run([bash_binary(), '-c', 'PATH="$1:$PATH"; export PATH; shift; exec "$0" "$@"',
                                self.script.as_posix(), posix_path(self.bin), '123:synthetic', *args],
-                              cwd=self.cwd, env={**self.env, **env}, input='n\n',
+                              cwd=self.cwd, env={**self.env, **env}, input=answer,
                               text=True, capture_output=True, timeout=10)
 
     def calls(self):
@@ -100,6 +117,8 @@ printf 404''',
             'API_ID=123\nAPI_HASH=placeholder\nTELEGRAM_BOT_URL=http://relative\n', newline='\n')
         self.run_helper(ENV_FILE='settings file')
         self.assertIn('http://relative/', self.calls())
+        self.assertNotIn('API_ID_EXPORTED', self.calls())
+        self.assertNotIn('API_HASH_EXPORTED', self.calls())
 
     def test_empty_explicit_path_is_not_default(self):
         result = self.run_helper(ENV_FILE='', SELF_BOT_URL='http://local')
@@ -110,38 +129,52 @@ printf 404''',
         (self.script.parent / '.env').write_text(
             'SELF_BOT_URL=http://file\nWEBHOOK_URL=https://file/hook\nWEB_HOOK=https://file-alias/hook\n'
             'DROP_PENDING_UPDATES=true\n', newline='\n')
-        result = self.run_helper(SELF_BOT_URL='http://process', WEB_HOOK='https://process/hook',
+        result = self.run_helper(answer='y\n', SELF_BOT_URL='http://process', WEB_HOOK='https://process/hook',
                                  DROP_PENDING_UPDATES='false')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('Webhook: https://process/hook', result.stdout)
+        self.assertIn('url=https://process/hook', self.calls())
+        self.assertNotIn('https://process/hook', result.stdout)
         self.assertIn('Drop updates: false', result.stdout)
-        result = self.run_helper('http://argument', 'https://argument/hook',
+        (self.root / 'calls').unlink()
+        result = self.run_helper('http://argument', 'https://argument/hook', answer='y\n',
                                  WEBHOOK_URL='https://process/hook', WEB_HOOK='https://alias/hook')
-        self.assertIn('Webhook: https://argument/hook', result.stdout)
-        self.assertNotIn('/bot123:', self.calls())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('url=https://argument/hook', self.calls())
+        self.assertNotIn('url=https://process/hook', self.calls())
 
     def test_file_canonical_hook_beats_file_alias(self):
         (self.script.parent / '.env').write_text(
             'SELF_BOT_URL=http://file\nWEBHOOK_URL=https://canonical/hook\nWEB_HOOK=https://alias/hook\n', newline='\n')
-        result = self.run_helper()
-        self.assertIn('Webhook: https://canonical/hook', result.stdout)
+        result = self.run_helper(answer='y\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('url=https://canonical/hook', self.calls())
+        self.assertNotIn('url=https://alias/hook', self.calls())
 
     def test_invalid_drop_stops_before_network(self):
         result = self.run_helper(SELF_BOT_URL='http://local', DROP_PENDING_UPDATES='invalid')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.calls(), '')
 
-    def test_timeout_validation_and_precedence(self):
-        for value in ('', '0', '-1', '1.5', '99999999999999999999', '61'):
+    def test_invalid_file_timeout_and_empty_process_value_stop_before_network(self):
+        settings = self.script.parent / '.env'
+        for value in ('', '0', '61', '1.5', '-1', '999999999999999999999'):
             with self.subTest(value=value):
-                result = self.run_helper(SELF_BOT_URL='http://local', MIGRATION_CONNECT_TIMEOUT=value)
-                self.assertNotEqual(result.returncode, 0)
+                settings.write_text('SELF_BOT_URL=http://local\nMIGRATION_CONNECT_TIMEOUT="' + value + '"\n', newline='\n')
+                result = self.run_helper()
+                self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertEqual(self.calls(), '')
-        (self.script.parent / '.env').write_text(
-            'SELF_BOT_URL=http://file\nMIGRATION_CONNECT_TIMEOUT=9\nMIGRATION_REQUEST_DEADLINE=20\n', newline='\n')
-        result = self.run_helper(MIGRATION_CONNECT_TIMEOUT='2', MIGRATION_REQUEST_DEADLINE='3')
+                self.assertFalse((self.script.parent / 'logs').exists())
+        settings.write_text('SELF_BOT_URL=http://local\nMIGRATION_CONNECT_TIMEOUT=5\n', newline='\n')
+        result = self.run_helper(MIGRATION_CONNECT_TIMEOUT='')
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(self.calls(), '')
+
+    def test_process_timeout_overrides_explicit_file_from_other_cwd(self):
+        settings = self.cwd / 'timeout settings'
+        settings.write_text('SELF_BOT_URL=http://local\nMIGRATION_CONNECT_TIMEOUT=2\nMIGRATION_REQUEST_DEADLINE=3\n', newline='\n')
+        result = self.run_helper(ENV_FILE='timeout settings', MIGRATION_CONNECT_TIMEOUT='6', MIGRATION_REQUEST_DEADLINE='20')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('--connect-timeout 2 --max-time 3', self.calls())
+        self.assertIn('--connect-timeout 6 --max-time 10', self.calls())
 
     def test_unreadable_explicit_file_stops_before_network(self):
         if os.name == 'nt' or (hasattr(os, 'geteuid') and os.geteuid() == 0):

@@ -140,8 +140,8 @@ A remote authenticated file handler is tracked in
 ## Host-side migration timeouts
 
 The root `migrate_off_to_self.sh` helper accepts `MIGRATION_CONNECT_TIMEOUT`
-(default 5 seconds, integer 1–60) and `MIGRATION_REQUEST_DEADLINE` (default
-30 seconds, integer 1–300). The connect timeout must not exceed the deadline.
+(default 5 seconds, integer 1..60) and `MIGRATION_REQUEST_DEADLINE` (default
+30 seconds, integer 1..300). The connect timeout must not exceed the deadline.
 The deadline applies to each request; the token-free probe is capped at 10
 seconds. Process settings take precedence over the trusted environment file;
 only an unset setting uses its default. Unlike the endpoint settings, an

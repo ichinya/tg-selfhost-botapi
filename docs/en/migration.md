@@ -169,12 +169,81 @@ unset BOT_TOKEN
   explicitly request polling.
 - The helper does not transfer `secret_token`, certificates or the full delivery
   profile. Restore required parameters deliberately.
-- Tokens can appear in process arguments and logs.
+- Tokens can appear in process arguments and external logs. The helper sanitizes
+  its own console and diagnostic artifacts; crash leftovers remain private raw.
 
 These are tracked in [#2](https://github.com/ichinya/tg-selfhost-botapi/issues/2),
 [#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7) and
 [#9](https://github.com/ichinya/tg-selfhost-botapi/issues/9).
 Use a test bot before relying on the helper for a working installation.
+
+### Request time limits (root Bash helper)
+
+`MIGRATION_CONNECT_TIMEOUT` defaults to 5 seconds (range 1..60);
+`MIGRATION_REQUEST_DEADLINE` defaults to 30 seconds (range 1..300). Both accept
+whole decimal seconds; connect must not exceed deadline. The deadline covers
+one HTTP attempt, including its response body, excluding operator input. The
+token-free probe uses min(deadline, 10) and caps connect to that value.
+
+The trusted file loader supports both settings. Process values override file
+values; only an unset setting uses its default. An explicitly empty value is an
+error, unlike the legacy endpoint settings' empty-value fallback. Invalid values
+stop before any HTTP request. These are host-side settings, absent from Compose
+and the container environment. See [migration](migration.md).
+
+### Outcomes and private diagnostics
+
+The root Bash helper stores schema version 1 evidence in `logs/migration` beside
+the script, independently of the caller's directory. Directories must be owned by
+the user and have mode 0700; files are 0600 (`umask 077`). Unsafe existing paths
+and symlinks stop execution before HTTP. Each run has a unique `run.*` directory:
+`summary.json` links to `request-*.*/intent.json` written before every HTTP attempt
+and `receipt.json` written afterwards. Receipts link separate full sanitized
+`body.txt`, `transport-error.txt` and `http-status.txt` artifacts. HTTP status,
+curl exit, parse/schema status, API fields, effective time limits, timestamps,
+observations and outcome remain independent. Status 000 becomes null; a transport
+failure can still preserve HTTP status and a partial body. Sanitized text is not a
+byte-exact original; controls, JSON and escaped secrets are normalized.
+
+Success requires complete transport, HTTP 2xx, boolean `ok:true` and a valid
+method result. A complete valid rejection on HTTP 2xx/4xx is
+`CONFIRMED_REJECTION` (exit 1); 429 reports `retry_after` without sleeping or
+retrying. HTTP 5xx, malformed or contradictory replies and lost responses to any
+authenticated request yield `UNKNOWN` (exit 3). Even `getMe` and
+`getWebhookInfo` may affect session state. No dependent request, readback,
+rollback or automatic retry follows an unknown outcome. A local pre-send error
+is `NOT_SENT`; success and operator cancellation exit 0. The expected token-free
+404 probe is checked separately from method success and cannot authenticate a host.
+
+A root-wide atomic lock is acquired before inspecting previous runs or probing.
+An active/stale lock, unfinished authenticated intent, UNKNOWN authenticated attempt or partial
+migration blocks a new invocation before HTTP. This guard covers one script copy
+and all bots using its storage root. Confirmed steps/effects remain in the summary
+after a later failure. Stop and reconcile the dossier with independent evidence;
+waiting for `retry_after`, repeating `getMe` or reading back a URL does not prove
+that a previous effect did not occur. There is no automatic bypass or resume.
+
+An unfinished token-free probe does not block after its lock has been released.
+Every surviving lock blocks, including one left by SIGKILL. To recover, first stop
+all helper processes and reconcile the attempts and confirmed effects against
+independent evidence. After deciding a safe next procedure, archive the entire
+dossier in an owner-only location outside `logs/migration`, then deliberately
+remove the reconciled run directories and stale lock. Keep that archive until
+the migration is resolved. Removing a lock alone is not reconciliation; copying
+the script to another directory does not make an unknown effect safe to repeat.
+This manual operator action is the recovery boundary pending issue #2.
+
+Raw capture is private and removed only after sanitization succeeds. Crashes,
+SIGKILL and storage failures may leave private raw files or incomplete intents;
+retain and inspect those locally. Do not upload raw files or the dossier to public
+issues. Retention lasts until deliberate manual removal after reconciliation.
+The journal uses atomic rename, not an fsync durability guarantee. Issue #2 needs
+an explicit adapter for this schema; other executors' journals are not interchangeable.
+This contract applies only to `migrate_off_to_self.sh`: browser execution,
+generated Bash and the raw-curl runbook below retain their separate contracts.
+The manual curl examples create no dossier and do not implement the guard.
+Obtain the updated helper from an up-to-date repository checkout. It runs on the
+host, is excluded from the server image and Pages, and requires no server redeploy.
 
 ## Browser tool
 
