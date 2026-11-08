@@ -227,3 +227,73 @@ the state directory. Do not invent `X-Telegram-Bot-Token` authorization. See
 An independent downloads service's port 18081 does not replace API port 18080.
 
 [Configuration](configuration.md) · [Maintenance](maintenance.md)
+
+## Doctor migration preflight
+
+Use `python3 tools/doctor.py --scenario official-to-self --migration-input /private/decisions.json`.
+The strict input contract is `tools/doctor-input.schema.json`; keep the real file
+outside every Git checkout and webroot, with owner-only POSIX permissions. It
+contains planning decisions, never tokens, URLs, API hashes or certificate contents.
+Native Windows private-file guarantees remain UNKNOWN.
+
+A v1 input starts with `schema_version: 1`. Choose
+`delivery_action: preserve|set|polling`, explicitly set `drop_pending_updates`
+(boolean, including false), `file_access: not_used|local_path|shared_volume|remote_authenticated`
+and `workflow_prepared` (boolean). The workflow declaration includes stopping the
+application at the correct stage, backups, endpoint switching and absolute-path
+handling when files are used. For preserve/set, also declare
+`webhook_profile_prepared`: the full profile, secret/certificate handling, IP,
+connections and allowed updates must be prepared in separate protected configuration.
+No webhook secret or URL belongs in doctor input.
+
+```json
+{
+  "schema_version": 1,
+  "delivery_action": "polling",
+  "drop_pending_updates": false,
+  "file_access": "not_used",
+  "workflow_prepared": true
+}
+```
+
+This example declares a prepared plan; it is not a receipt of executed actions.
+`remote_authenticated` remains UNKNOWN without an independently verified safe
+contract at the boundary of issue #5; doctor v1 does not implement a download service.
+Local/shared file access remains UNKNOWN until the application path/volume mapping
+is independently verified; choosing a mode does not prove that mapping.
+
+For `self-to-self`, select the source separately with `--source-file`,
+`--source-env-file`, `--source-profile`, `--source-project-directory` and
+`--source-project-name`. Add `transfer` with explicit `method`, boolean
+`backup_prepared` and `exclusive_use_plan_prepared`, and `backlog_policy`:
+`drain` or `accept-loss`. State backings must be distinct.
+
+- `per-bot` requires `state_subdir`: one relative directory component in the source
+  work root. Only that subtree is measured; shared tqueue/webhook stores do not
+  move with it, so the backlog decision must cover them. The destination subtree
+  must be absent.
+- `dedicated-cold` measures the complete work root, including shared stores. Also
+  declare `dedicated_source: true` and `target_empty_prepared: true`. The backup
+  covers the whole source, and the exclusive-use plan stops every writer and
+  supervisor at the copy boundary. The observed target root must be empty.
+- `fresh-login` requires `backlog_policy: accept-loss`. Do not supply
+  `state_subdir`. Subtree/copy capacity and copy compatibility are optional SKIP;
+  baseline storage checks still apply.
+
+Measurements read metadata only. Changing metadata, symlinks, nested mounts and
+unsupported entries remain UNKNOWN. Hard links do not double the measured bytes.
+Target reserve includes measured bytes/entries plus 10%; optional
+`transfer_metadata` is declared information and cannot establish capacity.
+Observed matching binary versions and available source revisions form the
+compatibility baseline; differing or unknown versions remain UNKNOWN.
+
+`self-to-official` also requires `source_backup_prepared: true` and
+`source_backlog_policy: drain|accept-loss`; its prepared workflow is logout-first.
+It checks the local source and prepared manual workflow. Cloud
+authorization, session restrictions and delivery remain unverified. `hook-only`
+is BLOCKED/1 with `unsupported_scenario` (issues #7/#9). Missing decisions are
+UNKNOWN/3 with their field names; false preparedness or unsafe POSIX permissions
+is BLOCKED/1; malformed or unreadable input exits 2. Reports retain pending actions and unverified facts.
+Doctor does not run migration, helpers, bot methods, cloud probes, journals or
+locks. READY means readiness to begin the prepared procedure; it does not certify
+helpers, completed transfer, authorization or delivery.

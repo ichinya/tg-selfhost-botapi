@@ -227,3 +227,73 @@ webhook. Восстановите `secret_token`, сертификат, `allowed
 Порт 18081 отдельного downloads-сервиса не заменяет API-порт 18080.
 
 [Настройки](configuration.md) · [Обслуживание](maintenance.md)
+
+## Предварительная диагностика миграции doctor
+
+Запуск: `python3 tools/doctor.py --scenario official-to-self --migration-input /private/decisions.json`.
+Строгий контракт входа — `tools/doctor-input.schema.json`. Храните реальный файл
+вне любого Git checkout и webroot с правами только владельца на POSIX. В нём
+только решения по подготовке: без токенов, URL, API hash и содержимого сертификатов.
+Гарантии приватности файла на native Windows остаются UNKNOWN.
+
+Вход v1 начинается с `schema_version: 1`. Задайте
+`delivery_action: preserve|set|polling`, явный boolean `drop_pending_updates`
+(в том числе false), `file_access: not_used|local_path|shared_volume|remote_authenticated`
+и boolean `workflow_prepared`. Декларация workflow включает остановку приложения
+на нужном этапе, backup, переключение endpoint и обработку абсолютных путей при
+использовании файлов. Для preserve/set добавьте `webhook_profile_prepared`:
+полный профиль, обработка secret/certificate, IP, connections и allowed updates
+должны быть подготовлены в отдельной защищённой конфигурации. Секрет webhook
+и полный URL во вход doctor не входят.
+
+```json
+{
+  "schema_version": 1,
+  "delivery_action": "polling",
+  "drop_pending_updates": false,
+  "file_access": "not_used",
+  "workflow_prepared": true
+}
+```
+
+Пример декларирует подготовленный план, а не уже выполненные действия.
+`remote_authenticated` остаётся UNKNOWN без независимой проверки безопасного
+контракта на границе #5; doctor v1 не реализует download service.
+Local/shared file access остаётся UNKNOWN до независимой проверки путей/volumes
+приложения: выбор режима не доказывает наличие mapping.
+
+Для `self-to-self` отдельно выберите source через `--source-file`,
+`--source-env-file`, `--source-profile`, `--source-project-directory` и
+`--source-project-name`. Добавьте `transfer` с явным `method`, boolean
+`backup_prepared` и `exclusive_use_plan_prepared`, а также `backlog_policy`:
+`drain` или `accept-loss`. State backings должны различаться.
+
+- `per-bot` требует `state_subdir`: один относительный компонент каталога внутри
+  source work root. Измеряется только это поддерево; shared tqueue/webhook stores
+  с ним не переносятся, поэтому политика backlog должна учитывать их отдельно.
+  Поддерево назначения должно отсутствовать.
+- `dedicated-cold` измеряет весь work root вместе с shared stores. Нужны также
+  `dedicated_source: true` и `target_empty_prepared: true`. Backup охватывает весь
+  source; план exclusive use останавливает всех writers и supervisors на границе
+  копирования. Наблюдаемый корень назначения должен быть пустым.
+- `fresh-login` требует `backlog_policy: accept-loss`; `state_subdir` не задаётся.
+  Поддерево, copy capacity и совместимость копии получают необязательный SKIP;
+  базовые проверки storage остаются обязательными.
+
+Измеряются только метаданные. Их изменение, symlinks, вложенные mounts и
+неподдерживаемые entries дают UNKNOWN. Hard links не удваивают измеренные bytes.
+Резерв target включает измеренные bytes/entries плюс 10%; необязательные
+`transfer_metadata` остаются декларацией и не подтверждают capacity.
+Baseline совместимости — совпадающие наблюдаемые версии бинарника и доступные
+source revisions; различающиеся или неизвестные версии дают UNKNOWN.
+
+`self-to-official` также требует `source_backup_prepared: true` и
+`source_backlog_policy: drain|accept-loss`; подготовленный workflow начинается
+с logout. Проверяются локальный source и подготовка ручного workflow.
+Cloud authorization, ограничения session и delivery остаются непроверенными.
+`hook-only` даёт BLOCKED/1 с `unsupported_scenario` (#7/#9). Отсутствующие решения
+дают UNKNOWN/3 с именем поля; false preparedness или небезопасные POSIX-права —
+BLOCKED/1; неверный или нечитаемый вход — exit 2. Отчёт сохраняет pending actions и unverified facts.
+Doctor не запускает миграцию, helpers, методы бота, cloud probes, journals и locks.
+READY означает готовность начать подготовленную процедуру и не подтверждает
+helpers, завершённый перенос, авторизацию или доставку.

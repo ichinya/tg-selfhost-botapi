@@ -44,6 +44,23 @@ POSIX unreadable-file tests require a non-root runner. A denied Bash launch is a
 failed/unrun runtime check, never a successful migration test. A fresh Jekyll build
 and `tools/check_docs.py` remain the documentation CI checks.
 
+Doctor checks (no network/daemon in unit discovery):
+
+```sh
+python3 -m unittest discover -s tools -p 'test_doctor*.py' -v
+python3 -m unittest discover -s tools -p 'test_check_doctor.py' -v
+sh -n tools/doctor_fixtures/entrypoint.sh
+python3 tools/check_doctor.py
+```
+
+The last command is an explicit synthetic Docker integration and may pull/build
+test images. It cleans only its random project. Record unit, synthetic integration,
+actual-image smoke, CI and production results separately; unavailable gates are
+NOTRUN. Never put real migration-input files or diagnostic reports in docs/webroot.
+Doctor reports follow `tools/doctor.schema.json`; private decisions use input v1.
+Check exit codes 0/1/2/3 and keep internal collection failures separate from usage
+errors. Run from a clean candidate without untracked helpers or `tools/__init__.py`.
+
 Update [English](docs/en/README.md) and [Russian](docs/ru/README.md) documentation
 together. Keep the root README short. Documentation changes get a Jekyll build
 and internal-link check in CI; the existing migrator URL must keep working.
@@ -64,3 +81,14 @@ WSL-лаунчеры запрещены. Команда выше использ�
 регрессии; полный discovery выполняйте на чистом кандидате или в CI. Запрет запуска
 Bash не считается успешной проверкой. Проверка нечитаемого файла требует POSIX
 и непривилегированного пользователя; Jekyll и проверка ссылок выполняются в docs CI.
+
+Для doctor выполните обе unit-команды выше (им не нужен Docker/network).
+`python3 tools/check_doctor.py` отдельно запускает synthetic Docker integration:
+возможны pull/build тестовых образов, очистка ограничена случайным project.
+Отдельно отмечайте unit, synthetic integration, smoke настоящего образа, CI и
+production; недоступный gate — NOTRUN. Реальные migration-input и отчёты нельзя
+помещать в docs/webroot. Для docs выполните Jekyll build и затем
+`python3 tools/check_docs.py .site-check`; исходный HTML мигратора не меняйте.
+Проверяйте схему отчёта, вход v1, exit codes 0/1/2/3 и shell-синтаксис fixture.
+Запускайте тесты на чистом candidate без чужих helpers и `tools/__init__.py`;
+внутренние ошибки сбора должны отличаться от неверного вызова.

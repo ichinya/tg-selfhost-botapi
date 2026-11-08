@@ -8,6 +8,8 @@ translation: /docs/en/getting-started.html
 ## Требования
 
 - Docker с Compose v2.
+- Для doctor: Python 3.11+ на host (только stdlib). Полная runtime-проверка требует
+  локального Linux Engine с доступом к bridge; pure-проверки работают и на Windows.
 - API ID и API hash приложения Telegram с [my.telegram.org](https://my.telegram.org).
 - Для Bash-мигратора: Bash, curl и jq.
 
@@ -78,3 +80,18 @@ unset BOT_TOKEN
 процесса и access logs; выполняйте диагностику в доверенном окружении.
 
 [Настройки](configuration.md) · [Перенос работающего бота](migration.md)
+
+## Запуск doctor
+
+После запуска выбранной установки выполните:
+
+```sh
+python3 tools/doctor.py -f docker-compose.yml --scenario official-to-self --format json
+```
+
+Без приватных решений миграции результат остаётся UNKNOWN. Штатный alias `/file/`
+для state — известная причина BLOCKED; до миграции нужна изоляция по задачам
+#3/#5. Коды и границы — в [обслуживании](maintenance.md), Compose/storage —
+в [настройках](configuration.md), контракт приватного входа —
+в [миграции](migration.md). READY — снимок предпосылок; он не авторизует бота
+и не выполняет перенос.
