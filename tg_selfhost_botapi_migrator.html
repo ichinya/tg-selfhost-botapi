@@ -231,6 +231,12 @@
       entry.textContent = message;
       els.logBox.appendChild(entry);
     }
+    function maskHook(value) {
+      if (value === '') return '(пустой URL)';
+      if (value === '(пустой URL)' || value === '(некорректный URL скрыт)') return value;
+      try { const url = new URL(value); return url.origin + '/… (путь и параметры скрыты)'; }
+      catch { return '(некорректный URL скрыт)'; }
+    }
     function setSummary(message) { els.summaryBox.textContent = message; }
     function setCheck(el, message, good) { el.textContent = message; el.className = 'check-item ' + (good ? 'good' : 'warn'); }
     function runLocalChecks() {
@@ -496,8 +502,8 @@
           if (source.id !== prefix || (sameConfig(state.checkedConfig, cfg) && state.preflight && state.preflight.botId !== source.id)) throw new Error('ID исходного бота не совпадает с проверенным планом.');
           const info = await step('prepared', 'source', 'getWebhookInfo');
           const hook = cfg.webhook || info.url;
-          run.sourceObservation = {url:info.url, endpoint:cfg.oldApi, observedAt:new Date().toISOString()};
-          run.expectedUrl = hook;
+          run.sourceObservation = {url:maskHook(info.url), endpoint:cfg.oldApi, observedAt:new Date().toISOString()};
+          run.expectedUrl = maskHook(hook);
           const drop = {drop_pending_updates:String(cfg.dropPending)};
           if (cfg.mode === 'official-to-self') {
             await step('source_webhook_detached', 'source', 'deleteWebhook', drop, true);
@@ -508,7 +514,7 @@
           if (hook) await step('delivery_configured', 'target', 'setWebhook', {...drop,url:hook}, true);
           else if (cfg.mode === 'hook-only') await step('delivery_configured', 'target', 'deleteWebhook', drop, true);
           const final = await step('target_verified', 'target', 'getWebhookInfo');
-          run.finalObservation = {url:final.url, endpoint:target, observedAt:new Date().toISOString()};
+          run.finalObservation = {url:maskHook(final.url), endpoint:target, observedAt:new Date().toISOString()};
           if (final.url !== hook) throw new Error('Итоговый webhook не совпадает; проверьте состояние вручную.');
           if (cfg.mode === 'official-to-self') setGuard(cfg, {completed:true, target});
           log('Конфигурация проверена. Проверьте полный профиль и доставку тестового update.', 'success');
@@ -522,7 +528,7 @@
         const observation = run.finalObservation;
         const sourceObservation = run.sourceObservation;
         const journal = run.receipts.map(r => `${r.stage}: ${r.status} ${r.method || ''} ${r.role || ''} ${r.observedAt}`).join('\n');
-        setSummary(`${operationOutcome(run)} | ${run.id} | bot ID: ${run.botId ?? 'неизвестно'}\nSource: ${run.plan.source}\nTarget: ${run.plan.target}\nSource URL: ${sourceObservation ? sourceObservation.url + ' (' + sourceObservation.endpoint + ', ' + sourceObservation.observedAt + ')' : 'неизвестно'}\nОжидание: ${run.expectedUrl ?? 'неизвестно'}\nФактический target URL: ${observation ? observation.url + ' (' + observation.endpoint + ', ' + observation.observedAt + ')' : 'неизвестно'}\nЭтап: ${last?.stage ?? 'неизвестно'}; HTTP/API: ${last?.httpStatus ?? '—'}/${last?.apiCode ?? '—'}; retry: ${last?.retryNotBefore == null ? '—' : new Date(last.retryNotBefore).toISOString()}\n${journal}\nДоставка требует отдельной проверки.`);
+        setSummary(`${operationOutcome(run)} | ${run.id} | bot ID: ${run.botId ?? 'неизвестно'}\nSource: ${run.plan.source}\nTarget: ${run.plan.target}\nSource URL: ${sourceObservation ? maskHook(sourceObservation.url) + ' (' + sourceObservation.endpoint + ', ' + sourceObservation.observedAt + ')' : 'неизвестно'}\nОжидание: ${run.expectedUrl == null ? 'неизвестно' : maskHook(run.expectedUrl)}\nФактический target URL: ${observation ? maskHook(observation.url) + ' (' + observation.endpoint + ', ' + observation.observedAt + ')' : 'неизвестно'}\nЭтап: ${last?.stage ?? 'неизвестно'}; HTTP/API: ${last?.httpStatus ?? '—'}/${last?.apiCode ?? '—'}; retry: ${last?.retryNotBefore == null ? '—' : new Date(last.retryNotBefore).toISOString()}\n${journal}\nДоставка требует отдельной проверки.`);
         state.activeRun = null;
       });
     }
