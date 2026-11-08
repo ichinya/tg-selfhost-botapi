@@ -25,7 +25,13 @@ class ConfigTests(unittest.TestCase):
         self.cwd.mkdir()
         self.bin = self.root / 'bin'
         self.bin.mkdir()
-        for name, contents in {'curl': 'printf "%s\\n" "$*" >> "$CALLS"; printf \'{"ok":false,"error_code":404,"description":"Not Found"}\\n404\'',
+        for name, contents in {'curl': '''printf "%s\\n" "$*" >> "$CALLS"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --output ]; then shift; output=$1; fi
+  shift
+done
+printf '{"ok":false,"error_code":404,"description":"Not Found"}' > "$output"
+printf 404''',
                                'jq': 'exit 0'}.items():
             path = self.bin / name
             path.write_text('#!/bin/sh\n' + contents + '\n', encoding='utf-8', newline='\n')
@@ -124,6 +130,18 @@ class ConfigTests(unittest.TestCase):
         result = self.run_helper(SELF_BOT_URL='http://local', DROP_PENDING_UPDATES='invalid')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.calls(), '')
+
+    def test_timeout_validation_and_precedence(self):
+        for value in ('', '0', '-1', '1.5', '99999999999999999999', '61'):
+            with self.subTest(value=value):
+                result = self.run_helper(SELF_BOT_URL='http://local', MIGRATION_CONNECT_TIMEOUT=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.calls(), '')
+        (self.script.parent / '.env').write_text(
+            'SELF_BOT_URL=http://file\nMIGRATION_CONNECT_TIMEOUT=9\nMIGRATION_REQUEST_DEADLINE=20\n', newline='\n')
+        result = self.run_helper(MIGRATION_CONNECT_TIMEOUT='2', MIGRATION_REQUEST_DEADLINE='3')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--connect-timeout 2 --max-time 3', self.calls())
 
     def test_unreadable_explicit_file_stops_before_network(self):
         if os.name == 'nt' or (hasattr(os, 'geteuid') and os.geteuid() == 0):

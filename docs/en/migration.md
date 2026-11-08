@@ -5,6 +5,10 @@ translation: /docs/ru/migration.html
 
 # Migration
 
+The root helper limits each request with `MIGRATION_CONNECT_TIMEOUT` and
+`MIGRATION_REQUEST_DEADLINE`; see [configuration](configuration.md) for defaults,
+limits and precedence. The token-free probe has a maximum deadline of 10 seconds.
+
 A migration changes the Bot API endpoint used by your application and may also
 change its webhook. Know the old endpoint before starting. Do not use cloud
 `getMe` as a neutral discovery request: token-bearing calls can affect sessions.
