@@ -15,6 +15,12 @@ from doctor_mock import StackRunner, FakeHttp
 
 
 class HarnessTests(unittest.TestCase):
+    def test_log_metadata_command_is_whitelisted(self):
+        from doctor_runtime import LOG_CANONICAL
+        assert_commands([["docker", "exec", "fixture", "timeout", "-s", "TERM", "-k", "0.5", "2", "sh", "-c", LOG_CANONICAL, "doctor", "/private/log"]])
+        with self.assertRaises(AssertionError):
+            assert_commands([["docker", "exec", "fixture", "sh", "-c", "cat /private/log"]])
+
     def test_private_runtime_values_never_reach_either_renderer(self):
         sentinel = "private-doctor-sentinel"
         class PrivateRunner(StackRunner):
