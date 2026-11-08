@@ -89,9 +89,10 @@ After starting the selected installation, run:
 python3 tools/doctor.py -f docker-compose.yml --scenario official-to-self --format json
 ```
 
-Without private migration decisions the result remains UNKNOWN. The shipped
-`/file/` state alias is a known BLOCKED condition; follow the isolation work in
-issues #3/#5 before migration. See [maintenance](maintenance.md) for exits and
+Without private migration decisions the result remains UNKNOWN. The default gateway
+only proxies requests and does not serve state. An unsafe operator override that
+exposes state through an alias, file server, or gateway mount is BLOCKED. See
+[maintenance](maintenance.md) for exits and
 scope, [configuration](configuration.md) for Compose/storage inputs, and
 [migration](migration.md) for the private input contract. READY is a snapshot of
 preconditions; it does not authorize a bot or perform a transfer.

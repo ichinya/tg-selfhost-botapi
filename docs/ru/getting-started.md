@@ -89,9 +89,10 @@ unset BOT_TOKEN
 python3 tools/doctor.py -f docker-compose.yml --scenario official-to-self --format json
 ```
 
-Без приватных решений миграции результат остаётся UNKNOWN. Штатный alias `/file/`
-для state — известная причина BLOCKED; до миграции нужна изоляция по задачам
-#3/#5. Коды и границы — в [обслуживании](maintenance.md), Compose/storage —
+Без приватных решений миграции результат остаётся UNKNOWN. Штатный gateway только
+проксирует запросы и не раздаёт state. Небезопасное изменение оператора, открывающее
+state через alias, файловый сервер или монтирование в gateway, приводит к BLOCKED.
+Коды и границы — в [обслуживании](maintenance.md), Compose/storage —
 в [настройках](configuration.md), контракт приватного входа —
 в [миграции](migration.md). READY — снимок предпосылок; он не авторизует бота
 и не выполняет перенос.
