@@ -348,8 +348,14 @@
         if (guardFor(cfg).retryNotBefore > Date.now()) throw new Error('Действует ограничение retry_after до ' + new Date(guardFor(cfg).retryNotBefore).toISOString());
         state.currentWebhookFromCheck = ''; state.checkedConfig = null; state.preflight = null;
         if (!consent(cfg, 'Чтение только известного source; это не обнаружение текущего сервера.')) return;
-        const identity = await api(cfg.oldApi, cfg.token, 'getMe');
-        const hook = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
+        let identity, hook;
+        try {
+          identity = await api(cfg.oldApi, cfg.token, 'getMe');
+          hook = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
+        } catch (error) {
+          if (error.retryNotBefore != null) setGuard(cfg, {retryNotBefore:error.retryNotBefore});
+          throw error;
+        }
         if (!sameConfig(cfg, currentConfig())) return;
         state.currentWebhookFromCheck = hook.url;
         state.checkedConfig = cfg;
@@ -383,7 +389,7 @@
       ];
     }
     const shellQuote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
-    function buildCommands(cfg, currentHook = '') {
+    function buildCommands(cfg) {
       if (isManual(cfg)) return manualPlan(cfg);
       const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
       const drop = cfg.dropPending ? 'true' : 'false';
@@ -413,9 +419,9 @@
         '}'
       ];
       if (cfg.mode === 'official-to-self') commands.push(
-        `probe=$(curl -q -sS --connect-timeout 5 --max-time 10 -w '\\n%{http_code}' ${shellQuote(target + '/')})`,
-        "[[ ${probe##*$'\\n'} == 404 ]]",
-        "jq -e '.ok == false and .error_code == 404 and .description == \"Not Found\"' >/dev/null <<<\"${probe%$'\\n'*}\""
+        `probe=$(curl -q -sS --connect-timeout 5 --max-time 10 -w '\\n%{http_code}' ${shellQuote(target + '/')}) || { fail UNKNOWN "probe unavailable"; exit 1; }`,
+        "[[ ${probe##*$'\\n'} == 404 ]] || { fail UNKNOWN \"probe unexpected response\"; exit 1; }",
+        "jq -e '.ok == false and .error_code == 404 and .description == \"Not Found\"' >/dev/null <<<\"${probe%$'\\n'*}\" || { fail UNKNOWN \"probe envelope invalid\"; exit 1; }"
       );
       commands.push(
         `printf '%s\\n' ${shellQuote('Source: ' + cfg.oldApi)} ${shellQuote('Target: ' + target)} 'Webhook: вводится отдельно или наследуется' ${shellQuote('Drop updates: ' + drop)}`,
@@ -454,14 +460,17 @@
         els.curlPlan.textContent = '# Ожидание retry_after до ' + new Date(guardFor(cfg).retryNotBefore).toISOString() + '; автоматического повтора нет.';
         return;
       }
-      if (state.busy || blocked(cfg)) {
-        els.curlPlan.textContent = state.busy || guardFor(cfg).reconcile
+      if (state.busy) {
+        els.curlPlan.textContent = '# Операция выполняется; план недоступен до её завершения.';
+        return;
+      }
+      if (blocked(cfg)) {
+        els.curlPlan.textContent = guardFor(cfg).reconcile
           ? '# Сначала вручную сверьте исход предыдущей операции; повторное выполнение заблокировано.'
           : '# Сверьте состояние через getWebhookInfo на целевом API. Повторные запросы с токеном к source заблокированы.';
         return;
       }
-      const hook = sameConfig(state.checkedConfig, cfg) ? state.currentWebhookFromCheck : '';
-      els.curlPlan.textContent = buildCommands(cfg, hook).join('\n');
+      els.curlPlan.textContent = buildCommands(cfg).join('\n');
     }
     async function copyCurlPlan() {
       if (state.busy) return;

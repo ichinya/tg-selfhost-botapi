@@ -20,6 +20,19 @@ async function main() {
   assert.match(p.elements.get('summaryBox').textContent, /https:\/\/sink\.test\/…/);
   assert.equal(p.run('state.history[0].botId'), 123);
 
+  for (const method of ['getWebhookInfo', 'getMe']) {
+    p = refusingPage(method, 429, 600);
+    await p.run('checkCurrentState()').catch(() => {});
+    assert(p.run('state.guards.get("123")?.retryNotBefore') > Date.now(), `${method}: cooldown saved`);
+    assert(!p.plan().includes('curl '));
+    const n = p.calls.length;
+    await p.run('checkCurrentState()').catch(() => {});
+    assert.equal(p.calls.length, n, 'no re-request during cooldown');
+  }
+  p = page();
+  p.run('state.busy = true; buildPlan()');
+  assert(!p.elements.get('curlPlan').textContent.includes('\u043f\u0440\u0435\u0434\u044b\u0434\u0443\u0449\u0435\u0439 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438'));
+
   p = refusingPage('deleteWebhook', 429, 600);
   await p.run('executeInBrowser()');
   assert.match(p.elements.get('summaryBox').textContent, /^ERROR/);
