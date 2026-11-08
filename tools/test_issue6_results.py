@@ -20,7 +20,7 @@ class ResultContract(unittest.TestCase):
             cwd=ROOT, capture_output=True, text=True, timeout=75,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('5 scenarios passed', result.stdout)
+        self.assertIn('9 scenarios passed', result.stdout)
 
     def test_shell_known_refusal_stops(self):
         calls = []
