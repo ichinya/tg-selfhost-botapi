@@ -47,7 +47,7 @@ async function tests(){
   for(const id of ['secretMode','secretToken','allowedUpdates','maxConnections','targetLocal','ipMode','ipAddress','certificateMode','certificateFile']){
     const p=page({fastTimers:true});await p.run('checkCurrentState()');const revision=p.run('state.revision');p.elements.get(id).events.change();assert(p.run('state.revision')>revision);assert.equal(p.run('state.checkedConfig'),'');count++;
   }
-  for(const mismatch of [{max_connections:41},{allowed_updates:['chat_member']},{has_custom_certificate:true},{ip_address:'203.0.113.99'},{max_connections:null},{last_error_date:Math.floor(Date.now()/1000)},{last_synchronization_error_date:9999}]){
+  for(const mismatch of [{max_connections:41},{allowed_updates:['chat_member']},{has_custom_certificate:true},{ip_address:'203.0.113.99'},{max_connections:null},{last_error_date:Math.floor(Date.now()/1000)+30},{last_synchronization_error_date:9999}]){
     const p=page({hook:'https://sink.test/webhook',readback:mismatch,fastTimers:true});configure(p);await p.run('executeInBrowser()');assert.equal(p.run('state.needsReconcile'),true,p.logs());assert.equal(p.run('state.completedMigration'),false);const n=p.calls.length;await p.run('executeInBrowser()');assert.equal(p.calls.length,n);count++;
   }
   const p=page({hook:'https://sink.test/private-url',fastTimers:true});configure(p,true);
