@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 import threading
 import unittest
@@ -9,6 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProfileUITests(unittest.TestCase):
+    def test_resolver_rejects_invalid_certificate(self):
+        profile = {"source": {"url": "https://example.invalid/hook", "max_connections": 40},
+                   "desired": {"secret": {"mode": "none"}, "ip": {"mode": "dns"},
+                               "certificate": {"mode": "provided", "value": "-----BEGIN CERTIFICATE-----\nPLACEHOLDER\n-----END CERTIFICATE-----"}}}
+        result = subprocess.run(["node", "tools/webhook_profile_ui_harness.cjs", "--resolve"], cwd=ROOT,
+                                input=json.dumps([profile]), text=True, capture_output=True, timeout=20, check=True)
+        self.assertEqual(json.loads(result.stdout)[0]["invalid"], ["certificate"])
+
     def test_inline_ui_negative_readback_privacy_matrix(self):
         result = subprocess.run(["node", "tools/webhook_profile_ui_harness.cjs"], cwd=ROOT,
                                 text=True, capture_output=True, timeout=65)

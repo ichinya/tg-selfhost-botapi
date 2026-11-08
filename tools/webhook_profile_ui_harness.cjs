@@ -2,13 +2,13 @@
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),assert=require('node:assert/strict');
 const {page}=require('./issue10_ui_harness.cjs');
 const html=fs.readFileSync(path.join(__dirname,'../tg_selfhost_botapi_migrator.html'),'utf8');
-const secret='Synthetic_secret_7',pem='-----BEGIN CERTIFICATE-----\nUExBQ0VIT0xERVI=\n-----END CERTIFICATE-----\n';
+const secret='Synthetic_secret_7',pem="-----BEGIN CERTIFICATE-----\nMIIDFTCCAf2gAwIBAgIUXiIjm5V67BVj9iGApSk1SLUwc0swDQYJKoZIhvcNAQEL\nBQAwGjEYMBYGA1UEAwwPZXhhbXBsZS5pbnZhbGlkMB4XDTI2MTEwODExMjczN1oX\nDTM2MTEwNTExMjczN1owGjEYMBYGA1UEAwwPZXhhbXBsZS5pbnZhbGlkMIIBIjAN\nBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3nFtlRATUN5IPC3aZXY4beOY/kel\nQLKixJHrN39spHGgneVS1Cf3DxkDo+2I2ONzRJ20LqlFvpbHR+SRAKI/omKbmeRh\n+IoDR11SJRmTvDUa6UMyAXCDnKhnFMOzcZeAR9H1YionLfmS8iU0lwpjgECZj9CU\n9lrs1Tilzep5TSUCq+9ZXmV97n5hZHrwr29frIanvUwYz9JPrECV2z77FjC/a2rN\n9vohYiMq29dsKyfPddlYE3cbYIQce3Bkkcc5iA7FSCBqTEOOCq0MDTfJaf1rTbsU\nRRkwfjWZynpI7I74lsqKoHuJcE6ivDPY+nFR9q2FJyrTbUEykxmBvYQQeQIDAQAB\no1MwUTAdBgNVHQ4EFgQUUs64hMhdnrn/eY3vzZLKsXW9qtEwHwYDVR0jBBgwFoAU\nUs64hMhdnrn/eY3vzZLKsXW9qtEwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0B\nAQsFAAOCAQEAcz7Dd5rhuexGldW/nfiqb1NvwtIzRkwMvzmBT7Ci7g+GfK1PDHvK\noB5h0ZP3tR5Y+RGV909+HGEaQU9El/C9SMpqqn8iyNQgL2rcG7PiabdkHdJ1q1+V\nfXSITq3FmGXEgRZEt3LeKRBJcDPdxsj/XGy3xs8YEVzei+C2n9IUUs7kiyVJH8y3\n641olRMTon2xlWNV5nhgvW9TvnzXVeajPPrzk99oCn+Tt5VO1HeaErRpBJfH0EgD\nxPDkWpZM6lnLTrnrt0zAbNgYcYe7Vy4gZDuSCs99VVaCU0EhR8jSKN90m5jurWww\nvVNJaim3fyEk+s1sWr+DH0UGwaSzSBxhqQ==\n-----END CERTIFICATE-----\n";
 function configure(p,cert=false){
   for(const [id,v] of Object.entries({secretMode:'provided',secretToken:secret,allowedUpdates:'["message","callback_query"]',maxConnections:'7',ipMode:'pinned',ipAddress:'203.0.113.7'}))p.elements.get(id).value=v;
   if(cert){p.elements.get('certificateMode').value='provided';p.elements.get('certificateFile').files=[new File([pem],'private-input.pem')];}
 }
 function projection(input){
-  const source=html.split('// BEGIN PROFILE RESOLVER')[1].split('// END PROFILE RESOLVER')[0],ctx=vm.createContext({input});
+  const source=html.split('// BEGIN PROFILE RESOLVER')[1].split('// END PROFILE RESOLVER')[0],ctx=vm.createContext({input,atob});
   return JSON.parse(JSON.stringify(vm.runInContext(source+';resolveWebhookProfile(input)',ctx)));
 }
 async function tests(){
@@ -28,6 +28,11 @@ async function tests(){
   for(const values of [{secretMode:'unknown'},{ipMode:'unknown'},{allowedUpdates:'null'},{maxConnections:'100000'},{certificateMode:'provided'},{secretMode:'provided',secretToken:'bad space'}]){
     const p=page({hook:'https://sink.test/webhook',fastTimers:true});for(const [id,v]of Object.entries(values))p.elements.get(id).value=v;
     await p.run('executeInBrowser()');assert(!p.calls.some(c=>['deleteWebhook','logOut','setWebhook'].includes(c.method)));assert(!p.calls.some(c=>c.role==='target'&&c.method!=='probe'));count++;
+  }
+  {
+    const p=page({hook:'https://sink.test/webhook',fastTimers:true});configure(p);
+    p.elements.get('certificateMode').value='provided';p.elements.get('certificateFile').files=[new File(['-----BEGIN CERTIFICATE-----\nPLACEHOLDER\n-----END CERTIFICATE-----'],'invalid.pem')];
+    await p.run('executeInBrowser()');assert(!p.calls.some(c=>['deleteWebhook','logOut','setWebhook'].includes(c.method)));count++;
   }
   for(const id of ['secretMode','secretToken','allowedUpdates','maxConnections','targetLocal','ipMode','ipAddress','certificateMode','certificateFile']){
     const p=page({fastTimers:true});await p.run('checkCurrentState()');const revision=p.run('state.revision');p.elements.get(id).events.change();assert(p.run('state.revision')>revision);assert.equal(p.run('state.checkedConfig'),'');count++;

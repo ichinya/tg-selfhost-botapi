@@ -191,7 +191,13 @@ function resolveWebhookProfile(input) {
   else if(p.ip_mode==='unknown')r.missing.push('ip_mode');else r.invalid.push('ip_mode');
   if(p.certificate_mode==='provided') {
     const v=d.certificate?.value;
-    if(typeof v!=='string'||v.length>1048576||!/-----BEGIN CERTIFICATE-----\r?\n(?:[A-Za-z0-9+/]{1,64}={0,2}\r?\n)+-----END CERTIFICATE-----/.test(v)||v.includes('PRIVATE KEY'))r.invalid.push('certificate');
+    try {
+      const match=typeof v==='string'&&v.length<=1048576&&!v.includes('PRIVATE KEY')&&v.match(/-----BEGIN CERTIFICATE-----\r?\n((?:[A-Za-z0-9+/]{1,64}={0,2}\r?\n)+)-----END CERTIFICATE-----/);
+      if(!match)throw Error();
+      const bytes=atob(match[1].replace(/\r?\n/g,''));
+      const tlv=(pos,tag,limit)=>{if(bytes.charCodeAt(pos++)!==tag||pos>=limit)throw Error();let n=bytes.charCodeAt(pos++);if(n&128){const count=n&127;if(!count||count>4||pos+count>limit||bytes.charCodeAt(pos)===0)throw Error();n=0;for(let i=0;i<count;i++)n=n*256+bytes.charCodeAt(pos++);if(n<128)throw Error();}if(pos+n>limit)throw Error();return [pos,pos+n];};
+      const outer=tlv(0,0x30,bytes.length);if(outer[1]!==bytes.length)throw Error();const tbs=tlv(outer[0],0x30,outer[1]);let pos=tbs[0];if(bytes.charCodeAt(pos)===0xa0)pos=tlv(pos,0xa0,tbs[1])[1];const serial=tlv(pos,0x02,tbs[1]);if(serial[0]===serial[1])throw Error();
+    } catch {r.invalid.push('certificate');}
   }else if(p.certificate_mode==='none') {if((d.certificate?.value ?? '')!=='')r.invalid.push('certificate');}
   else if(p.certificate_mode==='unknown')r.missing.push('certificate_mode');else r.invalid.push('certificate_mode');
   if(own(p,'url') && typeof p.url!=='string')r.invalid.push('url');

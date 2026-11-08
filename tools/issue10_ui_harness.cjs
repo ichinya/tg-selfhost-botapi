@@ -20,7 +20,7 @@ function page(options = {}) {
     Object.assign(element(), {dataset:{mode}}));
   let targetHook = options.targetHook || '', sourceHook = options.oldHook || '';
   const profiles={source:{...(options.sourceProfile||{})},target:{}}; let applied=false;
-  const context = vm.createContext({URL, URLSearchParams, FormData, Blob, TextDecoder, AbortController, setTimeout:(fn,ms)=>setTimeout(fn,options.fastTimers && ms===2000?0:ms), clearTimeout,
+  const context = vm.createContext({URL, URLSearchParams, FormData, Blob, TextDecoder, AbortController, atob, setTimeout:(fn,ms)=>setTimeout(fn,options.fastTimers && ms===2000?0:ms), clearTimeout,
     document:{getElementById(id) { assert(elements.has(id), `Missing DOM id: ${id}`); return elements.get(id); },
       createElement:element, querySelectorAll:() => modes},
     navigator:{clipboard:{async writeText(text) { clipboard.push(text); }}},
