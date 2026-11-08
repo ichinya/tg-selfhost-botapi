@@ -110,7 +110,12 @@ pending health remains UNKNOWN. An unavailable endpoint is BLOCKED at a supporte
 observation point; an unavailable observation point remains UNKNOWN.
 Exposure findings use parsed nginx includes plus independent mount isolation.
 A random 404 is not evidence of isolation. A state alias or accessible state mount
-blocks readiness; the shipped proxy and logging map are supported. Doctor does not reload nginx.
+blocks readiness; the shipped proxy and logging map are supported. The observed
+process `--log` and `TELEGRAM_LOG_FILE` are both protected, even when they differ;
+explicit commands may bypass entrypoint environment mapping. Shared backing is
+unsafe even when mounted read-only. Ambiguous path or namespace evidence remains
+UNKNOWN. Metadata inspection does not read the log, and external proxies outside
+the selected stack are not certified. Doctor does not reload nginx.
 
 ### Doctor regression checks
 
