@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from tools.webhook_profile_http_mock import MockAPI
 
@@ -120,13 +121,28 @@ class ProfileTransportTests(unittest.TestCase):
         for patch in ({"url": "https://wrong.test/"}, {"max_connections": 8}, {"allowed_updates": []},
                       {"has_custom_certificate": True}, {"ip_address": "203.0.113.8"},
                       {"max_connections": None}, {"pending_update_count": None},
-                      {"last_error_date": 9999}, {"last_synchronization_error_date": 9999}):
+                      {"last_error_date": int(time.time()) + 60}, {"last_synchronization_error_date": 9999}):
             with self.subTest(patch=patch):
                 api = self.with_api(readback=patch)
                 result = self.run_surface(api)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(sum(c["method"] == "setWebhook" for c in api.calls), 1)
                 self.assertIn("set_webhook_accepted=true", result.stdout)
+
+    def test_same_second_error_is_new(self):
+        bindir = self.private / "clock"
+        bindir.mkdir()
+        clock = bindir / "date"
+        clock.write_text('#!/bin/sh\necho 1000\n')
+        clock.chmod(0o700)
+        for exported in (False, True):
+            with self.subTest(exported=exported):
+                api = self.with_api(readback={"last_error_date": 1000})
+                api.source["last_error_date"] = 1000
+                result = self.run_surface(api, exported, PATH=str(bindir) + os.pathsep + self.env["PATH"])
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('"new_error":true', result.stdout)
+                self.assertIn('"delivery_observation":"degraded"', result.stdout)
 
     def test_env_file_pair_precedence_empty_override_and_private_key(self):
         settings = self.private / "settings"

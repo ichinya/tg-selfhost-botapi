@@ -27,7 +27,12 @@ function resolveWebhookProfile(input) {
       if(!match)throw Error();
       const bytes=atob(match[1].replace(/\r?\n/g,''));
       const tlv=(pos,tag,limit)=>{if(bytes.charCodeAt(pos++)!==tag||pos>=limit)throw Error();let n=bytes.charCodeAt(pos++);if(n&128){const count=n&127;if(!count||count>4||pos+count>limit||bytes.charCodeAt(pos)===0)throw Error();n=0;for(let i=0;i<count;i++)n=n*256+bytes.charCodeAt(pos++);if(n<128)throw Error();}if(pos+n>limit)throw Error();return [pos,pos+n];};
-      const outer=tlv(0,0x30,bytes.length);if(outer[1]!==bytes.length)throw Error();const tbs=tlv(outer[0],0x30,outer[1]);let pos=tbs[0];if(bytes.charCodeAt(pos)===0xa0)pos=tlv(pos,0xa0,tbs[1])[1];const serial=tlv(pos,0x02,tbs[1]);if(serial[0]===serial[1])throw Error();
+      const outer=tlv(0,0x30,bytes.length);if(outer[1]!==bytes.length)throw Error();const tbs=tlv(outer[0],0x30,outer[1]);let pos=tbs[0];if(bytes.charCodeAt(pos)===0xa0)pos=tlv(pos,0xa0,tbs[1])[1];const serial=tlv(pos,0x02,tbs[1]);if(serial[0]===serial[1])throw Error();pos=serial[1];
+      pos=tlv(pos,0x30,tbs[1])[1];pos=tlv(pos,0x30,tbs[1])[1];
+      const validity=tlv(pos,0x30,tbs[1]);pos=validity[0];for(let i=0;i<2;i++){const tag=bytes.charCodeAt(pos);if(tag!==0x17&&tag!==0x18)throw Error();pos=tlv(pos,tag,validity[1])[1];}if(pos!==validity[1])throw Error();
+      pos=tlv(validity[1],0x30,tbs[1])[1];const spki=tlv(pos,0x30,tbs[1]);pos=tlv(spki[0],0x30,spki[1])[1];pos=tlv(pos,0x03,spki[1])[1];if(pos!==spki[1])throw Error();pos=spki[1];
+      for(const tag of [0x81,0x82,0xa3])if(bytes.charCodeAt(pos)===tag)pos=tlv(pos,tag,tbs[1])[1];if(pos!==tbs[1])throw Error();
+      pos=tlv(tbs[1],0x30,outer[1])[1];pos=tlv(pos,0x03,outer[1])[1];if(pos!==outer[1])throw Error();
     } catch {r.invalid.push('certificate');}
   }else if(p.certificate_mode==='none') {if((d.certificate?.value ?? '')!=='')r.invalid.push('certificate');}
   else if(p.certificate_mode==='unknown')r.missing.push('certificate_mode');else r.invalid.push('certificate_mode');

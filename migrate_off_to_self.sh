@@ -258,14 +258,14 @@ wp_observe() {
   done
   if [[ -n $first && -n $last ]]; then
     wp_jq -n --slurpfile s "$WP_TMP/source" --slurpfile a "$WP_TMP/sample$first" --slurpfile b "$WP_TMP/sample$last" \
-      --argjson readable "$readable" --argjson accepted "$WP_SET_ACCEPTED" --arg observation "$observation" '
+      --argjson readable "$readable" --argjson accepted "$WP_SET_ACCEPTED" --argjson set_time "$WP_SET_TIME" --arg observation "$observation" '
       $s[0].result as $s | $a[0].result as $a | $b[0].result as $b |
       {profile_input_complete:true,set_webhook_accepted:$accepted,observable_profile_matches:$readable,
        delivery_confirmed:false,private_material:"not-readback-verifiable",delivery_observation:$observation,
        samples:[{time:$a.observed_at,pending:$a.pending_update_count},{time:$b.observed_at,pending:$b.pending_update_count}],
        queue:(if $b.pending_update_count>$a.pending_update_count then "growing" elif $b.pending_update_count<$a.pending_update_count then "falling" else "stable" end),
        historical_error:(($s.last_error_date//0)>0 or ($s.last_synchronization_error_date//0)>0),
-       new_error:(([$a.last_error_date//0,$b.last_error_date//0]|max)>($s.last_error_date//0)),
+       new_error:(([$a.last_error_date//0,$b.last_error_date//0]|max)>=$set_time),
        new_synchronization_error:(([$a.last_synchronization_error_date//0,$b.last_synchronization_error_date//0]|max)>($s.last_synchronization_error_date//0))} |
        if .delivery_observation!="unknown" and (.new_error or .new_synchronization_error or .queue=="growing") then .delivery_observation="degraded" else . end' > "$WP_TMP/result"
     # No raw last_error_message, URLs, secret or PEM in this allowlisted result.
@@ -312,6 +312,7 @@ wp_main() {
     [[ $target_id == "$source_id" ]] || wp_fail 'Bot identity mismatch; source login forbidden'
   fi
   WP_SET_ACCEPTED=null
+  WP_SET_TIME=$(date +%s)
   if [[ -n $WP_HOOK ]]; then wp_set
   elif [[ $MIGRATION_MODE == hook-only ]]; then wp_request "$SELF_BOT_URL" deleteWebhook -X POST --data-urlencode "drop_pending_updates=$DROP_PENDING_UPDATES"; fi
   wp_observe

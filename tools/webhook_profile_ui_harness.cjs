@@ -34,10 +34,20 @@ async function tests(){
     p.elements.get('certificateMode').value='provided';p.elements.get('certificateFile').files=[new File(['-----BEGIN CERTIFICATE-----\nPLACEHOLDER\n-----END CERTIFICATE-----'],'invalid.pem')];
     await p.run('executeInBrowser()');assert(!p.calls.some(c=>['deleteWebhook','logOut','setWebhook'].includes(c.method)));count++;
   }
+  {
+    const p=page({hook:'https://sink.test/webhook',fastTimers:true});configure(p);
+    p.elements.get('certificateMode').value='provided';p.elements.get('certificateFile').files=[new File(['-----BEGIN CERTIFICATE-----\nMAUwAwIBAQ==\n-----END CERTIFICATE-----'],'invalid.pem')];
+    await p.run('executeInBrowser()');assert(!p.calls.some(c=>['deleteWebhook','logOut','setWebhook'].includes(c.method)));count++;
+  }
+  {
+    const now=Math.floor(Date.now()/1000), p=page({hook:'https://sink.test/webhook',sourceProfile:{last_error_date:now},readback:{last_error_date:now},fastTimers:true});
+    p.run(`Date.now=()=>${now}000`);configure(p);await p.run('executeInBrowser()');
+    assert.equal(p.run('state.completedMigration'),false,p.logs());assert(p.logs().includes('"new_error":true'));assert(p.logs().includes('"delivery_observation":"degraded"'));count++;
+  }
   for(const id of ['secretMode','secretToken','allowedUpdates','maxConnections','targetLocal','ipMode','ipAddress','certificateMode','certificateFile']){
     const p=page({fastTimers:true});await p.run('checkCurrentState()');const revision=p.run('state.revision');p.elements.get(id).events.change();assert(p.run('state.revision')>revision);assert.equal(p.run('state.checkedConfig'),'');count++;
   }
-  for(const mismatch of [{max_connections:41},{allowed_updates:['chat_member']},{has_custom_certificate:true},{ip_address:'203.0.113.99'},{max_connections:null},{last_error_date:9999},{last_synchronization_error_date:9999}]){
+  for(const mismatch of [{max_connections:41},{allowed_updates:['chat_member']},{has_custom_certificate:true},{ip_address:'203.0.113.99'},{max_connections:null},{last_error_date:Math.floor(Date.now()/1000)},{last_synchronization_error_date:9999}]){
     const p=page({hook:'https://sink.test/webhook',readback:mismatch,fastTimers:true});configure(p);await p.run('executeInBrowser()');assert.equal(p.run('state.needsReconcile'),true,p.logs());assert.equal(p.run('state.completedMigration'),false);const n=p.calls.length;await p.run('executeInBrowser()');assert.equal(p.calls.length,n);count++;
   }
   const p=page({hook:'https://sink.test/private-url',fastTimers:true});configure(p,true);
