@@ -61,6 +61,49 @@ class ExposureTests(unittest.TestCase):
         result = next(c for c in obj.checks if c["id"].endswith(".state_exposure"))
         self.assertEqual(("pass", "state_mount_isolated"), (result["status"], result["reason_code"]))
 
+    def test_log_paths_and_incomplete_evidence(self):
+        from doctor_runtime import LOG_CANONICAL, RunError
+        for argv, env, shared, canonical, expected in (
+            ("/logs/server.log", None, True, "/logs/server.log", "fail"),
+            (None, "/logs/server.log", True, "/logs/server.log", "fail"),
+            ("/logs/server.log", "/safe/server.log", True, "/logs/server.log", "fail"),
+            ("/safe/server.log", "/logs/server.log", True, "/logs/server.log", "fail"),
+            ("/logs/server.log", None, False, "/logs/server.log", "pass"),
+            ("relative.log", None, False, None, "unknown"),
+            ("/logs/server.log", None, False, None, "unknown"),
+            (None, None, False, None, "pass"),
+        ):
+            with self.subTest(argv=argv, env=env, shared=shared, canonical=canonical):
+                obj = Installation(parser().parse_args(["--scenario", "official-to-self"]), None, None, [], [])
+                obj.process = {"flags": {"log": argv} if argv else {}, "port": "8081"}
+                obj.containers = {
+                    "botapi": {"Config": {"Env": ["TELEGRAM_LOG_FILE=" + env] if env else []}, "Mounts": [
+                        {"Destination": "/var/lib/telegram-bot-api", "Source": "/private/state"},
+                        {"Destination": "/logs", "Source": "/private/logs"}]},
+                    "gateway": {"Mounts": ([{"Destination": "/served", "Source": "/private/logs", "RW": False}] if shared else []),
+                                "NetworkSettings": {"Ports": {}}},
+                }
+                def execute(service, *args, **kwargs):
+                    if LOG_CANONICAL in args:
+                        if canonical is None:
+                            raise RunError()
+                        return (args[-1] + "\n").encode()
+                    return b"server { listen 80; location / { proxy_pass http://botapi:8081; } location /alt { alias /served; } }"
+                obj.exec = execute
+                obj.exposure()
+                checks = {c["id"].split(".")[-1]: c for c in obj.checks}
+                if expected == "fail":
+                    self.assertEqual("fail", checks["state_mount_accessible"]["status"])
+                    self.assertEqual("fail", checks["state_exposure"]["status"])
+                else:
+                    self.assertEqual(expected, checks["state_exposure"]["status"])
+                self.assertNotIn("/logs/server.log", str(obj.checks))
+
+    def test_log_flag_forms(self):
+        from doctor_checks import process_flags
+        self.assertEqual({"log": "/logs/file"}, process_flags(["--log=/logs/file"]))
+        self.assertEqual({"log": "/logs/file"}, process_flags(["--log", "/logs/file"]))
+
     def test_stats_and_alternative_root(self):
         roots, proxies, _, dynamic = nginx_routes(nginx_config('server { location /alternative { root /var/lib/telegram-bot-api; } location /s { proxy_pass http://botapi:8082; } }'))
         self.assertEqual(["/var/lib/telegram-bot-api"], roots)
