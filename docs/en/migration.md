@@ -182,6 +182,10 @@ An authenticated Bot API rejection is distinct from an unreliable or lost
 response, whose effect may be UNKNOWN. A valid `retry_after` establishes a
 cooldown; its expiry neither retries nor resolves an uncertain operation. A local
 `close` 429 window differs from the cloud return restriction after `logOut`.
+The result distinguishes ERROR, PARTIAL and UNKNOWN from SUCCESS. Source and
+target bot IDs must match, and the final URL is read from the target rather than
+assumed from the requested URL. After a failed or uncertain logout, follow the
+recovery procedure in #2; do not log back into source merely to check it.
 
 [Open the migrator](../../tg_selfhost_botapi_migrator.html). The page is a static
 client, not a server-side migration executor. It uses requests from your browser;

@@ -330,10 +330,11 @@
         if (state.needsReconcile) throw new Error('Сначала вручную сверьте исход предыдущей операции, затем откройте страницу заново.');
         state.currentWebhookFromCheck = ''; state.checkedConfig = '';
         if (!consent(cfg, 'Чтение только известного source; это не обнаружение текущего сервера.')) return;
-        await api(cfg.oldApi, cfg.token, 'getMe');
+        const identity = await api(cfg.oldApi, cfg.token, 'getMe');
         const hook = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
         state.currentWebhookFromCheck = hook.url;
         state.checkedConfig = fingerprint(cfg);
+        state.preflight = {revision:state.revision, botId:identity.id};
         setSummary('Состояние source прочитано. Профиль и secret_token сохраняйте отдельно.');
         buildPlan();
       });
@@ -441,40 +442,55 @@
         if (cfg.mode === 'official-to-self') await probe(cfg.newApi);
         if (!consent(cfg, 'Выполнение изменит webhook/сессию. Полный профиль восстанавливается отдельно.')) return;
         const run = newOperation(cfg); state.activeRun = run; state.history.push(run);
-        let source, info;
-        try {
-          source = await api(cfg.oldApi, cfg.token, 'getMe');
-          run.botId = source.id;
-          info = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
-        } catch (error) { state.activeRun = null; throw error; }
-        const hook = cfg.webhook || info.url;
-        run.sourceObservation = {url:info.url, endpoint:cfg.oldApi, observedAt:new Date().toISOString()};
-        run.expectedUrl = hook;
-        recordStage(run, 'prepared', 'CONFIRMED');
-        const drop = {drop_pending_updates:String(cfg.dropPending)};
-        let changed = false;
-        try {
-          const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
-          if (cfg.mode === 'official-to-self') {
-            await api(cfg.oldApi, cfg.token, 'deleteWebhook', drop); changed = true;
-            recordStage(run, 'source_webhook_detached', 'CONFIRMED', {effect:true});
-            await api(cfg.oldApi, cfg.token, 'logOut', {});
-            recordStage(run, 'source_disabled', 'CONFIRMED', {effect:true});
-            await api(target, cfg.token, 'getMe');
-            recordStage(run, 'target_authorized', 'CONFIRMED', {effect:true});
+        const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
+        let currentStage = 'prepared';
+        const step = async (stage, role, method, data, effect = false) => {
+          currentStage = stage; run.stages[stage] = 'RUNNING';
+          try {
+            const result = await api(role === 'source' ? cfg.oldApi : target, cfg.token, method, data);
+            recordStage(run, stage, 'CONFIRMED', {method, role, effect});
+            return result;
+          } catch (error) {
+            const uncertain = error.certainty === 'UNKNOWN' && (effect || run.receipts.some(r => r.effect));
+            recordStage(run, stage, uncertain ? 'UNKNOWN' : 'REJECTED', {method, role,
+              httpStatus:error.httpStatus ?? null, apiCode:error.apiCode ?? null,
+              retryNotBefore:error.retryNotBefore ?? null, effect:false});
+            throw error;
           }
-          if (hook) { await api(target, cfg.token, 'setWebhook', {...drop,url:hook}); changed = true; }
-          else if (cfg.mode === 'hook-only') { await api(target, cfg.token, 'deleteWebhook', drop); changed = true; }
-          if (changed) recordStage(run, 'delivery_configured', 'CONFIRMED', {effect:true});
-          const final = await api(target, cfg.token, 'getWebhookInfo');
+        };
+        try {
+          const source = await step('prepared', 'source', 'getMe');
+          run.botId = source.id;
+          const prefix = Number(cfg.token.split(':')[0]);
+          if (source.id !== prefix || (state.preflight && state.preflight.botId !== source.id)) throw new Error('ID исходного бота не совпадает с проверенным планом.');
+          const info = await step('prepared', 'source', 'getWebhookInfo');
+          const hook = cfg.webhook || info.url;
+          run.sourceObservation = {url:info.url, endpoint:cfg.oldApi, observedAt:new Date().toISOString()};
+          run.expectedUrl = hook;
+          const drop = {drop_pending_updates:String(cfg.dropPending)};
+          if (cfg.mode === 'official-to-self') {
+            await step('source_webhook_detached', 'source', 'deleteWebhook', drop, true);
+            await step('source_disabled', 'source', 'logOut', {}, true);
+            const targetBot = await step('target_authorized', 'target', 'getMe', undefined, true);
+            if (targetBot.id !== source.id) throw new Error('ID бота на target не совпадает с source.');
+          }
+          if (hook) await step('delivery_configured', 'target', 'setWebhook', {...drop,url:hook}, true);
+          else if (cfg.mode === 'hook-only') await step('delivery_configured', 'target', 'deleteWebhook', drop, true);
+          const final = await step('target_verified', 'target', 'getWebhookInfo');
           run.finalObservation = {url:final.url, endpoint:target, observedAt:new Date().toISOString()};
           if (final.url !== hook) throw new Error('Итоговый webhook не совпадает; проверьте состояние вручную.');
-          recordStage(run, 'target_verified', 'CONFIRMED');
           if (cfg.mode === 'official-to-self') state.completedMigration = true;
           log('Конфигурация проверена. Проверьте полный профиль и доставку тестового update.', 'success');
-          setSummary(operationOutcome(run) + ': фактический webhook: ' + final.url + '. Доставка требует отдельной проверки.');
-        } catch (error) { if (changed) state.needsReconcile = true; throw error; }
-        finally { state.activeRun = null; }
+        } catch (error) {
+          if (!run.receipts.length || run.receipts[run.receipts.length - 1].status === 'CONFIRMED')
+            recordStage(run, currentStage, 'REJECTED', {effect:false});
+          if (run.receipts.some(r => r.effect || r.status === 'UNKNOWN')) state.needsReconcile = true;
+          log(error.message, 'error');
+        }
+        const last = run.receipts[run.receipts.length - 1];
+        const observation = run.finalObservation;
+        setSummary(`${operationOutcome(run)} | ${run.id} | bot ID: ${run.botId ?? 'неизвестно'}\nSource: ${run.plan.source}\nTarget: ${run.plan.target}\nОжидание: ${run.expectedUrl ?? 'неизвестно'}\nФактический target URL: ${observation ? observation.url + ' (' + observation.endpoint + ', ' + observation.observedAt + ')' : 'неизвестно'}\nЭтап: ${last?.stage ?? 'неизвестно'}; HTTP/API: ${last?.httpStatus ?? '—'}/${last?.apiCode ?? '—'}; retry: ${last?.retryNotBefore == null ? '—' : new Date(last.retryNotBefore).toISOString()}\nДоставка требует отдельной проверки.`);
+        state.activeRun = null;
       });
     }
     document.querySelectorAll('.mode-btn').forEach(card => card.addEventListener('click', () => {
