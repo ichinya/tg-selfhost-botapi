@@ -8,6 +8,33 @@ from doctor_runtime import Installation, RunError
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_self_to_self_state_backing_identity(self):
+        from unittest.mock import patch
+        from doctor_runtime import collect
+        args = parser().parse_args(["--scenario", "self-to-self", "--source-project-name", "source"])
+        args.migration_data = {"transfer": {"method": "fresh-login"}}
+        args.input_secure = True
+        for inodes, sources, expected in (
+            (("8:2", "8:2"), ("/host/a", "/host/b"), ("fail", "shared_state")),
+            (("8:2", None), ("/host/a", "/host/b"), ("unknown", "state_backing_unverified")),
+            (("8:2", "8:3"), ("/host/a", "/host/b"), ("pass", "distinct_state")),
+            (("8:2", "8:3"), ("/host/a", "/host/a/nested"), ("fail", "shared_state")),
+        ):
+            with self.subTest(inodes=inodes, sources=sources):
+                checks = []
+                objects = []
+                for inode, source in zip(inodes, sources):
+                    obj = Installation(args, None, None, checks, [])
+                    obj.storage_data = {"work": {"path": "/state", "inode": inode}}
+                    obj.containers = {"botapi": {"Mounts": [{"Destination": "/state", "Source": source}]}}
+                    for stage in ("configuration", "runtime", "storage", "exposure", "probes", "unchanged"):
+                        setattr(obj, stage, lambda: None)
+                    objects.append(obj)
+                with patch("doctor_runtime.Installation", side_effect=objects):
+                    collect(args, None, None, checks, [])
+                result = next(c for c in checks if c["id"] == "migration.state_backing")
+                self.assertEqual(expected, (result["status"], result["reason_code"]))
+
     def test_lifecycle_is_more_than_running(self):
         for flag in ("Paused", "Restarting", "Dead"):
             self.assertEqual("fail", container_state({"State": {"Running": True, flag: True}})[0])

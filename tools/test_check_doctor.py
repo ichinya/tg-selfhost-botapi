@@ -62,7 +62,7 @@ class HarnessTests(unittest.TestCase):
                         self.role = "source" if source else "target"
                         self.process = dict(uid=101, gid=101, flags={"local": True})
                         self.runner = runner
-                        self.storage_data = {"work": dict(path="/data", available_bytes=11000 if condition != "low" else 1, available_inodes=100)}
+                        self.storage_data = {"work": dict(path="/data", inode="1:2" if source else "1:3", available_bytes=11000 if condition != "low" else 1, available_inodes=100)}
                         backing = "/same" if condition == "shared" else "/" + self.role
                         self.containers = {"botapi": {"Mounts": [{"Destination": "/data", "Source": backing}]}}
                         self.add = lambda name, status, reason, message: checks.append(check(self.role + "." + name, status, reason, message))

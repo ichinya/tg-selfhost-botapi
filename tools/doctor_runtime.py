@@ -764,8 +764,7 @@ class Installation:
                 self.nginx_snapshot = hashlib.sha256(snapshot).digest()
                 raw = snapshot.decode("utf-8")
                 roots, proxies, listens, dynamic = nginx_routes(nginx_config(raw))
-                unsafe = any(overlaps(root, p) for root in roots for p in protected)
-                unsafe |= any(overlaps(b, s) for root in roots for b in [backing(root, mounts)] if b for s in sensitive)
+                unsafe = any(overlaps(b, s) for root in roots for b in [backing(root, mounts)] if b for s in sensitive)
                 if unsafe:
                     self.add("state_exposure", "fail", "state_root_exposed", "HTTP root/alias intersects state, temp or secret storage; read-only and loopback do not make it safe.", remediation="Isolate the HTTP component from state and serve only an authenticated media root (issues #3/#5).")
                 elif accessible or dynamic or not sensitive:
@@ -832,8 +831,10 @@ def collect(args, runner, http, checks, images):
             checks.append(check("migration.compatibility", "not_applicable" if fresh else "pass" if compatible else "unknown", "fresh_login_no_copy" if fresh else "matching_binary_baseline" if compatible else "compatibility_unverified", "Copy compatibility uses observed binary versions and available source revisions; fresh login does not copy state.", required=not fresh))
             paths = [i.storage_data.get("work", {}) for i in installations]
             backings = [backing(p.get("path", ""), i.containers.get("botapi", {}).get("Mounts", [])) for p, i in zip(paths, installations)]
-            distinct = all(backings) and not overlaps(*backings)
-            checks.append(check("migration.state_backing", "pass" if distinct else "fail" if all(backings) else "unknown", "distinct_state" if distinct else "shared_state" if all(backings) else "state_backing_unverified", "Two servers must not share overlapping state backings."))
+            inodes = [p.get("inode") for p in paths]
+            shared = (all(backings) and overlaps(*backings)) or (all(inodes) and inodes[0] == inodes[1])
+            distinct = all(inodes) and not shared
+            checks.append(check("migration.state_backing", "fail" if shared else "pass" if distinct else "unknown", "shared_state" if shared else "distinct_state" if distinct else "state_backing_unverified", "Two servers must not share overlapping state backings."))
             measured = None
             method = args.migration_data.get("transfer", {}).get("method")
             component = args.migration_data.get("transfer", {}).get("state_subdir") if method == "per-bot" else "." if method == "dedicated-cold" else None

@@ -46,6 +46,19 @@ class ExposureTests(unittest.TestCase):
             found = next(c for c in obj.checks if c["id"].endswith(".state_exposure"))
             self.assertEqual("fail" if unsafe else "pass", found["status"])
 
+    def test_root_in_separate_namespace_is_not_shared_state(self):
+        obj = Installation(parser().parse_args(["--scenario", "official-to-self"]), None, None, [], [])
+        obj.containers = {
+            "botapi": {"Config": {}, "Mounts": [
+                {"Destination": "/var/lib/telegram-bot-api", "Source": "/private/state"},
+                {"Destination": "/tmp/telegram-bot-api", "Source": "/private/temp"}]},
+            "gateway": {"Mounts": [], "NetworkSettings": {"Ports": {}}},
+        }
+        obj.exec = lambda *a, **kw: b"server { listen 80; root /tmp; location / { proxy_pass http://botapi:8081; } }"
+        obj.exposure()
+        result = next(c for c in obj.checks if c["id"].endswith(".state_exposure"))
+        self.assertEqual(("pass", "state_mount_isolated"), (result["status"], result["reason_code"]))
+
     def test_stats_and_alternative_root(self):
         roots, proxies, _, dynamic = nginx_routes(nginx_config('server { location /alternative { root /var/lib/telegram-bot-api; } location /s { proxy_pass http://botapi:8082; } }'))
         self.assertEqual(["/var/lib/telegram-bot-api"], roots)
