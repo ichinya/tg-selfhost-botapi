@@ -15,7 +15,7 @@ import time
 import uuid
 
 import doctor
-from doctor_runtime import Runner, Budget, RunError, endpoint, STORAGE_METADATA, WRITE_PROBE, TRANSFER_METADATA, TARGET_DESTINATION
+from doctor_runtime import Runner, Budget, RunError, endpoint, STORAGE_METADATA, LOG_CANONICAL, WRITE_PROBE, TRANSFER_METADATA, TARGET_DESTINATION
 
 FIXTURES = Path(__file__).resolve().parent / "doctor_fixtures"
 SECRET = "synthetic-doctor-credential"
@@ -59,7 +59,7 @@ def assert_commands(calls):
                 program = argv[position + 1:]
                 if program and program[0] == "timeout":
                     program = program[6:]
-                scripts = {STORAGE_METADATA, WRITE_PROBE, TRANSFER_METADATA, TARGET_DESTINATION,
+                scripts = {STORAGE_METADATA, LOG_CANONICAL, WRITE_PROBE, TRANSFER_METADATA, TARGET_DESTINATION,
                            'test -f "$1" && test -r "$1" && test -s "$1"',
                            'readlink /proc/1/exe; cat /proc/1/status; printf "\\nDOCTOR_ARGV\\n"; cat /proc/1/cmdline',
                            'nginx -T 2>/dev/null', 'nginx -v 2>&1'}

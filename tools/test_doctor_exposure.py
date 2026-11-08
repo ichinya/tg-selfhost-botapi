@@ -35,6 +35,7 @@ class ExposureTests(unittest.TestCase):
     def test_current_alias_and_safe_gateway(self):
         for unsafe in (True, False):
             obj = Installation(parser().parse_args(["--scenario", "official-to-self"]), None, None, [], [])
+            obj.process = {"flags": {}, "port": "8081"}
             obj.containers = {
                 "botapi": {"Config": {}, "Mounts": [{"Destination": "/var/lib/telegram-bot-api", "Source": "/private/state"}]},
                 "gateway": {"Mounts": ([{"Destination": "/var/lib/telegram-bot-api", "Source": "/private/state", "RW": False}] if unsafe else []),
@@ -48,6 +49,7 @@ class ExposureTests(unittest.TestCase):
 
     def test_root_in_separate_namespace_is_not_shared_state(self):
         obj = Installation(parser().parse_args(["--scenario", "official-to-self"]), None, None, [], [])
+        obj.process = {"flags": {}, "port": "8081"}
         obj.containers = {
             "botapi": {"Config": {}, "Mounts": [
                 {"Destination": "/var/lib/telegram-bot-api", "Source": "/private/state"},

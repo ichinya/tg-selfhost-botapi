@@ -11,6 +11,7 @@ import re
 import ipaddress
 import stat
 import hashlib
+import posixpath
 from urllib.parse import urlsplit
 
 
@@ -22,6 +23,22 @@ stat -f -c '%i %S %a %d' "$1"
 id -u; id -g; id -G
 printf 'DOCTOR_MOUNTINFO\n'
 cat /proc/self/mountinfo
+'''
+
+# Resolve metadata only, in the container namespace; never open the log.
+LOG_CANONICAL = r'''set -eu
+path=$1
+suffix=
+while [ ! -e "$path" ] && [ ! -L "$path" ]; do
+    name=${path##*/}
+    test -n "$name" || exit 21
+    suffix=/$name$suffix
+    path=${path%/*}
+    test -n "$path" || path=/
+done
+resolved=$(readlink -f "$path")
+test -n "$resolved" || exit 21
+printf '%s%s\n' "${resolved%/}" "$suffix"
 '''
 
 WRITE_PROBE = r'''set -eu
@@ -743,9 +760,39 @@ class Installation:
         env = environment(api.get("Config", {}).get("Env"))
         work = (self.process or {}).get("work") or env.get("TELEGRAM_WORK_DIR", "/var/lib/telegram-bot-api")
         temp = (self.process or {}).get("temp") or env.get("TELEGRAM_TEMP_DIR", "/tmp/telegram-bot-api")
-        protected = [p for p in (work, temp, env.get("TELEGRAM_LOG_FILE"), env.get("TELEGRAM_API_ID_FILE"), env.get("TELEGRAM_API_HASH_FILE")) if p and p.startswith("/")]
-        sensitive = [backing(p, api.get("Mounts", [])) for p in protected]
+        protected = [p for p in (work, temp, env.get("TELEGRAM_API_ID_FILE"), env.get("TELEGRAM_API_HASH_FILE")) if isinstance(p, str) and p.startswith("/")]
+        process = self.process
+        incomplete = not process or not isinstance(process.get("flags"), dict) or not isinstance(api.get("Mounts"), list)
+        logs = [env.get("TELEGRAM_LOG_FILE")]
+        if process and isinstance(process.get("flags"), dict):
+            logs.append(process["flags"].get("log"))
+        for log in set(p for p in logs if p):
+            if not isinstance(log, str) or not log.startswith("/") or "\x00" in log:
+                incomplete = True
+                continue
+            lexical = posixpath.normpath(log)
+            protected.append(lexical)
+            if any(lexical == prefix or lexical.startswith(prefix + "/") for prefix in ("/dev", "/proc", "/sys")):
+                incomplete = True
+                continue
+            try:
+                raw = self.exec("botapi", "sh", "-c", LOG_CANONICAL, "doctor", log)
+                canonical = raw.decode("utf-8").strip()
+                if not canonical.startswith("/") or "\n" in canonical or "\x00" in canonical:
+                    raise ValueError
+                canonical = posixpath.normpath(canonical)
+                protected.append(canonical)
+                if any(canonical == prefix or canonical.startswith(prefix + "/") for prefix in ("/dev", "/proc", "/sys")):
+                    incomplete = True
+            except (RunError, ValueError, UnicodeError):
+                incomplete = True
+        mounts = api.get("Mounts", [])
+        if not isinstance(mounts, list):
+            mounts = []
+        sensitive = [backing(p, mounts) for p in set(protected)]
         sensitive = [s for s in sensitive if s]
+        if any(not isinstance(m, dict) or not m.get("Destination") or not m.get("Source") for m in mounts):
+            incomplete = True
         if self.args.migration_input and os.name == "posix":
             sensitive.append(os.path.abspath(self.args.migration_input))
         # All HTTP-facing components in the selected stack participate in isolation.
@@ -767,7 +814,7 @@ class Installation:
                 unsafe = any(overlaps(b, s) for root in roots for b in [backing(root, mounts)] if b for s in sensitive)
                 if unsafe:
                     self.add("state_exposure", "fail", "state_root_exposed", "HTTP root/alias intersects state, temp or secret storage; read-only and loopback do not make it safe.", remediation="Isolate the HTTP component from state and serve only an authenticated media root (issues #3/#5).")
-                elif accessible or dynamic or not sensitive:
+                elif accessible or dynamic or not sensitive or incomplete:
                     self.add("state_exposure", "unknown", "state_isolation_unverified", "On-disk nginx config alone cannot establish loaded runtime isolation.")
                 else:
                     # Independent lack of a mount to private storage is stronger than a 404.
