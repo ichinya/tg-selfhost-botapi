@@ -33,6 +33,8 @@ async function main() {
   p.run('invalidate()'); assert(!p.run('blocked(currentConfig())'));
   p.elements.get('botToken').value = '123:rotated_synthetic_token_only';
   p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
+  p.elements.get('botToken').value = '00123:rotated_synthetic_token_only';
+  p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
   console.log('issue 6 result contract: 5 scenarios passed');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

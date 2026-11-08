@@ -184,7 +184,8 @@ cooldown; its expiry neither retries nor resolves an uncertain operation. A loca
 `close` 429 window differs from the cloud return restriction after `logOut`.
 The result distinguishes ERROR, PARTIAL and UNKNOWN from SUCCESS. Source and
 target bot IDs must match, and the final URL is read from the target rather than
-assumed from the requested URL. After a failed or uncertain logout, follow the
+assumed from the requested URL. The summary distinguishes source observation,
+expected URL, target observation and the stage journal. After a failed or uncertain logout, follow the
 recovery procedure in #2; do not log back into source merely to check it.
 The tab blocks simultaneous actions and retains per-bot recovery guards in
 memory. Editing settings invalidates the check. Closing or reloading the tab
