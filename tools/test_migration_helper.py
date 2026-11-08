@@ -90,6 +90,34 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(self.app.effects, 0)
 
 
+class ApplicationRegressionTests(unittest.TestCase):
+    def config(self, evidence='evidence.json'):
+        return {'state_dir': 'state', 'allowed_endpoints': [], 'evidence_file': evidence,
+                'trust_file': None, 'fixture': False}
+
+    def test_invalid_evidence_path_fails_at_startup(self):
+        from migration_helper import Application
+        for value in (None, '', 42):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'evidence_file'):
+                Application(self.config(value))
+
+    def test_submit_failure_releases_slot_and_job(self):
+        from migration_helper import Application
+        app = Application(self.config())
+        self.addCleanup(app.pool.shutdown)
+        journal = unittest.mock.MagicMock()
+        journal.load.return_value = {'digest': 'digest'}
+        runtime = unittest.mock.Mock()
+        with patch.object(app, 'runtime', return_value=runtime), \
+             patch.object(app, 'context', return_value=contextlib.nullcontext((journal, None))), \
+             patch.object(app.pool, 'submit', side_effect=RuntimeError('executor stopped')):
+            with self.assertRaises(RuntimeError):
+                app.submit('apply', {'operation_id': 'op', 'digest': 'digest'})
+        self.assertNotIn('op', app.jobs)
+        self.assertTrue(app.slot.acquire(blocking=False))
+        app.slot.release()
+
+
 class BootstrapOutputTests(unittest.TestCase):
     @unittest.skipUnless(os.name == 'posix', 'private bootstrap file acceptance requires Linux/WSL')
     def test_private_bootstrap_file_rejects_reuse_state_and_unsafe_parent(self):

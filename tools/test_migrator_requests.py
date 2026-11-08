@@ -520,7 +520,8 @@ class MigrationRequestTests(migration_integration.WrapperTests):
     def test_environment_adapter_only_prepares_a_reviewable_plan(self):
         child=self.legacy(action='polling')
         self.assertEqual(child.returncode,2,child.stdout+child.stderr)
-        plan=json.loads(child.stdout.splitlines()[0])
+        plan=json.loads(child.stdout)
+        self.assertEqual(plan['reason'], 'plan_confirmation_required')
         self.assertEqual(plan['plan']['action'],'polling')
         self.assertEqual(self.source.effects['deleteWebhook'],0)
         self.assertEqual(self.source.effects['logOut'],0)

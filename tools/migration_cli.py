@@ -5,7 +5,7 @@ import os
 import re
 import stat
 import sys
-from migration_contract import canonical
+from migration_contract import canonical, normalize_endpoint
 from migration_engine import Engine,Runtime,Stop
 from migration_http import Client
 from migration_probe import Readiness,CloudReadiness,DockerEvidence,private_json
@@ -251,7 +251,7 @@ def main(argv=None):
             provider=DockerEvidence(args.docker_container,r.target,args.expected_image_id,j.key)
         elif evidence:
             provider=lambda:private_json(evidence)
-        elif r.direction=='local_to_cloud' and r.target.rstrip('/')=='https://api.telegram.org' and not r.fixture:
+        elif r.direction=='local_to_cloud' and normalize_endpoint(r.target)=='https://api.telegram.org' and not r.fixture:
             provider=None
         else:
             raise ValueError('deployment evidence required')
@@ -312,13 +312,13 @@ def legacy(argv):
     output=io.StringIO()
     with contextlib.redirect_stdout(output):
         code=main(['plan',*extra])
-    print(output.getvalue(),end='')
     if code:
+        print(output.getvalue(),end='')
         return code
     # Never infer an action from an empty webhook or apply without digest review.
     state=json.loads(output.getvalue())
-    print(canonical({'reason':'plan_confirmation_required','operation_id':state['operation_id'],
-                     'digest':state['digest'],'exit_code':2}))
+    state.update(reason='plan_confirmation_required', exit_code=2)
+    print(canonical(state))
     return 2
 
 

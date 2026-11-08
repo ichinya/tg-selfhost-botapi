@@ -4,7 +4,6 @@ This module defines data types only; it does not perform or resume migrations.
 An unrecognised persisted schema must never be interpreted as a success.
 """
 
-from dataclasses import dataclass
 from enum import Enum
 import hashlib
 import hmac
@@ -38,12 +37,6 @@ class Outcome(str, Enum):
     WAITING = "waiting"
     BLOCKED = "blocked"
     SKIPPED = "skipped"
-
-
-class Aggregate(str, Enum):
-    CONFIRMED = "confirmed"
-    PARTIAL = "partial"
-    BLOCKED = "blocked"
 
 
 STEP_IDS = ('source_delete', 'source_logout', 'target_authorize', 'target_configure')
@@ -178,43 +171,6 @@ def build_plan(*, operation_id, bot_id, source, target, token, profile, action, 
     return validate_plan(plan)
 
 
-@dataclass(frozen=True)
-class Capabilities:
-    """An explicit local-mode declaration, not inferred from the endpoint."""
-
-    local_mode: bool
-
-    def __post_init__(self):
-        if type(self.local_mode) is not bool:
-            raise ValueError("local_mode must be an explicit boolean")
-
-
-@dataclass(frozen=True)
-class Step:
-    id: str
-    dependencies: tuple[str, ...] = ()
-
-
-class CheckpointKind(str, Enum):
-    PLAN_CONFIRMATION = "plan_confirmation"
-    QUIESCENCE = "quiescence"
-    STATE_TRANSFER = "state_transfer"
-    ENDPOINT_CHANGE = "endpoint_change"
-    APPLICATION_START = "application_start"
-
-
-@dataclass(frozen=True)
-class WebhookProfile:
-    """References and keyed fingerprints only; never raw webhook secrets."""
-
-    url_fingerprint: str
-    secret_fingerprint: str | None = None
-    allowed_updates: tuple[str, ...] | None = None
-    max_connections: int | None = None
-    ip_fingerprint: str | None = None
-    certificate_fingerprint: str | None = None
-
-
 def fingerprint(key, value):
     """Bind an exact runtime value without storing it in the plan."""
     if not isinstance(key, bytes) or len(key) < 32 or not isinstance(value, str):
@@ -238,62 +194,16 @@ def plan_digest(redacted_plan):
     return hashlib.sha256(encoded).hexdigest()
 
 
-@dataclass(frozen=True)
-class Receipt:
-    step_id: str
-    attempt: int
-    outcome: Outcome
-    evidence_ref: str | None = None
-
-    def __post_init__(self):
-        if type(self.attempt) is not int or self.attempt < 1:
-            raise ValueError("attempt must be a positive integer")
-        if not isinstance(self.outcome, Outcome):
-            raise ValueError("outcome must be an Outcome")
-        if self.outcome is Outcome.CONFIRMED and not self.evidence_ref:
-            raise ValueError("confirmed outcomes require evidence")
-
-
 def validate_schema_version(version):
     """Reject incompatible or ambiguous schema versions before any network use."""
     if type(version) is not int or version != SCHEMA_VERSION:
         raise ValueError("unsupported migration schema version")
 
 
-def import_legacy_state(_state):
-    """No released legacy schema is available to import safely yet."""
-    raise ValueError("legacy migration schema is not supported")
-
-
 # Persisted plans use a deliberately closed schema: runtime secrets and URLs
 # cannot accidentally be admitted as arbitrary extra properties.
 _HEX = __import__('re').compile(r'[0-9a-f]{64}\Z')
 _IDENTIFIER = __import__('re').compile(r'[A-Za-z0-9_-]{1,128}\Z')
-_TRANSITIONS = {
-    Outcome.PENDING: {Outcome.IN_FLIGHT, Outcome.WAITING, Outcome.BLOCKED},
-    Outcome.WAITING: {Outcome.PENDING, Outcome.BLOCKED},
-    Outcome.BLOCKED: {Outcome.PENDING},
-    Outcome.IN_FLIGHT: {Outcome.CONFIRMED, Outcome.FAILED, Outcome.UNKNOWN, Outcome.WAITING},
-    Outcome.FAILED: {Outcome.PENDING, Outcome.BLOCKED},
-    Outcome.UNKNOWN: {Outcome.CONFIRMED, Outcome.FAILED, Outcome.BLOCKED},
-    Outcome.CONFIRMED: set(),
-    Outcome.SKIPPED: set(),
-}
-
-
-def validate_transition(previous, current, evidence=None):
-    try:
-        previous, current = Outcome(previous), Outcome(current)
-    except (ValueError, TypeError) as exc:
-        raise ValueError('invalid outcome') from exc
-    if current not in _TRANSITIONS[previous]:
-        raise ValueError('invalid outcome transition')
-    if current is Outcome.CONFIRMED and (not isinstance(evidence, str) or not _IDENTIFIER.fullmatch(evidence)):
-        raise ValueError('confirmation requires an evidence reference')
-    if previous is Outcome.UNKNOWN and current is Outcome.FAILED and (not isinstance(evidence,str) or not _IDENTIFIER.fullmatch(evidence)):
-        raise ValueError('rejection of unknown effect requires evidence')
-
-
 def validate_plan(plan):
     fields = {'operation_id', 'bot_id', 'direction', 'engine_version', 'drop_step', 'references', 'fixture', 'source_fingerprint',
               'target_fingerprint', 'token_fingerprint', 'action', 'profile_fingerprint', 'drop', 'steps',
@@ -370,41 +280,3 @@ def validate_binding(plan, digest, runtime_bindings, key):
             raise ValueError('runtime binding mismatch')
     if runtime_bindings['action'] != plan['action'] or type(runtime_bindings['drop']) is not bool or runtime_bindings['drop'] != plan['drop']:
         raise ValueError('runtime selection mismatch')
-
-
-def validate_snapshot(snapshot):
-    """Validate the complete journal and its attempt history before use."""
-    if not isinstance(snapshot, dict) or set(snapshot) != {'schema_version', 'plan', 'digest', 'steps'}:
-        raise ValueError('invalid snapshot fields')
-    validate_schema_version(snapshot['schema_version'])
-    plan = validate_plan(snapshot['plan'])
-    digest = snapshot['digest']
-    if not isinstance(digest, str) or not hmac.compare_digest(plan_digest(plan), digest):
-        raise ValueError('invalid plan digest')
-    steps = snapshot['steps']
-    if not isinstance(steps, list) or len(steps) != len(plan['steps']):
-        raise ValueError('invalid journal steps')
-    for expected, record in zip(plan['steps'], steps):
-        if not isinstance(record, dict) or set(record) != {'id', 'attempts'} or record['id'] != expected['id']:
-            raise ValueError('invalid journal step')
-        attempts = record['attempts']
-        if not isinstance(attempts, list):
-            raise ValueError('invalid attempts')
-        for number, attempt in enumerate(attempts, 1):
-            if not isinstance(attempt, dict) or set(attempt) != {'number', 'transitions'} or type(attempt['number']) is not int or attempt['number'] != number:
-                raise ValueError('invalid attempt')
-            transitions = attempt['transitions']
-            if not isinstance(transitions, list) or not transitions:
-                raise ValueError('invalid transition history')
-            previous = Outcome.PENDING
-            for transition in transitions:
-                if not isinstance(transition, dict) or set(transition) != {'outcome', 'evidence'}:
-                    raise ValueError('invalid transition record')
-                evidence = transition['evidence']
-                if evidence is not None and (not isinstance(evidence, str) or not _IDENTIFIER.fullmatch(evidence)):
-                    raise ValueError('invalid evidence reference')
-                validate_transition(previous, transition['outcome'], evidence)
-                previous = Outcome(transition['outcome'])
-            if number < len(attempts) and previous is not Outcome.FAILED:
-                raise ValueError('attempt cannot be repeated')
-    return snapshot

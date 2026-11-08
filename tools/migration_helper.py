@@ -64,6 +64,8 @@ class Application:
             raise ValueError('invalid helper configuration')
         if type(config['fixture']) is not bool or not isinstance(config['allowed_endpoints'],list):
             raise ValueError('invalid helper endpoint policy')
+        if not isinstance(config['evidence_file'], str) or not config['evidence_file'].strip():
+            raise ValueError('evidence_file must be a non-empty path')
         self.config=config
         self.allowed={normalize_endpoint(v) for v in config['allowed_endpoints']}
         self.verifier=TrustedReceipts(private_json(config['trust_file'])) if config['trust_file'] else None
@@ -140,7 +142,12 @@ class Application:
             if not self.slot.acquire(blocking=False):
                 raise Stop('helper_busy')
             self.jobs[operation]={'running':True}
-        self.pool.submit(self.perform,action,operation,runtime,dict(body))
+            try:
+                self.pool.submit(self.perform,action,operation,runtime,dict(body))
+            except Exception:
+                del self.jobs[operation]
+                self.slot.release()
+                raise
         return {'operation_id':operation,'running':True}
 
     def perform(self, action, operation, runtime, body):

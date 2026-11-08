@@ -1,11 +1,32 @@
 import contextlib
 import io
+import json
 from unittest import mock
 import unittest
 from migration_cli import parse_env,main,parser,runtime,legacy
 
 
 class CliTests(unittest.TestCase):
+    def test_legacy_success_is_one_json_document(self):
+        output = io.StringIO()
+        def plan(_):
+            print(json.dumps({'operation_id': 'op', 'digest': 'a' * 64}))
+            return 0
+        with mock.patch('migration_cli.main', side_effect=plan), contextlib.redirect_stdout(output):
+            self.assertEqual(legacy(['--operation', 'op']), 2)
+        self.assertEqual(json.loads(output.getvalue())['reason'], 'plan_confirmation_required')
+
+    def test_canonical_cloud_target_uses_cloud_readiness(self):
+        r = mock.Mock(direction='local_to_cloud', target='https://API.TELEGRAM.ORG:443', fixture=False, bot_id='123')
+        journal = mock.MagicMock()
+        journal.lock.return_value = contextlib.nullcontext()
+        with mock.patch('migration_cli.StateStore'), mock.patch('migration_cli.Journal', return_value=journal), \
+             mock.patch('migration_cli.runtime', return_value=r), mock.patch('migration_cli.Client'), \
+             mock.patch('migration_cli.CloudReadiness') as readiness, mock.patch('migration_cli.Engine'), \
+             mock.patch('migration_cli.view', return_value={}), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(['plan', '--operation', 'op']), 0)
+            readiness.assert_called_once()
+
     def test_legacy_does_not_inject_dotenv_or_guess_a_source(self):
         with mock.patch('migration_cli.main', return_value=4) as delegated, \
              contextlib.redirect_stdout(io.StringIO()):
