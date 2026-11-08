@@ -162,7 +162,29 @@
       'chkToken','chkOldApi','chkNewApi','chkHook','chkHookTls','chkCors'
     ].map(id => [id, document.getElementById(id)]));
     const state = {mode:'official-to-self', currentWebhookFromCheck:'', checkedConfig:'',
-      busy:false, needsReconcile:false, completedMigration:false};
+      busy:false, needsReconcile:false, completedMigration:false, revision:0,
+      preflight:null, activeRun:null, history:[], nextOperation:1};
+    const stages = ['prepared','source_webhook_detached','source_disabled',
+      'target_authorized','delivery_configured','target_verified'];
+    // Public records deliberately exclude the token and the private configuration fingerprint.
+    function newOperation(cfg) {
+      const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
+      return {id:'operation-' + state.nextOperation++, revision:state.revision,
+        plan:Object.freeze({mode:cfg.mode, source:cfg.oldApi, target,
+          webhookIntent:cfg.webhook, dropPending:cfg.dropPending}), botId:null,
+        expectedUrl:null, sourceObservation:null, finalObservation:null,
+        stages:Object.fromEntries(stages.map(stage => [stage, 'NOTRUN'])), receipts:[]};
+    }
+    function recordStage(run, stage, status, details = {}) {
+      run.stages[stage] = status;
+      run.receipts.push({stage, status, observedAt:new Date().toISOString(), ...details});
+    }
+    function operationOutcome(run) {
+      if (run.receipts.some(r => r.status === 'UNKNOWN')) return 'UNKNOWN';
+      const effects = run.receipts.some(r => r.status === 'CONFIRMED' && r.effect === true);
+      if (run.receipts.some(r => r.status === 'REJECTED')) return effects ? 'PARTIAL' : 'ERROR';
+      return run.stages.target_verified === 'CONFIRMED' ? 'SUCCESS' : (effects ? 'PARTIAL' : 'ERROR');
+    }
     const norm = value => (value || '').trim().replace(/\/$/, '');
     const tokenLooksValid = value => /^\d+:[A-Za-z0-9_-]{20,}$/.test(value || '');
     function apiUrlValid(value) {
@@ -213,6 +235,7 @@
       setCheck(els.chkCors, 'CORS может скрыть ответ уже выполненной операции', false);
     }
     function invalidate() {
+      state.revision++; state.preflight = null;
       state.currentWebhookFromCheck = ''; state.checkedConfig = '';
       setSummary('Настройки изменены. Предыдущее состояние сброшено.');
       runLocalChecks(); buildPlan();
@@ -403,26 +426,41 @@
         if (state.needsReconcile) throw new Error('Сначала сверьте исход предыдущей операции вручную; повторное выполнение заблокировано.');
         if (cfg.mode === 'official-to-self') await probe(cfg.newApi);
         if (!consent(cfg, 'Выполнение изменит webhook/сессию. Полный профиль восстанавливается отдельно.')) return;
-        await api(cfg.oldApi, cfg.token, 'getMe');
-        const info = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
+        const run = newOperation(cfg); state.activeRun = run; state.history.push(run);
+        let source, info;
+        try {
+          source = await api(cfg.oldApi, cfg.token, 'getMe');
+          run.botId = source.id;
+          info = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
+        } catch (error) { state.activeRun = null; throw error; }
         const hook = cfg.webhook || info.url;
+        run.sourceObservation = {url:info.url, endpoint:cfg.oldApi, observedAt:new Date().toISOString()};
+        run.expectedUrl = hook;
+        recordStage(run, 'prepared', 'CONFIRMED');
         const drop = {drop_pending_updates:String(cfg.dropPending)};
         let changed = false;
         try {
           const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
           if (cfg.mode === 'official-to-self') {
             await api(cfg.oldApi, cfg.token, 'deleteWebhook', drop); changed = true;
+            recordStage(run, 'source_webhook_detached', 'CONFIRMED', {effect:true});
             await api(cfg.oldApi, cfg.token, 'logOut', {});
+            recordStage(run, 'source_disabled', 'CONFIRMED', {effect:true});
             await api(target, cfg.token, 'getMe');
+            recordStage(run, 'target_authorized', 'CONFIRMED', {effect:true});
           }
           if (hook) { await api(target, cfg.token, 'setWebhook', {...drop,url:hook}); changed = true; }
           else if (cfg.mode === 'hook-only') { await api(target, cfg.token, 'deleteWebhook', drop); changed = true; }
+          if (changed) recordStage(run, 'delivery_configured', 'CONFIRMED', {effect:true});
           const final = await api(target, cfg.token, 'getWebhookInfo');
+          run.finalObservation = {url:final.url, endpoint:target, observedAt:new Date().toISOString()};
           if (final.url !== hook) throw new Error('Итоговый webhook не совпадает; проверьте состояние вручную.');
+          recordStage(run, 'target_verified', 'CONFIRMED');
           if (cfg.mode === 'official-to-self') state.completedMigration = true;
           log('Конфигурация проверена. Проверьте полный профиль и доставку тестового update.', 'success');
-          setSummary('Запросы завершены успешно; фактическая доставка требует отдельной проверки.');
+          setSummary(operationOutcome(run) + ': фактический webhook: ' + final.url + '. Доставка требует отдельной проверки.');
         } catch (error) { if (changed) state.needsReconcile = true; throw error; }
+        finally { state.activeRun = null; }
       });
     }
     document.querySelectorAll('.mode-btn').forEach(card => card.addEventListener('click', () => {

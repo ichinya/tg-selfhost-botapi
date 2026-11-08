@@ -174,6 +174,11 @@ Use a test bot before relying on the helper for a working installation.
 
 ## Browser tool
 
+An operation records its plan and observations separately in the current tab.
+SUCCESS requires a confirmed final target URL; it does not establish delivery.
+The stage journal is local to the page and is not the durable recovery mechanism
+tracked in #2. Declining consent does not create an operation.
+
 [Open the migrator](../../tg_selfhost_botapi_migrator.html). The page is a static
 client, not a server-side migration executor. It uses requests from your browser;
 the API needs an appropriate origin/access setup.
