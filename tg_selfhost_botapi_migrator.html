@@ -209,7 +209,8 @@
     const guardKey = cfg => String(cfg.token.split(':')[0]);
     const guardFor = cfg => state.guards.get(guardKey(cfg)) || {};
     function setGuard(cfg, details) { state.guards.set(guardKey(cfg), {...guardFor(cfg), ...details}); }
-    const blocked = cfg => !!guardFor(cfg).reconcile || (!!guardFor(cfg).completed && cfg.mode === 'official-to-self');
+    const blocked = cfg => !!guardFor(cfg).reconcile || (!!guardFor(cfg).completed &&
+      (cfg.mode !== 'hook-only' || cfg.oldApi !== guardFor(cfg).target));
     const isManual = cfg => ['self-to-self','self-to-official'].includes(cfg.mode);
     function validate(cfg) {
       if (!tokenLooksValid(cfg.token)) throw new Error('Проверьте формат токена.');
@@ -335,6 +336,7 @@
       return withLock(async () => {
         const cfg = currentConfig(); validate(cfg);
         if (blocked(cfg)) throw new Error('Сначала вручную сверьте исход предыдущей операции; повторный вход заблокирован.');
+        if (guardFor(cfg).retryNotBefore > Date.now()) throw new Error('Действует ограничение retry_after до ' + new Date(guardFor(cfg).retryNotBefore).toISOString());
         state.currentWebhookFromCheck = ''; state.checkedConfig = null; state.preflight = null;
         if (!consent(cfg, 'Чтение только известного source; это не обнаружение текущего сервера.')) return;
         const identity = await api(cfg.oldApi, cfg.token, 'getMe');
@@ -502,7 +504,7 @@
           const final = await step('target_verified', 'target', 'getWebhookInfo');
           run.finalObservation = {url:final.url, endpoint:target, observedAt:new Date().toISOString()};
           if (final.url !== hook) throw new Error('Итоговый webhook не совпадает; проверьте состояние вручную.');
-          if (cfg.mode === 'official-to-self') setGuard(cfg, {completed:true});
+          if (cfg.mode === 'official-to-self') setGuard(cfg, {completed:true, target});
           log('Конфигурация проверена. Проверьте полный профиль и доставку тестового update.', 'success');
         } catch (error) {
           if (!run.receipts.length || run.receipts[run.receipts.length - 1].status === 'CONFIRMED')

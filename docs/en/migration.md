@@ -189,7 +189,8 @@ recovery procedure in #2; do not log back into source merely to check it.
 The tab blocks simultaneous actions and retains per-bot recovery guards in
 memory. Editing settings invalidates the check. Closing or reloading the tab
 loses these guards; coordination between processes remains outside this tool
-(#2 and #14).
+(#2 and #14). After a completed transfer, a fresh webhook-only operation may
+use the confirmed target, while the old source remains blocked in this tab.
 The generated Bash plan stops on errors and reports its phase and outcome;
 it compares bot IDs and the final URL. It is a separate process with no shared
 lock or durable state with the page. Reconcile PARTIAL or UNKNOWN before any
