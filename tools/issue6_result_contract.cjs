@@ -5,11 +5,15 @@ async function main() {
   const privateHook = 'https://sink.test/private-hook?secret=synthetic-secret';
   const exportPage = page({mode:'hook-only',hook:privateHook});
   assert(!exportPage.plan().includes(privateHook), 'generated plan must not contain webhook secrets');
-  const secretPage = page({oldHook:'https://legacy.test/hook?bot_token=SYNTHETIC_q',hook:'https://sink.test/webhook'});
+  const secretPage = page({oldHook:'https://legacy.test/hook?bot_token=SYNTHETIC_q',hook:'https://sink.test/private?intent=SYNTHETIC_q2'});
   await secretPage.run('executeInBrowser()');
   assert(!secretPage.elements.get('summaryBox').textContent.includes('SYNTHETIC_q'));
+  assert(!secretPage.run('JSON.stringify(state.history)').includes('SYNTHETIC_q2'));
   assert(!secretPage.run('JSON.stringify(state.history)').includes('SYNTHETIC_q'));
   assert(secretPage.elements.get('summaryBox').textContent.includes('https://legacy.test'));
+  secretPage.elements.get('webhookUrl').value = '';
+  secretPage.elements.get('webhookUrl').events.input();
+  assert(!secretPage.run('JSON.stringify(state.history)').includes('SYNTHETIC_q2'));
   let p = page({hook:'https://sink.test/hook'});
   await p.run('executeInBrowser()');
   assert.match(p.elements.get('summaryBox').textContent, /^SUCCESS/);

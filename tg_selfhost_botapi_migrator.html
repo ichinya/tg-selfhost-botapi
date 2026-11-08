@@ -171,7 +171,7 @@
       const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
       return {id:'operation-' + state.nextOperation++, revision:state.revision,
         plan:Object.freeze({mode:cfg.mode, source:cfg.oldApi, target,
-          webhookIntent:cfg.webhook, dropPending:cfg.dropPending}), botId:null,
+          webhookIntent:maskHook(cfg.webhook), dropPending:cfg.dropPending}), botId:null,
         expectedUrl:null, sourceObservation:null, finalObservation:null,
         stages:Object.fromEntries(stages.map(stage => [stage, 'NOTRUN'])), receipts:[]};
     }
