@@ -445,6 +445,10 @@
     }
     function buildPlan() {
       const cfg = currentConfig();
+      if (guardFor(cfg).retryNotBefore > Date.now()) {
+        els.curlPlan.textContent = '# Ожидание retry_after до ' + new Date(guardFor(cfg).retryNotBefore).toISOString() + '; автоматического повтора нет.';
+        return;
+      }
       if (state.busy || blocked(cfg)) {
         els.curlPlan.textContent = state.busy || guardFor(cfg).reconcile
           ? '# Сначала вручную сверьте исход предыдущей операции; повторное выполнение заблокировано.'

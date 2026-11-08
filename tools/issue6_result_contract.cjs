@@ -13,6 +13,7 @@ async function main() {
   assert.match(p.elements.get('summaryBox').textContent, /^ERROR/);
   assert(!p.calls.some(c => c.method === 'logOut'));
   assert(p.run('state.guards.get("123").retryNotBefore > Date.now()'));
+  assert(!p.plan().includes('curl '));
 
   p = refusingPage('logOut', 429, 600);
   await p.run('executeInBrowser()');
