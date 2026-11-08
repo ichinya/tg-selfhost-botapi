@@ -190,6 +190,10 @@ The tab blocks simultaneous actions and retains per-bot recovery guards in
 memory. Editing settings invalidates the check. Closing or reloading the tab
 loses these guards; coordination between processes remains outside this tool
 (#2 and #14).
+The generated Bash plan stops on errors and reports its phase and outcome;
+it compares bot IDs and the final URL. It is a separate process with no shared
+lock or durable state with the page. Reconcile PARTIAL or UNKNOWN before any
+repeat; a cooldown never restarts the plan automatically.
 
 [Open the migrator](../../tg_selfhost_botapi_migrator.html). The page is a static
 client, not a server-side migration executor. It uses requests from your browser;

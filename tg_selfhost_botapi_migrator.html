@@ -380,17 +380,25 @@
       const commands = [
         '# Bash + curl + jq. Остановите старых API-клиентов; проверьте адреса и полный профиль.',
         'set -euo pipefail',
+        'phase=prepared; progress=0',
+        'fail() { local outcome="$1" reason="$2"; echo "$outcome phase=$phase progress=$progress $reason" >&2; return 1; }',
         'api() {',
-        '  local base="$1" method="$2" response status; shift 2',
-        '  response=$(curl -q -sS --connect-timeout 5 --max-time 30 -w "\\n%{http_code}" "$base/bot$BOT_TOKEN/$method" "$@" 2>/dev/null) || { echo "UNKNOWN: stop and reconcile" >&2; return 1; }',
-        "  status=${response##*$'\\n'}; [[ $status =~ ^2[0-9][0-9]$ ]] || return 1",
+        '  local base="$1" method="$2" response status outcome retry now; shift 2',
+        '  response=$(curl -q -sS --connect-timeout 5 --max-time 30 -w "\\n%{http_code}" "$base/bot$BOT_TOKEN/$method" "$@" 2>/dev/null) || { fail UNKNOWN "response unavailable"; return 1; }',
+        "  status=${response##*$'\\n'}",
         "  response=${response%$'\\n'*}",
-        '  jq -e ".ok == true" >/dev/null <<<"$response" || return 1',
+        '  if [[ ! $status =~ ^2[0-9][0-9]$ ]] && jq -e --argjson status "$status" ".ok == false and .error_code == \\$status" >/dev/null 2>&1 <<<"$response"; then',
+        '    outcome=ERROR; (( progress > 0 )) && outcome=PARTIAL',
+        '    retry=$(jq -r \'if (.parameters.retry_after | type == "number" and . >= 0 and . == floor and . <= 2147483647) then .parameters.retry_after else empty end\' <<<"$response")',
+        '    if [[ -n $retry ]]; then now=$(date +%s); echo "retryNotBefore_epoch=$((now + retry))" >&2; fi',
+        '    fail "$outcome" "HTTP/API $status rejected"; return 1',
+        '  fi',
+        '  [[ $status =~ ^2[0-9][0-9]$ ]] && jq -e ".ok == true" >/dev/null 2>&1 <<<"$response" || { fail UNKNOWN "unreliable response"; return 1; }',
         '  case "$method" in',
         '    getMe) jq -e \'.result.id | type == "number"\' >/dev/null <<<"$response" ;;',
         '    getWebhookInfo) jq -e \'.result.url | type == "string"\' >/dev/null <<<"$response" ;;',
         '    *) jq -e ".result == true" >/dev/null <<<"$response" ;;',
-        '  esac || return 1',
+        '  esac || { fail UNKNOWN "invalid result"; return 1; }',
         '  printf "%s" "$response"',
         '}'
       ];
@@ -404,22 +412,29 @@
         'read -r -p "Allow token-bearing requests? [y/N]: " answer || exit 0',
         'case "$answer" in y|Y|yes|YES) ;; *) exit 0 ;; esac',
         'read -rsp "Bot token: " BOT_TOKEN; printf "\\n"',
-        `api ${shellQuote(cfg.oldApi)} getMe >/dev/null`,
+        `source_me=$(api ${shellQuote(cfg.oldApi)} getMe)`,
+        'source_id=$(jq -r .result.id <<<"$source_me"); [[ $source_id == "${BOT_TOKEN%%:*}" ]] || { fail ERROR "source identity mismatch"; exit 1; }',
         `source_hook=$(api ${shellQuote(cfg.oldApi)} getWebhookInfo)`,
         `hook=${shellQuote(cfg.webhook)}`,
         'if [[ -z "$hook" ]]; then hook=$(jq -r .result.url <<<"$source_hook"); fi'
       );
       if (cfg.mode === 'official-to-self') commands.push(
-        `api ${shellQuote(cfg.oldApi)} deleteWebhook -X POST --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`,
-        `api ${shellQuote(cfg.oldApi)} logOut -X POST >/dev/null`,
-        `api ${shellQuote(target)} getMe >/dev/null`
+        'phase=source_webhook_detached',
+        `api ${shellQuote(cfg.oldApi)} deleteWebhook -X POST --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null; progress=1`,
+        'phase=source_disabled',
+        `api ${shellQuote(cfg.oldApi)} logOut -X POST >/dev/null; progress=2`,
+        'phase=target_authorized',
+        `target_me=$(api ${shellQuote(target)} getMe)`,
+        '[[ $(jq -r .result.id <<<"$target_me") == "$source_id" ]] || { fail PARTIAL "target identity mismatch"; exit 1; }',
+        'progress=3'
       );
-      commands.push('if [[ -n "$hook" ]]; then',
+      commands.push('phase=delivery_configured', 'if [[ -n "$hook" ]]; then',
         `  api ${shellQuote(target)} setWebhook -X POST --data-urlencode "url=$hook" --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`);
       if (cfg.mode === 'hook-only') commands.push('else',
         `  api ${shellQuote(target)} deleteWebhook -X POST --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`);
-      commands.push('fi', `final=$(api ${shellQuote(target)} getWebhookInfo)`,
-        'jq -e --arg expected "$hook" \'.result.url == $expected\' >/dev/null <<<"$final"',
+      commands.push('fi', 'progress=4; phase=target_verified', `final=$(api ${shellQuote(target)} getWebhookInfo)`,
+        'jq -e --arg expected "$hook" \'.result.url == $expected\' >/dev/null <<<"$final" || { fail PARTIAL "target URL mismatch"; exit 1; }',
+        'echo "SUCCESS phase=$phase progress=$progress" >&2',
         'unset BOT_TOKEN', '# URL readback не доказывает доставку. Проверьте полный профиль и тестовый update.');
       return commands;
     }
