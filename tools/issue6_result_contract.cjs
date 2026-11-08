@@ -2,6 +2,9 @@
 const assert = require('node:assert/strict');
 const {page, refusingPage} = require('./issue6_mock_transport.cjs');
 async function main() {
+  const privateHook = 'https://sink.test/private-hook?secret=synthetic-secret';
+  const exportPage = page({mode:'hook-only',hook:privateHook});
+  assert(!exportPage.plan().includes(privateHook), 'generated plan must not contain webhook secrets');
   let p = page({hook:'https://sink.test/hook'});
   await p.run('executeInBrowser()');
   assert.match(p.elements.get('summaryBox').textContent, /^SUCCESS/);
@@ -64,6 +67,6 @@ async function main() {
   p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
   p.elements.get('botToken').value = '00123:rotated_synthetic_token_only';
   p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
-  console.log('issue 6 result contract: 9 scenarios passed');
+  console.log('issue 6 result contract: 10 scenarios passed');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

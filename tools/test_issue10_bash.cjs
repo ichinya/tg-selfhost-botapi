@@ -152,7 +152,7 @@ const watchdog = setTimeout(() => {
       .replaceAll('http://target.test/prefix', urls[1])
       .replaceAll('https://sink.test/webhook', urls[2] + '/webhook');
     for (const failure of [null,'api','http','malformed','lost','redirect','false-result']) {
-      result = await run('y\n123:synthetic\n', urls[1], {command:generated,
+      result = await run(`y\n123:synthetic\n${urls[2]}/webhook\n`, urls[1], {command:generated,
         ...(failure ? {fail:'source:logOut',failure} : {})});
       if (failure) {
         assert.notStrictEqual(result.code, 0, result.output);

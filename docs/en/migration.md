@@ -199,6 +199,9 @@ it compares bot IDs and the final URL. It is a separate process with no shared
 lock or durable state with the page. Reconcile PARTIAL or UNKNOWN before any
 repeat; a cooldown never restarts the plan automatically.
 
+The generated Bash plan prompts separately for the webhook URL; it does not
+copy the URL from the form into the script. Leave it empty to inherit the source URL.
+
 [Open the migrator](../../tg_selfhost_botapi_migrator.html). The page is a static
 client, not a server-side migration executor. It uses requests from your browser;
 the API needs an appropriate origin/access setup.

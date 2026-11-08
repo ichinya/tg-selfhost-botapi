@@ -380,7 +380,6 @@
     function buildCommands(cfg, currentHook = '') {
       if (isManual(cfg)) return manualPlan(cfg);
       const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
-      const hook = cfg.webhook || currentHook || '';
       const drop = cfg.dropPending ? 'true' : 'false';
       const commands = [
         '# Bash + curl + jq. Остановите старых API-клиентов; проверьте адреса и полный профиль.',
@@ -413,14 +412,14 @@
         "jq -e '.ok == false and .error_code == 404 and .description == \"Not Found\"' >/dev/null <<<\"${probe%$'\\n'*}\""
       );
       commands.push(
-        `printf '%s\\n' ${shellQuote('Source: ' + cfg.oldApi)} ${shellQuote('Target: ' + target)} ${shellQuote('Webhook: ' + (hook || 'inherit source if present'))} ${shellQuote('Drop updates: ' + drop)}`,
+        `printf '%s\\n' ${shellQuote('Source: ' + cfg.oldApi)} ${shellQuote('Target: ' + target)} 'Webhook: вводится отдельно или наследуется' ${shellQuote('Drop updates: ' + drop)}`,
         'read -r -p "Allow token-bearing requests? [y/N]: " answer || exit 0',
         'case "$answer" in y|Y|yes|YES) ;; *) exit 0 ;; esac',
         'read -rsp "Bot token: " BOT_TOKEN; printf "\\n"',
         `source_me=$(api ${shellQuote(cfg.oldApi)} getMe)`,
         'source_id=$(jq -r .result.id <<<"$source_me"); [[ $source_id == "${BOT_TOKEN%%:*}" ]] || { fail ERROR "source identity mismatch"; exit 1; }',
         `source_hook=$(api ${shellQuote(cfg.oldApi)} getWebhookInfo)`,
-        `hook=${shellQuote(cfg.webhook)}`,
+        'read -rsp "Webhook URL (empty to inherit): " hook; printf "\\n"',
         'if [[ -z "$hook" ]]; then hook=$(jq -r .result.url <<<"$source_hook"); fi'
       );
       if (cfg.mode === 'official-to-self') commands.push(
