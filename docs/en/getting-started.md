@@ -8,6 +8,8 @@ translation: /docs/ru/getting-started.html
 ## Requirements
 
 - Docker with Compose v2.
+- For doctor: host Python 3.11+ (stdlib only). Full runtime evidence requires a
+  local Linux engine with bridge access; pure checks also work on Windows.
 - A Telegram application API ID and hash from [my.telegram.org](https://my.telegram.org).
 - For the Bash migration helper: Bash, curl and jq.
 
@@ -78,3 +80,19 @@ These command examples use Bash. A token expanded into curl's URL can be visible
 in process arguments and access logs; run diagnostics in a trusted environment.
 
 [Configure the service](configuration.md) · [Move an existing bot](migration.md)
+
+## Run doctor
+
+After starting the selected installation, run:
+
+```sh
+python3 tools/doctor.py -f docker-compose.yml --scenario official-to-self --format json
+```
+
+Without private migration decisions the result remains UNKNOWN. The default gateway
+only proxies requests and does not serve state. An unsafe operator override that
+exposes state through an alias, file server, or gateway mount is BLOCKED. See
+[maintenance](maintenance.md) for exits and
+scope, [configuration](configuration.md) for Compose/storage inputs, and
+[migration](migration.md) for the private input contract. READY is a snapshot of
+preconditions; it does not authorize a bot or perform a transfer.

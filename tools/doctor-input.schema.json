@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Doctor private migration input v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "delivery_action": {
+      "enum": [
+        "preserve",
+        "set",
+        "polling"
+      ]
+    },
+    "drop_pending_updates": {
+      "type": "boolean"
+    },
+    "file_access": {
+      "enum": [
+        "not_used",
+        "local_path",
+        "shared_volume",
+        "remote_authenticated"
+      ]
+    },
+    "workflow_prepared": {
+      "type": "boolean"
+    },
+    "webhook_profile_prepared": {
+      "type": "boolean"
+    },
+    "transfer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state_subdir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^(?!\\.{1,2}$)[^/\\\\\\u0000-\\u001f\\u007f]+$"
+        },
+        "backup_prepared": {
+          "type": "boolean"
+        },
+        "exclusive_use_plan_prepared": {
+          "type": "boolean"
+        },
+        "method": {
+          "enum": [
+            "per-bot",
+            "dedicated-cold",
+            "fresh-login"
+          ]
+        },
+        "backlog_policy": {
+          "enum": [
+            "drain",
+            "accept-loss"
+          ]
+        },
+        "dedicated_source": {
+          "type": "boolean"
+        },
+        "target_empty_prepared": {
+          "type": "boolean"
+        }
+      }
+    },
+    "transfer_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "entries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "source_backup_prepared": {
+      "type": "boolean"
+    },
+    "source_backlog_policy": {
+      "enum": [
+        "drain",
+        "accept-loss"
+      ]
+    }
+  }
+}

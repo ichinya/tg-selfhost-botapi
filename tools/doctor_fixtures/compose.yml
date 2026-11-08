@@ -1,0 +1,31 @@
+services:
+  botapi:
+    image: ${DOCTOR_FIXTURE_IMAGE:?harness must select its own image}
+    build:
+      context: .
+      args:
+        PYTHON_IMAGE: ${DOCTOR_PYTHON_IMAGE:?harness must pin the base digest}
+    environment:
+      TELEGRAM_API_ID: '12345'
+      TELEGRAM_API_HASH: synthetic-doctor-credential
+      TELEGRAM_LOCAL: 'true'
+    volumes:
+      - state:/var/lib/telegram-bot-api
+      - audit:/audit
+  gateway:
+    image: ${DOCTOR_NGINX_IMAGE:?harness must pin the gateway digest}
+    ports:
+      - '127.0.0.1::80'
+    volumes:
+      - ../../nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      botapi:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'nginx', '-t']
+      interval: 1s
+      timeout: 2s
+      retries: 20
+volumes:
+  state:
+  audit:

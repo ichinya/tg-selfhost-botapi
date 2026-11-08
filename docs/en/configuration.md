@@ -5,6 +5,43 @@ translation: /docs/ru/configuration.html
 
 # Configuration
 
+## Doctor configuration checks
+
+Doctor delegates interpolation and merging to `docker compose config --format json`.
+Repeat `-f`, `--env-file` and `--profile` in the intended order; `-p` and
+`--project-directory` select the project. Environment, implicit `.env` and Docker
+context retain Docker's semantics. Containers are selected by Compose labels.
+Missing/stopped services and proven drift block readiness; ambiguous replicas,
+custom entrypoints and unavailable evidence remain UNKNOWN. Credentials are
+checked for presence, conflicts and readable mounted files, without printing them.
+
+Doctor checks work/temp filesystems inside the server namespace under its observed
+UID/GID and supplementary groups. Work requires persistence; temp may use the
+container layer. It creates and removes one exclusive small probe per existing
+directory, with a container-side timeout. `--no-write-probe` suppresses all doctor
+writes and leaves write readiness UNKNOWN. Cleanup failure blocks readiness.
+The default reserve is 1 GiB and 1024 inodes per filesystem, configurable with
+`--min-free-bytes` and `--min-free-inodes`. Shared work/temp filesystems are counted
+once. This policy does not guarantee capacity for future Telegram traffic.
+Thresholds must be positive integers. Mount metadata is checked for enabled
+quotas; without per-identity quota accounting that evidence remains UNKNOWN.
+The exclusive write uses an open descriptor in the verified directory, and
+cleanup removes only that probe after checking its identity.
+Probe UID, GID and supplementary groups must match the observed server identity;
+a successful root write cannot satisfy this check. Existing canonical directories
+are required; doctor does not create roots, change ownership or change modes.
+
+Doctor blocks any override which aliases the private state root or mounts its
+backing into an HTTP component, including read-only mounts. The shipped nginx
+configuration proxies requests and its logging redaction map is supported.
+Doctor does not repair nginx or Compose.
+Isolation checks parse supported nginx blocks/includes and compare mount backings.
+Dynamic handlers, unresolved includes and unverified media symlinks remain UNKNOWN.
+No binlog, real bot directory, statistics endpoint or state file is fetched.
+Read-only mounts, disabled directory listings and loopback publication do not
+prevent known-file HTTP reads. Unsupported remote file workflows use the boundary
+in issue #5; doctor does not certify or execute neighboring migration helpers.
+
 ## Addresses and storage
 
 | Setting | Value |

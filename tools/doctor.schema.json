@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Doctor report v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "doctor_version",
+    "timestamp",
+    "scenario",
+    "stage",
+    "scope",
+    "checks",
+    "images",
+    "infrastructure",
+    "migration",
+    "readiness",
+    "exit_code"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "doctor_version": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "scenario": {
+      "enum": [
+        null,
+        "official-to-self",
+        "self-to-self",
+        "self-to-official",
+        "hook-only"
+      ]
+    },
+    "stage": {
+      "const": "preflight"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contexts"
+      ],
+      "properties": {
+        "kind": {
+          "const": "selected_stack"
+        },
+        "contexts": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "source",
+              "target"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "check_id",
+          "status",
+          "required",
+          "severity",
+          "reason_code",
+          "message",
+          "evidence",
+          "provenance",
+          "remediation"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNKNOWN",
+              "SKIP"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "available_bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "available_inodes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "min_free_bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9223372036854775807
+              },
+              "min_free_inodes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9223372036854775807
+              }
+            }
+          },
+          "provenance": {
+            "enum": [
+              "observed",
+              "derived",
+              "declared"
+            ]
+          },
+          "remediation": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "check_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "container_id",
+          "creation_reference",
+          "image_id",
+          "registry_digests",
+          "registry_digest_reason",
+          "platform",
+          "version",
+          "labels"
+        ],
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "container_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creation_reference": {
+            "const": "[selected image reference]"
+          },
+          "image_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "registry_digests": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64
+          },
+          "registry_digest_reason": {
+            "enum": [
+              "observed",
+              "local_build",
+              "registry_digest_unavailable"
+            ]
+          },
+          "platform": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "pending_actions",
+        "unverified_session_facts",
+        "executor_support"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "READY",
+            "BLOCKED",
+            "UNKNOWN"
+          ]
+        },
+        "pending_actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unverified_session_facts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "executor_support": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "manual",
+            "helpers",
+            "bash",
+            "browser"
+          ],
+          "properties": {
+            "manual": {
+              "enum": [
+                "unknown",
+                "unsupported",
+                "documented_procedure"
+              ]
+            },
+            "helpers": {
+              "const": "not_certified"
+            },
+            "bash": {
+              "type": "string"
+            },
+            "browser": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "blockers",
+        "unknowns",
+        "limits"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "READY",
+            "BLOCKED",
+            "UNKNOWN"
+          ]
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unknowns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "exit_code": {
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "infrastructure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "READY",
+            "BLOCKED",
+            "UNKNOWN"
+          ]
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
