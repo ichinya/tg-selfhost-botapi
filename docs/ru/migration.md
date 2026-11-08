@@ -122,6 +122,7 @@ user ID) в рабочий каталог совместимой цели. Сн�
 
 <!-- issue10-example:environment -->
 ```sh
+export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 SELF_BOT_URL="http://127.0.0.1:18080" \
@@ -135,6 +136,7 @@ unset BOT_TOKEN
 
 <!-- issue10-example:positional -->
 ```sh
+export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
@@ -163,8 +165,8 @@ unset BOT_TOKEN
   результата `logOut` не реализовано; не перезапускайте перенос вслепую.
 - Пустой аргумент webhook восстанавливает старый URL, если он был задан. Это не
   явный выбор polling.
-- Утилита не переносит `secret_token`, сертификаты и полный профиль доставки.
-  Необходимые параметры нужно восстановить отдельно.
+- Helper и браузер разрешают полный желаемый профиль до изменения source.
+  Прежний секрет и публичный сертификат задаются явно: WebhookInfo не раскрывает эти данные.
 - Токены могут быть видны в аргументах процессов и журналах.
 
 Исправления отслеживаются в [#2](https://github.com/ichinya/tg-selfhost-botapi/issues/2),
@@ -194,10 +196,8 @@ CORS-ошибка может скрыть ответ уже выполненно
 
 ## Polling, профиль webhook и файлы
 
-Независимые исправления [#5](https://github.com/ichinya/tg-selfhost-botapi/issues/5),
-[#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7) и
-[#9](https://github.com/ichinya/tg-selfhost-botapi/issues/9) не интегрированы в этот
-кандидат. Их незавершённые модули не являются зависимостями утилит. Пустой webhook
+Профиль webhook #7 интегрирован. Перенос state #5 и семантика действий #9 остаются
+независимыми; их незавершённые модули не являются runtime dependencies. Пустой webhook
 сохраняет legacy-наследование; это не действие polling. Для явного polling после
 завершения перехода между серверами вручную удалите webhook на **target** и
 проверьте, что `result.url` — строка, равная `""`:
@@ -297,3 +297,39 @@ BLOCKED/1; неверный или нечитаемый вход — exit 2. О�
 Doctor не запускает миграцию, helpers, методы бота, cloud probes, journals и locks.
 READY означает готовность начать подготовленную процедуру и не подтверждает
 helpers, завершённый перенос, авторизацию или доставку.
+
+## Полный профиль webhook
+
+До изменения source helper разрешает `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON-массив строк), `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL=true|false`. Неизвестный секрет/IP и отсутствующий custom certificate останавливают preflight. `fixed` — алиас pinned для canonical IPv4. Source `ip_address` не раскрывает намерение pinning. Явные параметры перекрывают source; отсутствие optional updates означает документированный default `[]`. `[]` исключает chat_member, message_reaction и message_reaction_count, а не включает все типы. Null и неверные типы отклоняются. Per-bot max_connections: 1–100; до 100000 только при явном подтверждении local mode (`TELEGRAM_LOCAL`/`--local`), независимо от серверного `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. Self-host URL этого не доказывает.
+
+Используйте ровно один из `WEBHOOK_SECRET_TOKEN` и `WEBHOOK_SECRET_TOKEN_FILE` для provided; none явно утверждает отсутствие секрета. В файле разрешён один конечный LF/CRLF; inline-секрет не обрезается. `WEBHOOK_CERTIFICATE_FILE` — публичный PEM, никогда private key. Protected files, включая `BOT_TOKEN_FILE`, должны находиться вне checkout/webroot с доступом только оператору. Process env перекрывает trusted `ENV_FILE` (по умолчанию `.env` рядом с helper), включая явные пустые значения; пары value/file выбираются на одном уровне. Positional URL имеют высший приоритет. Для polling профиль webhook не применяется.
+
+Передача полного профиля включена: urlencoded без сертификата, полностью multipart с сертификатом. Секрет и scalar-файлы — приватные снимки; токен/секрет/URL не попадают в curl argv и raw diagnostics. Helper отключает trace, применяет curl -q без redirects, проверяет HTTP/ok/result и не повторяет мутации. Для публичного PEM нужны Bash 4+, jq, curl, realpath и проверка openssl X.509; private key отклоняется. Временные файлы создаются с umask 077 и очищаются при выходе/сигналах.
+
+В автономном браузере добавлены secret/none, JSON updates, connections/local capability, DNS/fixed IPv4 и File публичного сертификата. Неполный профиль блокирует мутации. Файлы фиксируются до logout; загрузка использует FormData без ручного boundary. Изменения формы сбрасывают снимки, сохраняя UNKNOWN/completion locks. Переходы local→local/cloud остаются отдельными ручными этапами.
+
+Экспорт/clipboard содержит standalone Bash runtime и ссылки на environment. Профиль, токен и URL задаются повторно через trusted runtime inputs; browser values, private paths и байты сертификата не экспортируются. Source читается заново при выполнении. Ручные переходы сохраняют STOP barrier и используют отдельный запуск helper с `MIGRATION_MODE=target-stage` после приёмки lifecycle/state. После UNKNOWN/completion доступно только руководство по сверке.
+
+Postflight делает два чтения target через две секунды с общим deadline десять секунд. Сверяются точный URL, множество updates, connections, наличие сертификата и fixed IP. DNS IP — наблюдение. Тренд очереди и исторические/новые delivery/synchronization errors выводятся отдельно, только безопасными счётчиками. Пустая очередь не доказывает доставку. WebhookInfo не проверяет байты секрета и сертификата. Новые ошибки, отсутствующие счётчики или несовпадения останавливают приёмку; мутации не повторяются.
+
+### Защищённый профиль и восстановление
+
+Два прежних кратких примера явно выбирают none: используйте их только для receiver без прежнего секрета. Для защищённого receiver подготовьте файлы с доступом только оператору вне checkout/webroot и используйте этот пример с плейсхолдерами:
+
+```sh
+export BOT_TOKEN_FILE=/secure/bot-token
+export SELF_BOT_URL=http://127.0.0.1:18080
+export WEBHOOK_URL=https://example.com/telegram/webhook
+export WEBHOOK_SECRET_MODE=provided
+export WEBHOOK_SECRET_TOKEN_FILE=/secure/previous-webhook-secret
+export WEBHOOK_IP_MODE=dns
+export WEBHOOK_ALLOWED_UPDATES='["message","callback_query"]'
+export WEBHOOK_MAX_CONNECTIONS=40
+export WEBHOOK_CERTIFICATE_MODE=provided
+export WEBHOOK_CERTIFICATE_FILE=/secure/public-certificate.pem
+bash ./migrate_off_to_self.sh
+```
+
+Браузер использует password/File controls и не сохраняет private inputs в storage. Preflight браузера проверяет структуру PEM; сертификат проверяется target API при принятии. Helper дополнительно проверяет X.509 через openssl. Экспорт требует повторного ввода private inputs при запуске и не содержит browser token, secret, URL, байты сертификата или настоящее имя private file. Ручной план содержит безусловный STOP/exit перед отдельным сохраняемым target-stage script; перенос state он не выполняет. Для target-stage нужны явные сохранённые URL, updates, connections и certificate mode. После source logOut не входите снова на прежний source для диагностики — сверяйте target. До подтверждённого logOut не авторизуйте обе стороны. UNKNOWN может означать применённую мутацию: слепого повтора, rollback или polling fallback нет.
+
+Exit 0 означает API acceptance и сверку читаемого профиля. Байты секрета/сертификата через readback не проверяются. Рост очереди — наблюдение, а не требование равенства счётчиков или доказательство потерь; исторические ошибки отличаются от новых delivery/synchronization errors. Нулевая очередь не доказывает доставку. Доставка остаётся unverified без нового коррелированного receiver receipt. Окно 10 секунд/два samples короче рекомендованного максимума 30 секунд; это не SLA. Не включайте debug/VLOG; logger/image qualification и реальная test-bot delivery — отдельные внешние гейты. Инструкции receiver, pinned-source и CI приведены в maintenance.

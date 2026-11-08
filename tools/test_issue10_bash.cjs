@@ -16,6 +16,7 @@ const watchdog = setTimeout(() => {
 (async () => {
   const bash = bashBinary();
   const events = [];
+  let generatedPlan;
   let scenario = {}, targetHook = '';
   async function server(role) {
     const s = http.createServer(async (req, res) => {
@@ -40,7 +41,7 @@ const watchdog = setTimeout(() => {
       }
       let result = true;
       if (req.url.endsWith('/getMe')) result = {id:123,first_name:'Test',username:'test'};
-      if (req.url.endsWith('/getWebhookInfo')) result = {url:role === 'target' ? targetHook : ''};
+      if (req.url.endsWith('/getWebhookInfo')) result = {url:role === 'target' ? targetHook : '',max_connections:40,has_custom_certificate:false,pending_update_count:0};
       if (method === 'setWebhook') targetHook = new URLSearchParams(body).get('url');
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ok:true,result}));
@@ -63,7 +64,7 @@ const watchdog = setTimeout(() => {
       const child = activeChild = spawn(bash, ['-c', options.command ||
         'bash ./helper.sh "$1" "$2"', '_', '123:synthetic', target], {
         cwd:tmp,
-        env: {...baseEnv, OFFICIAL_BOT_URL:urls[0], SELF_BOT_URL:urls[1], NO_PROXY:'127.0.0.1', no_proxy:'127.0.0.1'},
+        env: {...baseEnv, BOT_TOKEN:'123:synthetic',WEBHOOK_URL:options.command===generatedPlan?urls[2]+'/webhook':'',WEBHOOK_SECRET_MODE:'none',WEBHOOK_IP_MODE:'dns',OFFICIAL_BOT_URL:urls[0], SELF_BOT_URL:urls[1], NO_PROXY:'127.0.0.1', no_proxy:'127.0.0.1'},
         stdio:['pipe','pipe','pipe']
       });
       let output = '', stderr = '';
@@ -82,7 +83,7 @@ const watchdog = setTimeout(() => {
   try {
     let unauthorized = await run('y\n', urls[1], {fail:'source:getMe', failure:'unauthorized'});
     assert.notStrictEqual(unauthorized.code, 0);
-    assert(unauthorized.stderr.includes('Request failed with HTTP 401'));
+    assert(unauthorized.stderr.includes('API HTTP rejection'));
     assert(!unauthorized.stderr.includes('error_code'));
     assert(!events.some(([role,url]) => role === 'target' && url.includes('/bot')));
     let result = await run('n\n', urls[1]);
@@ -147,12 +148,9 @@ const watchdog = setTimeout(() => {
       }
     }
     const {page} = require('./issue10_ui_harness.cjs');
-    const generated = page({hook:'https://sink.test/webhook'}).plan()
-      .replaceAll('https://api.telegram.org', urls[0])
-      .replaceAll('http://target.test/prefix', urls[1])
-      .replaceAll('https://sink.test/webhook', urls[2] + '/webhook');
+    const generated = generatedPlan = page({hook:'https://sink.test/webhook'}).plan();
     for (const failure of [null,'api','http','malformed','lost','redirect','false-result']) {
-      result = await run('y\n123:synthetic\n', urls[1], {command:generated,
+      result = await run('y\n', urls[1], {command:generated,
         ...(failure ? {fail:'source:logOut',failure} : {})});
       if (failure) {
         assert.notStrictEqual(result.code, 0, result.output);

@@ -20,12 +20,15 @@ class ConfigTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.script = self.root / 'script' / 'helper.sh'
         self.script.parent.mkdir()
-        shutil.copy(SCRIPT, self.script)
+        # Test-only preview at the resolved configuration boundary; shipped diagnostics remain private.
+        self.script.write_text(SCRIPT.read_text(encoding='utf-8').replace('  wp_load "$@"',
+            '  wp_load "$@"\n  printf "Webhook: %s\\nDrop updates: %s\\n" "$WEBHOOK_URL" "$DROP_PENDING_UPDATES"'), encoding='utf-8', newline='\n')
+        self.script.chmod(0o755)
         self.cwd = self.root / 'other'
         self.cwd.mkdir()
         self.bin = self.root / 'bin'
         self.bin.mkdir()
-        for name, contents in {'curl': 'printf "%s\\n" "$*" >> "$CALLS"; printf \'{"ok":false,"error_code":404,"description":"Not Found"}\\n404\'',
+        for name, contents in {'curl': 'printf "%s\\n" "$*" >> "$CALLS"; while [ "$#" -gt 0 ]; do if [ "$1" = --output ]; then shift; out=$1; fi; shift; done; printf \'{"ok":false,"error_code":404,"description":"Not Found"}\' > "$out"; printf 404',
                                'jq': 'exit 0'}.items():
             path = self.bin / name
             path.write_text('#!/bin/sh\n' + contents + '\n', encoding='utf-8', newline='\n')
