@@ -186,6 +186,10 @@ The result distinguishes ERROR, PARTIAL and UNKNOWN from SUCCESS. Source and
 target bot IDs must match, and the final URL is read from the target rather than
 assumed from the requested URL. After a failed or uncertain logout, follow the
 recovery procedure in #2; do not log back into source merely to check it.
+The tab blocks simultaneous actions and retains per-bot recovery guards in
+memory. Editing settings invalidates the check. Closing or reloading the tab
+loses these guards; coordination between processes remains outside this tool
+(#2 and #14).
 
 [Open the migrator](../../tg_selfhost_botapi_migrator.html). The page is a static
 client, not a server-side migration executor. It uses requests from your browser;
