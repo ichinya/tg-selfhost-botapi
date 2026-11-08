@@ -215,7 +215,7 @@ identity, restart count, effective Compose или on-disk snapshot nginx.
 При `quota_accounting_unverified` отдельно проверьте фактический quota headroom
 для identity сервера. `unsafe_input_permissions` даёт BLOCKED/1; нечитаемый или
 неверный private input — exit 2, непроверенная приватность платформы — UNKNOWN/3.
-## Isolated mock walkthrough
+## Изолированный пример с mock-сервером
 
 Используйте Linux/WSL и loopback-only fixture ниже. Он не может обратиться
 к Telegram. Для каждого сценария запускаются новые fixture servers/state;

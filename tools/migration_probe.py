@@ -133,9 +133,15 @@ class DockerEvidence:
             raise ValueError('managed deployment inspection failed')
         return result.stdout.decode('utf-8')
 
+    def inspect(self, *args):
+        result=json.loads(self.run(*args))
+        if not isinstance(result,list) or len(result)!=1 or not isinstance(result[0],dict):
+            raise ValueError('invalid docker inspect result')
+        return result[0]
+
     def __call__(self):
         import hashlib
-        info=json.loads(self.run('inspect',self.container))[0]
+        info=self.inspect('inspect',self.container)
         if info['Image']!=self.expected_image or not info['State']['Running']:
             raise ValueError('managed image identity or readiness mismatch')
         env=dict(v.split('=',1) for v in info['Config']['Env'] if '=' in v)
@@ -166,7 +172,7 @@ h=${TELEGRAM_API_HASH:-}; [ -z "${TELEGRAM_API_HASH_FILE:-}" ] || h=$(cat "$TELE
         script='set -eu; a=$(mktemp "$1/.migration-write.XXXXXX"); trap \'rm -f "$a"\' EXIT; printf fixture > "$a"; test -r "$a"'
         for directory in (work,temp):
             self.run('exec','--user',f'{uid}:{gid}',self.container,'sh','-c',script,'sh',directory)
-        image=json.loads(self.run('image','inspect',self.expected_image))[0]
+        image=self.inspect('image','inspect',self.expected_image)
         digests=image.get('RepoDigests',[])
         return dict(version=1,endpoint=self.endpoint,created_at=time.time(),deployment_id=info['Id'],
                     provenance='docker_inspect_and_runtime_write_probe',image_id=info['Image'],

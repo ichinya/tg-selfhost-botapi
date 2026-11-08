@@ -106,7 +106,7 @@ immediate return to the cloud is subject to Telegram's ten-minute restriction.
 
 ### Local → local with state transfer
 
-The official procedure for retaining updates is `deleteWebhook`, then `close` on
+The official procedure for moving a bot’s state is `deleteWebhook`, then `close` on
 the old server, followed by moving the bot's state subdirectory (identified by its
 user ID) to the new server's working directory. Resume requests on the new server
 after the transfer. Handle a `retry_after` response from `close` before proceeding.
@@ -114,6 +114,8 @@ after the transfer. Handle a `retry_after` response from `close` before proceedi
 Use a consistent backup, preserve ownership and paths, and prevent simultaneous
 use of the same state. `drop_pending_updates=false` alone does not transfer state
 or guarantee continuity.
+
+The shared `tqueue.binlog` and `webhooks_db.binlog` are outside per-bot directories. Moving one bot directory does not prove its local queue is preserved. Drain or explicitly account for backlog; merging shared binlogs into a running target with other bots is unsupported. `drop_pending_updates=false` is not a preservation guarantee.
 
 ## Adapter compatibility
 
@@ -143,6 +145,8 @@ private authority. Multiple independent state roots are outside this guarantee.
 Native Windows/state on Windows-mounted WSL drives are unsupported. Managed
 Docker diagnostics are explicit write probes. Unmanaged deployment evidence is
 an operator-supplied attestation with TTL, not automatic verification.
+
+For real `webhook_only` operations against the official cloud, required local deployment evidence is unavailable; execution therefore fails closed. Cloud readiness applies only to `local_to_cloud`.
 
 ## Evidence and limits
 

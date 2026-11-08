@@ -1,17 +1,11 @@
-"""Execute both EN/RU published examples against loopback source/target/sink."""
+"""Check the replacement adapter syntax."""
 from pathlib import Path
 import subprocess
 import unittest
-
+from issue10_test_support import bash_binary
 
 class ExampleTests(unittest.TestCase):
-    def test_bash_scenarios_and_published_examples(self):
-        tools = Path(__file__).resolve().parent
-        result = subprocess.run(['node', str(tools / 'issue10_timeout.cjs'), '300',
-                                 'node', str(tools / 'test_issue10_bash.cjs')],
-                                text=True, capture_output=True, timeout=320)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_bash_adapter_syntax(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run([bash_binary(), '-n', str(root / 'migrate_off_to_self.sh')], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)

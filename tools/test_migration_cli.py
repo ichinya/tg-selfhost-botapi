@@ -12,6 +12,17 @@ class CliTests(unittest.TestCase):
             self.assertEqual(legacy(['--operation', 'op', '--action', 'polling']), 4)
         delegated.assert_called_once_with(['plan', '--operation', 'op', '--action', 'polling'])
 
+    def test_legacy_preserves_equals_operation(self):
+        with mock.patch('migration_cli.main', return_value=4) as delegated, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(legacy(['--operation=chosen', '--action', 'polling']), 4)
+        delegated.assert_called_once_with(['plan', '--operation=chosen', '--action', 'polling'])
+
+    def test_empty_docker_inspect_fails_closed_before_store(self):
+        with mock.patch('migration_probe.DockerEvidence.run', return_value='[]'), mock.patch('migration_cli.StateStore') as store, contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['plan', '--operation', 'op', '--docker-container', 'fixture']), 4)
+            store.assert_not_called()
+            self.assertIn('invalid_input_or_state', out.getvalue())
+
     def test_env_is_data_only(self):
         self.assertEqual(parse_env("# ignored\nOLD_BOT_URL=https://api.telegram.org\nBOT_TOKEN='123:synthetic'")['BOT_TOKEN'],'123:synthetic')
         for text in ('BOT_TOKEN=$(execute)','BOT_TOKEN=`execute`','export BOT_TOKEN=x','PATH=x','BOT_TOKEN=x\nBOT_TOKEN=y'):

@@ -8,7 +8,9 @@ REQUIRED = ['migrate_off_to_self.sh','tg_selfhost_botapi_migrator.html','assets/
             *('tools/migration_'+name+'.py' for name in ('contract','store','http','probe','engine','reconcile','cli','export','helper','mock','transport','readiness','preflight')),
             *('tools/'+pattern for pattern in PATTERNS), 'tools/test_migration_ui.mjs',
             'tools/check_docs.py','tools/check_migration_safety.py','tools/check_migration_volumes.py',
-            'tools/migrator_request_mock.py',
+            'tools/migrator_request_mock.py', 'tools/migrator_ui_harness.js', 'tools/html_migrator_mock.js',
+            'tools/test_html_migrator.cjs', 'tools/test_html_migrator.py', 'tools/test_migrator_ui.py',
+            '.github/workflows/html-migrator.yml', '.github/workflows/migration-safety.yml',
             'tools/fixtures/migration/docker-compose.volumes.yml','tools/fixtures/migration/fake-bot-api.sh',
             'tools/fixtures/migration-executor-cases.json','.github/workflows/migration-executor.yml']
 

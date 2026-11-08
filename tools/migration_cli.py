@@ -209,8 +209,7 @@ def main(argv=None):
                 excluded.extend(record['local_forbidden_roots'])
             elif args.docker_container:
                 adapter=DockerEvidence(args.docker_container,args.target or env.get('SELF_BOT_URL'),args.expected_image_id,b'0'*32)
-                import json
-                managed=json.loads(adapter.run('inspect',adapter.container))[0]
+                managed=adapter.inspect('inspect',adapter.container)
                 excluded.extend(m['Source'] for m in managed['Mounts'])
         store=StateStore(root,create=args.command=='plan',data_dirs=excluded)
         j=Journal(store,read_only=args.command!='plan')
@@ -308,7 +307,7 @@ def legacy(argv):
     import uuid
     operation='legacy-'+uuid.uuid4().hex
     extra=list(argv)
-    if '--operation' not in extra:
+    if not any(arg == '--operation' or arg.startswith('--operation=') for arg in extra):
         extra += ['--operation',operation]
     output=io.StringIO()
     with contextlib.redirect_stdout(output):
