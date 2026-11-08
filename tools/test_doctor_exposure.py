@@ -104,6 +104,22 @@ class ExposureTests(unittest.TestCase):
         self.assertEqual({"log": "/logs/file"}, process_flags(["--log=/logs/file"]))
         self.assertEqual({"log": "/logs/file"}, process_flags(["--log", "/logs/file"]))
 
+    def test_canonical_path_keeps_spaces(self):
+        from doctor_runtime import LOG_CANONICAL
+        obj = Installation(parser().parse_args(["--scenario", "official-to-self"]), None, None, [], [])
+        obj.process = {"flags": {"log": "/link"}, "port": "8081"}
+        obj.containers = {
+            "botapi": {"Config": {}, "Mounts": [
+                {"Destination": "/var/lib/telegram-bot-api", "Source": "/state"},
+                {"Destination": "/private/log ", "Source": "/shared/log"}]},
+            "gateway": {"Mounts": [{"Destination": "/served", "Source": "/shared/log"}],
+                        "NetworkSettings": {"Ports": {}}},
+        }
+        obj.exec = lambda service, *args, **kwargs: (b"/private/log \n" if LOG_CANONICAL in args else
+            b"server { listen 80; location / { proxy_pass http://botapi:8081; } }")
+        obj.exposure()
+        self.assertTrue(any(c["id"].endswith(".state_mount_accessible") and c["status"] == "fail" for c in obj.checks))
+
     def test_stats_and_alternative_root(self):
         roots, proxies, _, dynamic = nginx_routes(nginx_config('server { location /alternative { root /var/lib/telegram-bot-api; } location /s { proxy_pass http://botapi:8082; } }'))
         self.assertEqual(["/var/lib/telegram-bot-api"], roots)

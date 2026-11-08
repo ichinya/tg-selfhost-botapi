@@ -777,7 +777,7 @@ class Installation:
                 continue
             try:
                 raw = self.exec("botapi", "sh", "-c", LOG_CANONICAL, "doctor", log)
-                canonical = raw.decode("utf-8").strip()
+                canonical = raw.decode("utf-8").removesuffix("\n")
                 if not canonical.startswith("/") or "\n" in canonical or "\x00" in canonical:
                     raise ValueError
                 canonical = posixpath.normpath(canonical)
