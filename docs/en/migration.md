@@ -205,10 +205,11 @@ and read only the explicitly selected source; they do not discover where a bot
 is logged in. Cloud → local execution probes the target without a token, asks
 for consent, reads the source, detaches and logs out there, then accesses the
 target. Webhook-only never calls `logOut` or `close`. Editing the form invalidates
-cached source data. A failed/unknown mutation blocks further execution on the
-page until you reconcile state manually. Local transitions use manual checklists.
+cached source data. A partial or unknown operation blocks further execution for
+that bot in the tab; reconcile state manually. A known rejection before any
+effect may be retried after any applicable cooldown. Local transitions use manual checklists.
 
-Browser execution and generated plans still have
+Browser execution and generated plans still have incompletely verified
 [error-handling](https://github.com/ichinya/tg-selfhost-botapi/issues/6) and
 [shell-escaping](https://github.com/ichinya/tg-selfhost-botapi/issues/8) limitations.
 A CORS failure can hide the response to an already executed mutation: check the
