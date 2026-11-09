@@ -31,6 +31,25 @@ the harness watchdogs. On a tree containing unrelated untracked tests, run only
 `test_issue10_*.py`, `test_issue6_results.py` and the tracked regression tests; use full discovery in a clean
 candidate or CI.
 
+Issue #11 additionally requires GNU coreutils (`mktemp`, `date`, `stat`, `mkdir`,
+`mv`, `chmod`, `rm`, `rmdir`, `cat`) and a non-root POSIX runner for permission
+checks. In a dirty checkout, run only the owned suites:
+
+```sh
+python3 -m unittest discover -s tools -p 'test_issue11_*.py' -v
+python3 -m unittest discover -s tools -p 'test_issue10_*.py' -v
+```
+
+The stateful mock is loopback-only and records remote effects before losing a
+reply. Each independent scenario uses a fresh script/state root; recovery tests
+intentionally reuse their root. For manual inspection, run
+`python3 tools/issue11_http_mock.py --scenario lost --method logOut --state-file /private/mock-state.json`.
+Use its printed loopback endpoints with the synthetic token from the fixture.
+Keep private dossiers out of issues and artifacts. Full discovery in a clean
+candidate and a fresh Jekyll build remain CI gates; Windows skips or denied
+subprocesses are NOTRUN, never transport acceptance. Record unavailable gates as
+`verification deferred to CI/gates` without delaying preparation of the PR.
+
 On Windows use a full Git Bash path in `ISSUE10_BASH`; System32 `bash.exe` and
 `wsl.exe` are rejected. Windows `timeout.exe` is a sleep utility. With Python
 installed outside PATH, use (adjust the executable paths for your machine):
@@ -81,6 +100,17 @@ WSL-лаунчеры запрещены. Команда выше использ�
 регрессии; полный discovery выполняйте на чистом кандидате или в CI. Запрет запуска
 Bash не считается успешной проверкой. Проверка нечитаемого файла требует POSIX
 и непривилегированного пользователя; Jekyll и проверка ссылок выполняются в docs CI.
+
+Для #11 также нужны GNU coreutils (`mktemp`, `date`, `stat`, `mkdir`, `mv`,
+`chmod`, `rm`, `rmdir`, `cat`); запускайте обе scoped-команды выше. Mock работает
+только на loopback и записывает remote effect до потери ответа. Независимые
+сценарии используют свежие копии скрипта и state root; повторное использование
+досье допускается только в тестах восстановления. Команда ручного mock приведена
+выше; используйте напечатанные адреса и синтетический токен из fixture.
+Приватные досье не прикладывайте к issue и артефактам. Полный discovery на чистом
+кандидате и свежая сборка Jekyll проверяются в CI; Windows skip и запрет запуска
+процесса — NOTRUN. Недоступные проверки отмечайте
+`verification deferred to CI/gates`, продолжая подготовку PR.
 
 Для doctor выполните обе unit-команды выше (им не нужен Docker/network).
 `python3 tools/check_doctor.py` отдельно запускает synthetic Docker integration:

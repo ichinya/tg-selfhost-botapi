@@ -11,7 +11,10 @@ translation: /docs/ru/getting-started.html
 - For doctor: host Python 3.11+ (stdlib only). Full runtime evidence requires a
   local Linux engine with bridge access; pure checks also work on Windows.
 - A Telegram application API ID and hash from [my.telegram.org](https://my.telegram.org).
-- For the Bash migration helper: Bash, curl and jq.
+- For the Bash migration helper: Bash, curl, jq and GNU coreutils on a POSIX host
+  (`mktemp`, `date`, `stat`, `mkdir`, `mv`, `chmod`, `rm`, `rmdir`, `cat`). Private
+  diagnostics require owner-only POSIX permissions; Windows runtime validation is
+  deferred to Linux CI. Python and Node are needed only for tests.
 
 The application API ID/hash identify your Telegram application. They are different
 from a bot token issued by BotFather.
