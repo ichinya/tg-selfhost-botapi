@@ -15,7 +15,7 @@ import unittest
 from check_docs import check
 from migrator_request_mock import CURL_WRAPPER, METHODS, MUTATIONS, MockAPI, StalledTLS, TOKEN, WEBHOOK
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'migrate_off_to_self.sh'
+SCRIPT = Path(__file__).resolve().parents[1] / 'tools' / 'migration_executor.sh'
 REAL_CURL = shutil.which('curl')
 
 
@@ -556,10 +556,10 @@ class PublishedDiagnosticsTests(unittest.TestCase):
                 page.parent.mkdir(parents=True, exist_ok=True)
                 page.write_text('<html></html>')
             retained = root / 'tg_selfhost_botapi_migrator.html'
-            shutil.copyfile(SCRIPT.parent / retained.name, retained)
+            shutil.copyfile(SCRIPT.parent.parent / retained.name, retained)
             asset=root/'assets/js/migration-client.mjs'
             asset.parent.mkdir(parents=True,exist_ok=True)
-            shutil.copyfile(SCRIPT.parent/'assets/js/migration-client.mjs',asset)
+            shutil.copyfile(SCRIPT.parent.parent/'assets/js/migration-client.mjs',asset)
             with contextlib.redirect_stdout(io.StringIO()):
                 check(root)
             (root / 'logs/migration').mkdir(parents=True)

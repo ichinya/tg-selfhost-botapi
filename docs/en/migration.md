@@ -139,15 +139,15 @@ for this direction; it does not execute it.
 
 ## Adapter compatibility
 
-Use `bash migrate_off_to_self.sh plan/apply/status/resume/export ...` with the
+Use `bash tools/migration_executor.sh plan/apply/status/resume/reconcile/export ...` with the
 same flags as Python. There are no curl/jq requirements for migration itself.
 The repository `.env` and `.env.example` are Compose configuration only.
 Migration inputs belong in process environment or a separate private file
 selected with `--env-file`; the executor path never reads `.env` automatically.
 Environment values take precedence. An empty webhook requires an explicit action
 even in legacy mode. Use `BOT_TOKEN` or `BOT_TOKEN_FILE`; positional credentials
-are rejected on `--option` invocations. Pure positional calls keep the retained
-[standalone helper](#bash-helper) contract. Legacy mode prints the plan and
+are rejected on `--option` invocations. The separate root `migrate_off_to_self.sh` retains the
+[standalone helper](#bash-helper) contract. The two runtimes have separate state and locks. Legacy mode prints the plan and
 returns code 2 for separate digest confirmation; it does not auto-apply.
 
 ## Browser workflow
@@ -214,6 +214,7 @@ Arguments are `BOT_TOKEN`, `SELF_BOT_URL`, then `WEBHOOK_URL`:
 
 <!-- issue10-example:environment -->
 ```sh
+export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 SELF_BOT_URL="http://127.0.0.1:18080" \
@@ -227,6 +228,7 @@ argument 2: that argument is the Bot API endpoint.
 
 <!-- issue10-example:positional -->
 ```sh
+export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
@@ -255,8 +257,8 @@ unset BOT_TOKEN
   resume after an ambiguous `logOut` result. Do not blindly rerun after a lost response.
 - An empty webhook argument reuses the old webhook when present. It does not
   explicitly request polling.
-- The helper does not transfer `secret_token`, certificates or the full delivery
-  profile. Restore required parameters deliberately.
+- The helper and browser resolve the complete desired profile before source mutations.
+  Supply the previous secret and public certificate explicitly; WebhookInfo does not expose them.
 - Tokens can appear in process arguments and external logs. The helper sanitizes
   its own console and diagnostic artifacts; crash leftovers remain private raw.
 
@@ -385,10 +387,8 @@ current state before trying another plan. Review generated commands before use.
 
 ## Polling, webhook profile and files
 
-The independent fixes in [#5](https://github.com/ichinya/tg-selfhost-botapi/issues/5),
-[#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7) and
-[#9](https://github.com/ichinya/tg-selfhost-botapi/issues/9) are not integrated in
-this candidate. Their unfinished modules are not dependencies of these helpers.
+Webhook profile #7 is integrated. State transfer #5 and action semantics #9 remain
+independent; their unfinished modules are not runtime dependencies.
 Empty webhook input retains legacy inheritance; it is not a polling action.
 For explicit polling, after completing the server transition, manually delete
 the **target** webhook and verify that `result.url` is a string equal to `""`:
@@ -406,8 +406,8 @@ curl -q -fsS --connect-timeout 5 --max-time 30 \
 
 Stop if either check fails. Start your own polling client only after verification;
 the examples do not consume updates. URL readback does not prove webhook delivery.
-Restore `secret_token`, certificate, `allowed_updates`, `max_connections` and other
-required settings from your saved profile. Secrets and the uploaded certificate
+Supply `secret_token`, certificate, `allowed_updates`, `max_connections` and other
+required settings to the migration inputs from your saved profile. Secrets and the uploaded certificate
 cannot be reconstructed from `getWebhookInfo`.
 
 In local mode an absolute `getFile.file_path` names a path on the server/container.
@@ -488,3 +488,39 @@ is BLOCKED/1; malformed or unreadable input exits 2. Reports retain pending acti
 Doctor does not run migration, helpers, bot methods, cloud probes, journals or
 locks. READY means readiness to begin the prepared procedure; it does not certify
 helpers, completed transfer, authorization or delivery.
+
+## Complete webhook profile inputs
+
+Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON array of strings), `WEBHOOK_MAX_CONNECTIONS` and `WEBHOOK_TARGET_LOCAL=true|false`. Unknown secret/IP and unavailable custom certificates stop preflight. `fixed` is an alias for pinned canonical IPv4. Source `ip_address` does not reveal pinning intent. Explicit inputs override source; omitted optional updates become the documented `[]` default. `[]` excludes chat_member, message_reaction and message_reaction_count; it is not every update type. Null or invalid values fail. Per-bot max_connections is 1–100; up to 100000 requires explicit local-mode capability (`TELEGRAM_LOCAL`/`--local`), independently of server `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. A self-host URL does not establish this capability.
+
+Use `WEBHOOK_SECRET_TOKEN` or `WEBHOOK_SECRET_TOKEN_FILE`, exactly one for provided mode; none asserts an intentionally unprotected webhook. Secret files allow one final LF/CRLF; inline secrets are never trimmed. Use `WEBHOOK_CERTIFICATE_FILE` for a public PEM, never a private key. Protected files (including `BOT_TOKEN_FILE`) must be outside checkout/webroot, with operator-only access. Values from the process override trusted `ENV_FILE` (default: helper directory `.env`), including explicitly empty values; value/file pairs are selected at one tier. Positional URLs remain highest priority. Polling has no webhook profile.
+
+Full profile transport is enabled: urlencoded without a certificate, entirely multipart with a certificate. Secret/scalar files are private snapshots; no token/secret/URL is placed in curl argv or raw diagnostics. The helper disables tracing, uses curl -q without redirects, guards HTTP/ok/result and never retries a mutation. Public PEM requires Bash 4+, jq, curl, realpath and openssl X.509 validation; no private key is accepted. Temporary files use umask 077 and are removed on exit/signals.
+
+The standalone browser now has explicit secret/none, JSON updates, connections/local capability, DNS/fixed IPv4 and public certificate File controls. An incomplete profile blocks mutations. Files are captured before logout; uploads use FormData without a manually assigned boundary. Form changes invalidate snapshots and never clear UNKNOWN/completion locks. Local-to-local/cloud transitions remain separate manual stages.
+
+Export/clipboard now contain a standalone Bash runtime and environment references only. Supply the profile, token and URLs again through trusted runtime inputs; the export does not contain browser values, private paths or certificate bytes. Source state is read fresh at execution. Manual transitions retain the STOP barrier and use a separate `MIGRATION_MODE=target-stage` helper invocation after lifecycle/state acceptance. UNKNOWN/completed migrations expose only reconciliation guidance.
+
+Postflight performs two target reads separated by two seconds within a ten-second observation deadline. It compares exact URL, update sets, connections, certificate presence and fixed IP. DNS IP is observational. Pending trend and historical/new delivery/synchronization errors are reported separately using counters only. An empty queue does not prove delivery. Secret and certificate bytes cannot be verified by WebhookInfo. New errors, missing counters or mismatched readable settings stop acceptance; mutations are never retried.
+
+### Protected profile and recovery
+
+The two existing quick examples explicitly choose none: use that only when the receiver has no previous secret. For a protected receiver, prepare operator-only files outside checkout/webroot and use this placeholder example instead:
+
+```sh
+export BOT_TOKEN_FILE=/secure/bot-token
+export SELF_BOT_URL=http://127.0.0.1:18080
+export WEBHOOK_URL=https://example.com/telegram/webhook
+export WEBHOOK_SECRET_MODE=provided
+export WEBHOOK_SECRET_TOKEN_FILE=/secure/previous-webhook-secret
+export WEBHOOK_IP_MODE=dns
+export WEBHOOK_ALLOWED_UPDATES='["message","callback_query"]'
+export WEBHOOK_MAX_CONNECTIONS=40
+export WEBHOOK_CERTIFICATE_MODE=provided
+export WEBHOOK_CERTIFICATE_FILE=/secure/public-certificate.pem
+bash ./migrate_off_to_self.sh
+```
+
+The browser uses password/File controls and never persists private inputs in storage. Its certificate preflight checks X.509 structure only, not cryptographic validity; target API acceptance validates the certificate. The helper also checks X.509 with openssl. Exports require these private inputs again at runtime and contain no browser token, secret, URL, certificate bytes or actual private filename. The manual plan has an unconditional STOP/exit before a separately saved target-stage script; it never performs state transfer. For target-stage supply explicit saved URL, updates, connections and certificate mode. After source logOut, never diagnose by logging into the old source; reconcile on target. Before confirmed logOut, do not authorize both endpoints. UNKNOWN may mean the mutation applied: no blind retry, rollback or polling fallback.
+
+Exit 0 means API acceptance and readable profile readback. Secret/certificate bytes cannot be readback-verified. Queue growth is an observation, not a count-equality or loss assertion; historical errors are distinguished from new delivery/synchronization errors. A zero queue does not prove delivery. Delivery stays unverified without a new, correlated receiver receipt. The 10-second/two-sample observation is shorter than the recommended 30-second maximum; it is not an SLA. Keep debug/VLOG disabled; logger/image qualification and real test-bot delivery are separate external gates. See maintenance for receiver, pinned-source and CI instructions.

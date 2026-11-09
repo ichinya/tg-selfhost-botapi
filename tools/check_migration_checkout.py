@@ -4,7 +4,7 @@ import subprocess
 import sys
 from check_migration_safety import PATTERNS
 
-REQUIRED = ['migrate_off_to_self.sh','tg_selfhost_botapi_migrator.html','assets/js/migration-client.mjs',
+REQUIRED = ['tools/migration_executor.sh','tools/migration_executor.html','migrate_off_to_self.sh','tg_selfhost_botapi_migrator.html','assets/js/migration-client.mjs',
             *('tools/migration_'+name+'.py' for name in ('contract','store','http','probe','engine','reconcile','cli','export','helper','mock','transport','readiness','preflight')),
             *('tools/'+pattern for pattern in PATTERNS), 'tools/test_migration_ui.mjs',
             'tools/check_docs.py','tools/check_migration_safety.py','tools/check_migration_volumes.py',

@@ -12,3 +12,6 @@
 __pycache__/
 /_site/
 /.jekyll-cache/
+*.pem
+*.key
+*.crt

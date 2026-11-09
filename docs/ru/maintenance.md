@@ -216,6 +216,32 @@ identity, restart count, effective Compose или on-disk snapshot nginx.
 для identity сервера. `unsafe_input_permissions` даёт BLOCKED/1; нечитаемый или
 неверный private input — exit 2, непроверенная приватность платформы — UNKNOWN/3.
 
+Postflight делает два чтения target через две секунды с общим deadline десять секунд. Сверяются точный URL, множество updates, connections, наличие сертификата и fixed IP. DNS IP — наблюдение. Тренд очереди и исторические/новые delivery/synchronization errors выводятся отдельно, только безопасными счётчиками. Пустая очередь не доказывает доставку. WebhookInfo не проверяет байты секрета и сертификата. Новые ошибки, отсутствующие счётчики или несовпадения останавливают приёмку; мутации не повторяются.
+
+## Независимый receipt webhook и sender gate
+
+Используйте отдельного test-bot и обработчик. Ожидаемый секрет задайте через защищённый environment либо WEBHOOK_SECRET_TOKEN_FILE вне checkout/webroot:
+
+~~~sh
+python3 tools/webhook_profile_receiver.py --expected-update-id 701 --seconds 60
+~~~
+
+Receiver слушает только loopback; для реального test-bot подключите свой контролируемый TLS test reverse proxy. Выбранный loopback_port выводится при старте. Ручной synthetic POST проверяет только приём обработчиком: отсутствующий/неверный/дублирующий secret header получает 403, посторонний update_id — 409. Receipt содержит только update_id, time, secret_matched, count. Храните receipt вне webroot и сопоставляйте update_id с новым событием test-bot; WebhookInfo и посторонний receipt не подтверждают доставку. Загружать можно публичный сертификат; test private key остаётся вне exports/repository.
+
+Явный source gate проверяет закреплённую BOT_API_REVISION и реальный условный header в WebhookActor после применения tracked patches/webhook-user-agent.patch:
+
+~~~sh
+python3 tools/check_issue7_sender.py --source /path/to/pinned/telegram-bot-api
+~~~
+
+CI получает точную ревизию, никогда master. Source assertion не является runtime-доставкой. Изолированный C++ sender harness — NOTRUN без отдельной сборки из тех же исходников; реальный test-bot update с коррелированным receipt — третий уровень проверки конкретного развёртывания. Для unit-тестов receiver реальные Telegram credentials не нужны.
+
+## Гейты квалификации профиля
+
+Запуск: `timeout 420 python3 -m unittest tools.test_webhook_profile_contract tools.test_webhook_profile_ui tools.test_webhook_profile_transport tools.test_webhook_profile_receiver -v`, `PYTHONPATH=.:tools`, Node 24+, Bash 4+, curl, jq, openssl и непривилегированный POSIX runner. 22 общих fixtures исполняют shipped inline resolver и Bash jq program; реальные HTTP-тесты разбирают urlencoded/multipart, запускают helper/export, отклоняют readback mismatch и проверяют receipts. Privacy canaries охватывают вывод, clipboard, public state, отражённые API errors и curl argv. Scoped workflow запускает ту же матрицу и регрессии #10; pinned-source sender выделен в отдельный job. Чужие untracked issue7 drafts и workflow с Node 20 не подключаются.
+
+Image/default upstream logger qualification, multipart через shipped nginx, C++ sender harness, Jekyll rendered checks и реальная Telegram delivery остаются явными внешними гейтами. Недоступный запуск — NOTRUN: verification deferred to CI/gates. Изменение не заявляет всеобщую upstream debug/VLOG redaction (#17); сохраняйте низкую verbosity и отдельно квалифицируйте default logs перед deployment.
+
 ### Приватное досье миграции
 
 Корневой helper хранит schema version 1 intent/receipt/summary в `logs/migration`

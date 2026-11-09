@@ -21,8 +21,8 @@ from migration_reconcile import TrustedReceipts, apply_external, apply_delivery
 from migration_store import Journal, StateStore, StateError, _name
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = {'/': ('tg_selfhost_botapi_migrator.html', 'text/html; charset=utf-8'),
-          '/tg_selfhost_botapi_migrator.html': ('tg_selfhost_botapi_migrator.html', 'text/html; charset=utf-8'),
+ASSETS = {'/': ('tools/migration_executor.html', 'text/html; charset=utf-8'),
+          '/migration_executor.html': ('tools/migration_executor.html', 'text/html; charset=utf-8'),
           '/assets/js/migration-client.mjs': ('assets/js/migration-client.mjs', 'text/javascript; charset=utf-8')}
 
 BOOTSTRAP_TTL = 300

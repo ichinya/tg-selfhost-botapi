@@ -62,10 +62,12 @@ test('late plan responses cannot overwrite a newer draft', async () => {
 });
 
 test('HTML keeps one allowlisted module and client renders as text, without direct Bot API calls', () => {
-  const html = fs.readFileSync(new URL('../tg_selfhost_botapi_migrator.html', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('./migration_executor.html', import.meta.url), 'utf8');
   const client = fs.readFileSync(new URL('../assets/js/migration-client.mjs', import.meta.url), 'utf8');
   assert.equal((html.match(/<script\b/g) || []).length, 1);
   assert.match(html, /<script type="module" src="assets\/js\/migration-client\.mjs"><\/script>/);
+  for (const id of ['runtime-form', 'session', 'workspace', 'plan', 'confirm-digest', 'result'])
+    assert.match(html, new RegExp(`id="${id}"`));
   assert(!/\bon(?:submit|click|load|error)=/i.test(html));
   assert(!/innerHTML|outerHTML|localStorage|console\./.test(client));
   assert(!/buildCommands|executeInBrowser|\/bot\$|getMe|deleteWebhook|logOut|setWebhook/.test(client));

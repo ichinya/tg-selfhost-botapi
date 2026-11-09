@@ -181,7 +181,7 @@ class WrapperTests(unittest.TestCase):
         self.target=Bot('target',self.trace)
         self.addCleanup(self.target.close)
         self.addCleanup(self.source.close)
-        self.wrapper=Path(__file__).resolve().parents[1]/'migrate_off_to_self.sh'
+        self.wrapper=Path(__file__).resolve().parents[1]/'tools'/'migration_executor.sh'
         self.evidence=self.root/'evidence.json'
         self.write(self.evidence,deployment(self.target.endpoint))
         self.env={'PATH':os.environ['PATH'],'HOME':str(self.root),'MIGRATION_PYTHON':sys.executable,
@@ -272,10 +272,10 @@ class WrapperTests(unittest.TestCase):
         import shutil
         copy=self.root/'helper path with spaces'
         (copy/'tools').mkdir(parents=True)
-        shutil.copyfile(self.wrapper,copy/self.wrapper.name)
+        shutil.copyfile(self.wrapper,copy/'tools'/self.wrapper.name)
         for name in ('contract','store','engine','http','probe','reconcile','cli','export'):
-            shutil.copyfile(self.wrapper.parent/'tools'/f'migration_{name}.py',copy/'tools'/f'migration_{name}.py')
-        self.wrapper=copy/self.wrapper.name
+            shutil.copyfile(self.wrapper.parent/f'migration_{name}.py',copy/'tools'/f'migration_{name}.py')
+        self.wrapper=copy/'tools'/self.wrapper.name
         self.plan()
         self.env['MIGRATION_PYTHON']='/does-not-exist/python'
         child=subprocess.run(['bash',str(self.wrapper),'status','--operation','op'],env=self.env,

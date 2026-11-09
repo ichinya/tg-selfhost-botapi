@@ -43,6 +43,7 @@ jobs:
           node --test tools/test_migration_ui.mjs
           node tools/migrator_ui_harness.js
           bash -n migrate_off_to_self.sh
+          bash -n tools/migration_executor.sh
           sh -n tools/fixtures/migration/fake-bot-api.sh
           git diff --check
       - name: Validate both Compose models with a fixture environment
