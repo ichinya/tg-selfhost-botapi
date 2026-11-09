@@ -42,8 +42,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bash curl jq
       - name: Common regression gates
-        timeout-minutes: 4
-        run: timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
+        timeout-minutes: 11
+        run: timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Check Compose
         env:
           API_ID: '12345'

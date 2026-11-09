@@ -801,6 +801,14 @@ class NativeDiagnosticFilters(unittest.TestCase):
                 self.assertNotIn('\r', safe)
                 self.assertIn('useful', safe)
 
+    def test_filter_is_shell_safe_and_preserves_json_fields(self):
+        self.assertNotIn('\0', self.source)
+        safe = self.sanitize(json.dumps({'ok': False, 'error_code': 429,
+                                         'description': 'useful diagnostic ' + TOKEN}))
+        result = json.loads(safe)
+        self.assertEqual(result['error_code'], 429)
+        self.assertEqual(result['description'], 'useful diagnostic [REDACTED]')
+
     def test_receipt_preserves_typed_independent_channels(self):
         marker = '--rawfile safe_body "$REQUEST_DIR/body.txt" \'\n'
         start = self.source.index(marker) + len(marker)
