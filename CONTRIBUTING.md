@@ -148,3 +148,18 @@ rebuild. Проверяйте missing/duplicate ARM, подмену config/ELF/a
 stale HEAD, expired proof, auth errors и потерянный ответ записи на fake registry.
 Недоступные gates: `verification deferred to CI/gates`; post-merge readback — NOTRUN
 до фактической проверки. Registry release не развёртывает production.
+
+Webhook profile #7 gates: Node 24+, Python 3.13, Bash 4+, curl/jq/openssl, non-root POSIX.
+Run the four explicit `tools.test_webhook_profile_*` modules listed in maintenance, then all tracked #10 tests and `test_webhook_user_agent`.
+`node tools/embed_webhook_profile.cjs --check` verifies standalone helper/browser/export sync.
+`check_issue7_sender.py --source` is a separate pinned-source gate, not unit discovery.
+Receiver/manual POST, source assertions, actual image logs/nginx pass-through and live Telegram receipts are different evidence.
+Unavailable execution: NOTRUN, verification deferred to CI/gates.
+
+
+Проверки webhook-профиля #7: Node 24+, Python 3.13, Bash 4+, curl/jq/openssl и POSIX без root.
+Запустите четыре модуля `tools.test_webhook_profile_*`, перечисленные в maintenance, затем все отслеживаемые тесты #10 и `test_webhook_user_agent`.
+`node tools/embed_webhook_profile.cjs --check` проверяет синхронизацию standalone helper, браузера и экспорта.
+`check_issue7_sender.py --source` — отдельная проверка pinned source, не часть unit discovery.
+Receiver/manual POST, source assertions, логи реального образа/nginx и live Telegram receipts дают разные доказательства.
+Недоступные проверки: NOTRUN, verification deferred to CI/gates.

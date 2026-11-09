@@ -187,6 +187,32 @@ For `quota_accounting_unverified`, verify the service identity's actual quota
 headroom separately. `unsafe_input_permissions` is BLOCKED/1; unreadable or
 malformed private input is exit 2, and unverified platform privacy is UNKNOWN/3.
 
+Postflight performs two target reads separated by two seconds within a ten-second observation deadline. It compares exact URL, update sets, connections, certificate presence and fixed IP. DNS IP is observational. Pending trend and historical/new delivery/synchronization errors are reported separately using counters only. An empty queue does not prove delivery. Secret and certificate bytes cannot be verified by WebhookInfo. New errors, missing counters or mismatched readable settings stop acceptance; mutations are never retried.
+
+## Independent webhook receipt and sender gate
+
+Use a dedicated test bot/application. With the expected secret in protected environment (or WEBHOOK_SECRET_TOKEN_FILE outside checkout/webroot), run:
+
+~~~sh
+python3 tools/webhook_profile_receiver.py --expected-update-id 701 --seconds 60
+~~~
+
+This receiver listens on loopback only; publish it through your controlled TLS test reverse proxy for a real test-bot delivery. The receiver's loopback_port is chosen at startup. A manual synthetic POST checks only receiver acceptance: missing/wrong/duplicate secret headers return 403, unrelated update_id returns 409. Receipts contain only update_id, time, secret_matched and count. Keep receipts outside webroot and correlate the expected update_id with a new test-bot event; WebhookInfo and an unrelated receipt never confirm delivery. A public certificate may be uploaded; its test private key stays outside exports/repository.
+
+The explicit source gate checks pinned BOT_API_REVISION and the real WebhookActor conditional header code, after applying tracked patches/webhook-user-agent.patch:
+
+~~~sh
+python3 tools/check_issue7_sender.py --source /path/to/pinned/telegram-bot-api
+~~~
+
+CI fetches that exact revision, never master. Source assertions are not runtime delivery. An isolated C++ sender harness is NOTRUN unless independently built against the same source; a live test-bot update with a correlated receipt is a third, deployment-specific check. No real Telegram credentials are required for receiver unit tests.
+
+## Profile qualification gates
+
+Use `timeout 420 python3 -m unittest tools.test_webhook_profile_contract tools.test_webhook_profile_ui tools.test_webhook_profile_transport tools.test_webhook_profile_receiver -v` with `PYTHONPATH=.:tools`, Node 24+, Bash 4+, curl, jq and openssl, as a non-root POSIX runner. The 22 shared fixtures execute the shipped inline resolver and Bash jq program; actual HTTP tests parse URL-encoded and multipart bodies, run helper/export, reject mismatched readback and exercise receiver receipts. Privacy canaries cover output, clipboard, public state, reflected API errors and curl argv. The scoped workflow runs the same suite and tracked #10 regressions, with a separate pinned-source sender job. Existing untracked issue7 drafts and Node 20 workflows are not dependencies.
+
+Image/default upstream logger qualification, multipart through shipped nginx, a C++ sender harness, Jekyll rendered checks and real Telegram delivery remain explicit external gates. Unavailable execution is NOTRUN: verification deferred to CI/gates. This change does not claim global upstream debug/VLOG redaction (#17); keep verbosity low and separately qualify default logs before deployment.
+
 ### Private migration evidence
 
 The root helper keeps schema version 1 intent/receipt/summary evidence under
