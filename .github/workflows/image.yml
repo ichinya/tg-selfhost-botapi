@@ -6,34 +6,42 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    # 04:37 Asia/Yekaterinburg; Actions may delay scheduled runs.
     - cron: '37 23 * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: botapi-image-${{ github.ref }}
+  group: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'botapi-image-release' || format('botapi-image-{0}', github.ref) }}
   cancel-in-progress: false
 
 jobs:
-  image:
+  prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 20
     permissions:
       contents: read
-      packages: write
+      packages: read
+      actions: read
+    outputs:
+      snapshot_hash: ${{ steps.inputs.outputs.snapshot_hash }}
+      build_key: ${{ steps.inputs.outputs.build_key }}
+      bot_api_revision: ${{ steps.inputs.outputs.bot_api_revision }}
+      alpine_image: ${{ steps.inputs.outputs.alpine_image }}
+      verification_contract: ${{ steps.inputs.outputs.verification_contract }}
+      mode: ${{ steps.mode.outputs.mode }}
+      release: ${{ steps.release.outputs.enabled }}
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install migration test prerequisites
+      - name: Install POSIX test prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y bash curl jq
-      - name: Test build input handling
+      - name: Common regression gates
         timeout-minutes: 4
         run: timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Check Compose
@@ -43,65 +51,221 @@ jobs:
         run: |
           docker compose config --quiet
           docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
-      - name: Login to GHCR
-        if: github.event_name != 'pull_request'
+      - name: Resolve one immutable snapshot
+        id: inputs
+        run: python3 tools/image_inputs.py --output snapshot.json >> "$GITHUB_OUTPUT"
+      - name: Set release eligibility
+        id: release
+        env:
+          ELIGIBLE: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        run: echo "enabled=$ELIGIBLE" >> "$GITHUB_OUTPUT"
+      - name: Default to a cold build (PR has no registry access)
+        run: printf '%s\n' '{"mode":"build","qualification":null}' > plan.json
+      - name: Find a complete trusted existing qualification
+        if: steps.release.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPSHOT_HASH: ${{ steps.inputs.outputs.snapshot_hash }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          python3 tools/multiarch_qualify.py plan --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
+            --plan plan.json
+      - name: Export preparation mode
+        id: mode
+        run: python3 -c 'import json; print("mode=" + json.load(open("plan.json"))["mode"])' >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            snapshot.json
+            plan.json
+          retention-days: 90
+          if-no-files-found: error
+
+  native:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SNAPSHOT_HASH: ${{ needs.prepare.outputs.snapshot_hash }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      ARCH: ${{ matrix.arch }}
+      DOCKER_BUILD_RECORD_RETENTION_DAYS: '90'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: |
+            memory=6g
+            cpuset-cpus=0,1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: inputs-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Read-only GHCR login for verified reuse
+        if: needs.prepare.outputs.mode == 'reuse' && needs.prepare.outputs.release == 'true'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Resolve immutable upstream inputs
-        id: inputs
-        run: python3 tools/image_inputs.py >> "$GITHUB_OUTPUT"
-      - name: Check previously published build
-        id: existing
-        env:
-          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
-          REPOSITORY: ${{ github.repository }}
+      - name: Validate snapshot and native CPU; pull exact child if reusing
         run: |
-          image="ghcr.io/${REPOSITORY,,}"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT" > /dev/null 2>registry-error.txt; then
-            echo 'exists=true' >> "$GITHUB_OUTPUT"
-          else
-            # A missing/private package also fails inspection on the first build.
-            # Never treat an unconfirmed registry response as a successful build.
-            cat registry-error.txt >&2
-            echo 'exists=false' >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build candidate (patch must apply)
-        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
+          python3 tools/multiarch_qualify.py prepare --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
+            --plan plan.json --arch "$ARCH" --directory "artifacts/$ARCH"
+          vmstat -w 5 > "artifacts/$ARCH/resources.log" &
+          echo "$!" > resource-monitor.pid
+      - name: Cold build (patch and full CMake must succeed)
+        id: build
+        if: needs.prepare.outputs.mode == 'build'
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64
+          target: runtime
+          platforms: ${{ matrix.platform }}
           load: true
           push: false
+          provenance: false
+          sbom: false
+          no-cache: true
           tags: botapi-candidate:check
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=botapi-${{ matrix.arch }}-${{ needs.prepare.outputs.verification_contract }}
+          cache-to: type=gha,mode=max,scope=botapi-${{ matrix.arch }}-${{ needs.prepare.outputs.verification_contract }}
           build-args: |
-            BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
-            ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
-            BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
+            BOT_API_REVISION=${{ needs.prepare.outputs.bot_api_revision }}
+            ALPINE_IMAGE=${{ needs.prepare.outputs.alpine_image }}
+            BUILD_FINGERPRINT=${{ needs.prepare.outputs.build_key }}
+            PLATFORM_SET=linux/amd64,linux/arm64
+            VERIFICATION_CONTRACT=${{ needs.prepare.outputs.verification_contract }}
             BUILD_JOBS=2
-      - name: Smoke-test built binary
-        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
-        run: |
-          docker run --rm botapi-candidate:check --version
-          docker run --rm --entrypoint sh botapi-candidate:check -ec \
-            'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
-      - name: Publish tested build then promote latest
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      - name: Build test target from the same compiled production objects
+        id: sender_build
+        if: needs.prepare.outputs.mode == 'build'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: sender-test
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          no-cache: false
+          tags: botapi-sender:check
+          cache-from: type=gha,scope=botapi-${{ matrix.arch }}-${{ needs.prepare.outputs.verification_contract }}
+          cache-to: type=gha,mode=max,scope=botapi-${{ matrix.arch }}-${{ needs.prepare.outputs.verification_contract }}
+          build-args: |
+            BOT_API_REVISION=${{ needs.prepare.outputs.bot_api_revision }}
+            ALPINE_IMAGE=${{ needs.prepare.outputs.alpine_image }}
+            BUILD_FINGERPRINT=${{ needs.prepare.outputs.build_key }}
+            PLATFORM_SET=linux/amd64,linux/arm64
+            VERIFICATION_CONTRACT=${{ needs.prepare.outputs.verification_contract }}
+            BUILD_JOBS=2
+      - name: Verify ELF/config/version/UA and ordinary entrypoint/gateway
         env:
-          IMAGE: ${{ steps.existing.outputs.image }}
-          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
-          EXISTS: ${{ steps.existing.outputs.exists }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          BUILD_METADATA: ${{ steps.build.outputs.metadata }}
         run: |
-          if [ "$EXISTS" != true ]; then
-            docker tag botapi-candidate:check "$IMAGE:build-$BUILD_FINGERPRINT"
-            docker push "$IMAGE:build-$BUILD_FINGERPRINT"
+          python3 tools/multiarch_qualify.py verify --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
+            --plan plan.json --arch "$ARCH" --directory "artifacts/$ARCH"
+      - name: Stop resource monitor
+        if: always()
+        run: |
+          if [ -f resource-monitor.pid ]; then kill "$(cat resource-monitor.pid)" || true; fi
+      - name: Save reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: report-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/${{ matrix.arch }}/receipt.json
+            artifacts/${{ matrix.arch }}/resources.log
+          retention-days: 90
+      - name: Transfer exact checked image to publisher
+        if: needs.prepare.outputs.release == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/${{ matrix.arch }}/
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+
+  publisher:
+    needs: [prepare, native]
+    if: >-
+      always() && needs.prepare.result == 'success' && needs.native.result == 'success' &&
+      needs.prepare.outputs.release == 'true' && github.event_name != 'pull_request' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    env:
+      SNAPSHOT_HASH: ${{ needs.prepare.outputs.snapshot_hash }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      JOB_RESULTS: '{"prepare":"${{ needs.prepare.result }}","native":"${{ needs.native.result }}"}'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: inputs-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: image-amd64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: images/amd64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: image-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: images/arm64
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Qualify exact archives and complete staging index
+        run: |
+          python3 tools/multiarch_publish.py qualify --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
+            --plan plan.json --directory images --output publication
+      - name: Retain qualification before any release tag write
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qualification-${{ needs.prepare.outputs.build_key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: publication/qualification.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Assign build tag then latest from approved index digest
+        run: |
+          python3 tools/multiarch_publish.py promote --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
+            --plan plan.json --directory images --output publication
+      - name: Summarize checked release identities
+        if: always()
+        run: |
+          if [ -f publication/report.json ]; then
+            python3 -c 'import json; r=json.load(open("publication/report.json")); print("Release: " + r["status"] + "; index: " + r["approved_digest"] + "; run: " + r["context"]["run_id"])' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Release gates failed before promotion; inspect job failure.' >> "$GITHUB_STEP_SUMMARY"
           fi
-          # Existing immutable builds have already passed the same checks.
-          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:build-$BUILD_FINGERPRINT"
-          echo "Published $IMAGE:build-$BUILD_FINGERPRINT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain publication outcome
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: publication/
+          retention-days: 90

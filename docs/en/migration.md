@@ -400,3 +400,8 @@ is BLOCKED/1; malformed or unreadable input exits 2. Reports retain pending acti
 Doctor does not run migration, helpers, bot methods, cloud probes, journals or
 locks. READY means readiness to begin the prepared procedure; it does not certify
 helpers, completed transfer, authorization or delivery.
+
+Linux ARM64 support does not establish portability of existing TDLib state between
+CPUs. Before changing architecture, make a consistent backup and run a separate
+compatibility check. Migration semantics and operations are unchanged. Docker Desktop
+on Apple Silicon and Telegram webhook delivery require independent verification.

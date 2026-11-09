@@ -122,3 +122,29 @@ production; недоступный gate — NOTRUN. Реальные migration-i
 Проверяйте схему отчёта, вход v1, exit codes 0/1/2/3 и shell-синтаксис fixture.
 Запускайте тесты на чистом candidate без чужих helpers и `tools/__init__.py`;
 внутренние ошибки сбора должны отличаться от неверного вызова.
+
+## Multi-platform release qualification / Проверка выпуска
+
+Run the scoped offline contract and fault-injection suites on a dirty checkout:
+
+```sh
+python3 -m unittest tools.test_image_inputs tools.test_multiarch_verify tools.test_multiarch_qualify tools.test_multiarch_publish
+```
+
+PR CI must cold-compile both native CPUs, check ELF/config/version/normal startup,
+the exact gateway signature, production sender and its wrong-UA negative control.
+Only exact runtime/sender archives reach the publisher; no rebuild there. Test
+missing/duplicate ARM, swapped config/ELF, wrong archive/policy/receipt, stale HEAD,
+expired proof, auth errors and lost-write reconciliation with a fake registry.
+Full POSIX discovery and fresh Jekyll/check_docs run in clean CI. Unavailable gates
+are `verification deferred to CI/gates`; post-merge release readback is NOTRUN until
+observed. Registry release does not deploy production.
+
+На dirty checkout запускайте scoped-команду выше; полный POSIX discovery и свежие
+Jekyll/check_docs выполняются в clean CI. Обязательны две native cold compilation,
+ELF/config/version/штатный startup, точный gateway response, настоящий sender и
+wrong-UA negative control. Publisher получает точные runtime/sender archives без
+rebuild. Проверяйте missing/duplicate ARM, подмену config/ELF/archive/policy/receipt,
+stale HEAD, expired proof, auth errors и потерянный ответ записи на fake registry.
+Недоступные gates: `verification deferred to CI/gates`; post-merge readback — NOTRUN
+до фактической проверки. Registry release не развёртывает production.

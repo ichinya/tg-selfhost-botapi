@@ -52,6 +52,25 @@ For a private GHCR package, authenticate with an account that has package access
 for anonymous pulls, the repository owner must make the package public.
 Local compilation can take a long time. The default build uses one compilation job.
 
+The release index targets `linux/amd64` and `linux/arm64`. Docker selects the host
+variant automatically; Compose does not force a CPU. Local builds also use the
+native platform. `--platform` is a diagnostic override and does not prove native
+execution. Check the resolved image separately from the host:
+
+{% raw %}
+```sh
+docker info --format '{{.Architecture}}'
+docker compose images -q botapi | xargs docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}'
+docker compose exec botapi telegram-bot-api --version
+```
+{% endraw %}
+
+Release qualification also extracts the actual binary and checks ELF machine ID
+62 (amd64) or 183 (arm64). An architecture label alone is insufficient.
+Docker Desktop on Apple Silicon needs separate verification. Back up state and
+check compatibility before changing CPU architecture; existing TDLib state is
+not declared portable by this image pipeline.
+
 ## Verify
 
 ```sh

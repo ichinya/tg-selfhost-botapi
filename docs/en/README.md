@@ -32,8 +32,10 @@ a webhook User-Agent patch, and migration helpers.
 The build does not depend on aiogram. Their project packages the same official
 server; this repository maintains its own Docker packaging.
 
-The image pipeline supports `linux/amd64`. Publication and scheduled builds require
+The image pipeline targets `linux/amd64` and `linux/arm64`. Publication and scheduled builds require
 the image workflow to be merged into the default branch and its first successful
 release. A configured image name alone does not mean the image has been published.
 
 Implementation work is tracked in [issues](https://github.com/ichinya/tg-selfhost-botapi/issues/19).
+
+The image workflow prepares one snapshot and requires two independent native jobs: `ubuntu-24.04` for linux/amd64 and `ubuntu-24.04-arm` for linux/arm64. Each fresh runtime is built cold with two build jobs and a 180-minute budget; QEMU is not a release fallback. Matrix jobs have read-only package access. Runner availability and the first successful ARM64 release still require CI evidence.
