@@ -11,19 +11,24 @@ Workflow проверяет официальный исходник tdlib и dig
 около **04:37 Asia/Yekaterinburg** (23:37 UTC), при изменении основной ветки и
 вручную. GitHub может задерживать запуск по расписанию.
 
-Ключ сборки учитывает ревизии/digest, рецепт, entrypoint, патч и проверки образа.
-Если соответствующий образ уже опубликован, компиляция пропускается.
-Если проверка registry не подтвердила наличие образа, выполняется новая сборка.
+Ключ сборки учитывает source/base/platform identities, политику квалификации и
+байты всех build/verification helpers. Все jobs используют один сохранённый snapshot.
+Существующий тег требует сохранённого доверенного proof и новой нативной квалификации.
+Только подтверждённый registry 404 допускает новую сборку; auth/network errors
+останавливают выпуск.
 
 Для нового образа workflow:
 
 1. Проверяет применимость патча User-Agent к выбранной официальной ревизии.
 2. Компилирует весь сервер.
-3. Выполняет `--version`, проверяет строку заголовка в бинарнике и синтаксис entrypoint.
-4. Публикует `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` и продвигает `latest`.
+3. На каждом native CPU проверяет ELF/config/version, штатный entrypoint/gateway и
+   production webhook sender с negative control, ожидающим неверный UA.
+4. Передаёт точные runtime/sender archives единственному publisher, проверяет полный
+   index двух платформ, затем присваивает `build-<K>` и `latest` из его digest.
 
-Ошибка проверки оставляет прежний опубликованный `latest`. Из PR публикации нет.
-Наличие строки в бинарнике не заменяет проверку доставки реального webhook.
+Отказ до promotion сохраняет прежний `latest`. Потерянный ответ записи означает
+UNKNOWN до readback reconciliation. Из PR публикации нет. Компонентная проверка
+sender не доказывает доставку через Telegram.
 
 Для расписания и публикации workflow должен быть в основной ветке. Запись в GHCR
 использует `GITHUB_TOKEN` с `packages: write`. После первого выпуска настройте
@@ -231,3 +236,39 @@ Image/default upstream logger qualification, multipart через shipped nginx,
 каталогов запусков и stale lock. Храните архив до разрешения ситуации. Нельзя
 удалять lock ради повтора неизвестного запроса. Незавершённый probe без токена
 и сохранившегося lock не блокирует запуск; незавершённые запросы с токеном блокируют.
+
+## Контракт multi-platform
+
+Snapshot фиксирует ровно `linux/amd64` и `linux/arm64`, source revision, Alpine index
+и platform children, байты рецепта и policy. Сохранение:
+`python3 tools/image_inputs.py --output snapshot.json`; проверка без нового resolution:
+`--input snapshot.json --snapshot-hash <hash>`. JSON передаётся артефактом, CLI выводит
+скалярные key=value. Кеш не заменяет qualification. Config ID, SHA256 архива, child
+и index digest проверяются отдельно. ELF64 требует machine ID 62/183 и точный UA
+marker. Release index содержит ровно две runnable platforms без attestations.
+
+Native jobs проверяют CPU host/daemon, версию, ELF, штатный entrypoint и ownership,
+точный direct/gateway JSON 404 (`ok:false`, `error_code:404`, `description:Not Found`)
+в internal network. Target sender-test использует те же production objects;
+receiver требует POST с nonce, единственный точный User-Agent и queue ACK. Negative
+control с неверным ожидаемым UA обязан завершиться отказом. Runtime остаётся
+последним/default target и не содержит driver/receiver.
+
+Runner labels — `ubuntu-24.04` и `ubuntu-24.04-arm`; начальный бюджет 180 минут,
+BUILD_JOBS=2. QEMU не служит fallback. Новые runtime builds cold, кеши разделены
+по CPU/policy. Только publisher имеет packages:write. Он проверяет оба receipts,
+точные runtime/sender archives и повторно ELF/config до candidate pushes. Полный
+index проверяется до release writes; latest меняется одной операцией по digest.
+
+Reuse требует proof успешной default-branch Actions compilation и новых native
+runtime/sender checks. Отсутствие или истечение proof запрещает reuse/перезапись K.
+Receipts хранятся 90 дней, архивы — два дня, sender image сохраняется в registry по
+digest. Перед записью проверяется HEAD default branch. Потерянный ответ записи
+требует readback, без blind retry или rollback. GHCR release не обновляет VPS.
+APK mirror не закреплён, поэтому K не обещает побитовую пересборку.
+
+Native builds, ARM runner, registry release/reuse/readback и свежая docs build:
+NOTRUN локально, `verification deferred to CI/gates`. Apple Silicon, перенос старого
+state и Telegram end-to-end требуют отдельных проверок.
+
+Offline-приёмка: локально прошли 51 scoped-тестов (включая fault injection и patch regression), обе synthetic Compose config-проверки и `git diff --check`. Receipts сохраняют source revision, patch hash, чистые submodule identities и rootfs; проверяются размеры raw descriptors. Native cold/warm builds, registry integration/reuse/promotion, свежая Jekyll-сборка и post-merge release readback — NOTRUN: `verification deferred to CI/gates` (release readback: `verification deferred to CI/post-merge`). Локальный Docker build-check получил отказ доступа к внешнему buildx lock и не повторялся.

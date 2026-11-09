@@ -401,6 +401,10 @@ Doctor does not run migration, helpers, bot methods, cloud probes, journals or
 locks. READY means readiness to begin the prepared procedure; it does not certify
 helpers, completed transfer, authorization or delivery.
 
+Linux ARM64 support does not establish portability of existing TDLib state between
+CPUs. Before changing architecture, make a consistent backup and run a separate
+compatibility check. Migration semantics and operations are unchanged. Docker Desktop
+on Apple Silicon and Telegram webhook delivery require independent verification.
 ## Complete webhook profile inputs
 
 Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON array of strings), `WEBHOOK_MAX_CONNECTIONS` and `WEBHOOK_TARGET_LOCAL=true|false`. Unknown secret/IP and unavailable custom certificates stop preflight. `fixed` is an alias for pinned canonical IPv4. Source `ip_address` does not reveal pinning intent. Explicit inputs override source; omitted optional updates become the documented `[]` default. `[]` excludes chat_member, message_reaction and message_reaction_count; it is not every update type. Null or invalid values fail. Per-bot max_connections is 1–100; up to 100000 requires explicit local-mode capability (`TELEGRAM_LOCAL`/`--local`), independently of server `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. A self-host URL does not establish this capability.

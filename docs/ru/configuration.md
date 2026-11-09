@@ -70,7 +70,7 @@ Bot API endpoint принимает вызовы методов. Webhook URL н�
 Для проверенной сборки:
 
 ```text
-BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
+BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi@sha256:<index-digest>
 ```
 
 Вместо тега можно указать digest. Локальный build override использует образ
@@ -159,3 +159,9 @@ nginx или запрос `setWebhook` этот исходящий заголо�
 файлом окружения; значение по умолчанию используется только для незаданной
 переменной. В отличие от адресов, явно пустой таймаут недопустим. Настройки
 не передаются в контейнеры.
+
+
+Реальный digest берите из проверенного release summary. `build-<K>` — полный index,
+`latest` изменяем. Index digest подходит обоим CPU, child digest фиксирует один.
+`candidate-*` и `staging-*` — временные qualification refs. Изменение рецепта,
+platforms или policy меняет K; правки только документации его не меняют.

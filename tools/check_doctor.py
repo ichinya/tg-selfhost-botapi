@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import uuid
 
 import doctor
@@ -238,9 +239,25 @@ class Harness:
                     signal.signal(signum, handler)
 
 
+def failure_location(exc):
+    """Report only local source locations, never exception text or runtime values."""
+    allowed = {"check_doctor.py", "doctor.py", "doctor_runtime.py", "doctor_checks.py"}
+    chains, seen = [], set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        frames = traceback.extract_tb(exc.__traceback__)
+        locations = [f"{Path(frame.filename).name}:{frame.lineno}" for frame in frames
+                     if Path(frame.filename).name in allowed]
+        if locations:
+            chains.append(" -> ".join(locations))
+        exc = exc.__cause__ or exc.__context__
+    return " | caused during: ".join(chains) or "location unavailable"
+
+
 if __name__ == "__main__":
     try:
         print(json.dumps(Harness().run(), indent=2))
-    except (Exception, KeyboardInterrupt):
+    except (Exception, KeyboardInterrupt) as exc:
         print("Synthetic doctor integration failed; inspect CI step and private fixture state.", file=sys.stderr)
+        print("Source locations: " + failure_location(exc), file=sys.stderr)
         sys.exit(1)

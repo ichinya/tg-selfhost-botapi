@@ -5,6 +5,24 @@ translation: /docs/en/getting-started.html
 
 # Установка
 
+Release index рассчитан на `linux/amd64` и `linux/arm64`: Docker автоматически
+выбирает вариант хоста, Compose не фиксирует CPU. Локальная сборка также нативная.
+`--platform` служит диагностическим override и не доказывает native execution.
+Проверяйте выбранный образ отдельно от хоста:
+
+{% raw %}
+```sh
+docker info --format '{{.Architecture}}'
+docker compose images -q botapi | xargs docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}'
+docker compose exec botapi telegram-bot-api --version
+```
+{% endraw %}
+
+Квалификация выпуска извлекает настоящий бинарник и проверяет ELF machine ID 62
+(amd64) или 183 (arm64). Одного architecture label недостаточно. Docker Desktop
+на Apple Silicon требует отдельной проверки. До смены CPU сделайте backup и
+проверьте совместимость: конвейер не объявляет существующее TDLib state переносимым.
+
 ## Требования
 
 - Docker с Compose v2.

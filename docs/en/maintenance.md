@@ -11,19 +11,23 @@ The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
 
-The build key covers the resolved revisions/digests and the recipe, entrypoint,
-patch and image tests. If the corresponding published build exists, compilation
-is skipped. If registry inspection cannot confirm it, the pipeline rebuilds.
+The build key covers the resolved source/base/platform identities, qualification
+policy and all build/verification bytes. One saved snapshot is shared by all jobs.
+Existing tags require retained trusted proof and new native qualification. Only a
+confirmed registry 404 permits a fresh build; auth/network errors stop release.
 
 For a new build it:
 
 1. Checks that the User-Agent patch applies to the selected official revision.
 2. Compiles the entire server.
-3. Runs `--version`, checks the header string in the binary and validates entrypoint syntax.
-4. Publishes `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and promotes `latest`.
+3. On each native CPU, checks ELF/config/version, normal entrypoint/gateway and the
+   production webhook sender with a wrong-UA negative control.
+4. Transfers the exact runtime/sender archives to one publisher, checks the full
+   two-platform index, then assigns `build-<K>` and `latest` from its digest.
 
-Failed checks leave the previously published `latest` in place. Pull requests do
-not publish. A binary string check is not a live webhook-delivery test.
+Failures before promotion leave the previous `latest` intact. A lost write
+response is UNKNOWN until registry readback reconciles it. Pull requests do not
+publish. Component sender qualification does not establish Telegram delivery.
 
 The workflow needs to be on the default branch before the schedule/publication
 can work. GHCR writes use `GITHUB_TOKEN` with `packages: write`. Configure package
@@ -231,3 +235,18 @@ owner-only location outside `logs/migration` before removing reconciled run
 directories and a stale lock. Keep the archive until resolution. A lock must
 never be removed merely to retry an unknown request. An unfinished token-free
 probe without a surviving lock does not block; authenticated unfinished attempts do.
+
+
+## Multi-platform inputs
+
+The image input snapshot records exactly `linux/amd64` and `linux/arm64`, the source revision, Alpine index and platform children, recipe bytes and qualification policy. Save it with `python3 tools/image_inputs.py --output snapshot.json`; validate saved inputs with `--input snapshot.json --snapshot-hash <hash>`. JSON is transferred as an artifact, while CLI outputs remain scalar key=value. Cache reuse is distinct from release qualification. These inputs alone do not prove a released ARM64 image.
+
+`tools/multiarch_verify.py` validates ELF64 little-endian machine IDs 62/183, the exact User-Agent marker, source/base/K/policy labels, and remote child/config digest binding. A release index must contain exactly the two runnable platforms; extra children and attestations are rejected. Config ID, archive SHA256, child digest and index digest are separate identities. Offline fixture success does not establish native execution.
+
+Native qualification checks host and daemon CPU, version and ELF, then normal entrypoint ownership and exact direct/gateway `404` JSON (`ok:false`, `error_code:404`, `description:Not Found`) on an internal network. The sender-test target shares the runtime production objects: its loopback receiver requires one exact User-Agent, nonce POST and queue acknowledgement, followed by a failing wrong-UA control. Synthetic credentials and temporary resources are used. Sender images are retained by digest for reuse. Component qualification is separate from Telegram end-to-end delivery.
+
+The image workflow prepares one snapshot and requires two independent native jobs: `ubuntu-24.04` for linux/amd64 and `ubuntu-24.04-arm` for linux/arm64. Each fresh runtime is built cold with two build jobs and a 180-minute budget; QEMU is not a release fallback. Matrix jobs have read-only package access. Runner availability and the first successful ARM64 release still require CI evidence.
+
+Only the publisher has registry write permission. It validates both native receipts and archives, loads the exact runtime and sender images, rechecks ELF/config identities, pushes unique candidate refs and checks the full index before release tags. `build-<K>` is a complete immutable index; `latest` is updated once from that index digest. Existing K requires retained successful default-branch Actions compilation evidence plus new native runtime/sender checks; missing proof, auth errors or timeouts stop release. Lost write responses require readback reconciliation. Qualification receipts are retained for 90 days, archives for two days; the sender image is retained by registry digest for reuse. Current default-branch HEAD is checked before writes. A GHCR release does not deploy a VPS.
+
+Offline acceptance: 51 scoped tests (including fault injection and patch regression), both synthetic Compose configurations and `git diff --check` passed locally. Receipts retain source revision, patch hash, clean submodule identities and rootfs; raw descriptor sizes are checked. Native cold/warm builds, registry integration/reuse/promotion, fresh Jekyll and post-merge release readback are NOTRUN: `verification deferred to CI/gates` (release readback: `verification deferred to CI/post-merge`). Local Docker build-check was denied access to its external buildx lock and was not retried.

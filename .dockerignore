@@ -3,3 +3,9 @@
 !docker-entrypoint.sh
 !patches/
 !patches/webhook-user-agent.patch
+
+!tools/
+!tools/webhook_sender/
+!tools/webhook_sender/CMakeLists.txt
+!tools/webhook_sender/webhook_sender_test.cpp
+!tools/webhook_sender/receiver.py

@@ -68,7 +68,7 @@ application and receives updates sent by the server. They are different addresse
 For a tested build, set:
 
 ```text
-BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
+BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi@sha256:<index-digest>
 ```
 
 An image digest can be used instead. The local build override uses
@@ -155,3 +155,10 @@ The deadline applies to each request; the token-free probe is capped at 10
 seconds. Process settings take precedence over the trusted environment file;
 only an unset setting uses its default. Unlike the endpoint settings, an
 explicitly empty timeout is invalid. These settings are not passed to containers.
+
+Only the publisher has registry write permission. It validates both native receipts and archives, loads the exact runtime and sender images, rechecks ELF/config identities, pushes unique candidate refs and checks the full index before release tags. `build-<K>` is a complete immutable index; `latest` is updated once from that index digest. Existing K requires retained successful default-branch Actions compilation evidence plus new native runtime/sender checks; missing proof, auth errors or timeouts stop release. Lost write responses require readback reconciliation. Qualification receipts are retained for 90 days, archives for two days; the sender image is retained by registry digest for reuse. Current default-branch HEAD is checked before writes. A GHCR release does not deploy a VPS.
+
+Get real digests from a checked release summary. `build-<K>` is a complete index;
+`latest` is mutable. An index digest works on both CPUs; a child digest pins one.
+`candidate-*` and `staging-*` are temporary qualification refs. Recipe/platform/policy
+changes invalidate K; docs-only edits do not.
