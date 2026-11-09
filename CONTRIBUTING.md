@@ -122,3 +122,10 @@ production; недоступный gate — NOTRUN. Реальные migration-i
 Проверяйте схему отчёта, вход v1, exit codes 0/1/2/3 и shell-синтаксис fixture.
 Запускайте тесты на чистом candidate без чужих helpers и `tools/__init__.py`;
 внутренние ошибки сбора должны отличаться от неверного вызова.
+
+Webhook profile #7 gates: Node 24+, Python 3.13, Bash 4+, curl/jq/openssl, non-root POSIX.
+Run the four explicit `tools.test_webhook_profile_*` modules listed in maintenance, then all tracked #10 tests and `test_webhook_user_agent`.
+`node tools/embed_webhook_profile.cjs --check` verifies standalone helper/browser/export sync.
+`check_issue7_sender.py --source` is a separate pinned-source gate, not unit discovery.
+Receiver/manual POST, source assertions, actual image logs/nginx pass-through and live Telegram receipts are different evidence.
+Unavailable execution: NOTRUN, verification deferred to CI/gates.

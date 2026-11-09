@@ -199,7 +199,12 @@ if any(flag in args for flag in ('-L', '--location', '--location-trusted', '--fa
 if args[args.index('--retry') + 1] != '0':
     raise SystemExit('curl isolation: retries forbidden')
 urls = [(i, arg) for i, arg in enumerate(args) if arg.startswith(('https://', 'http://'))]
-if len(urls) != 1:
+configs = [args[i + 1] for i, arg in enumerate(args) if arg == '--config' and i + 1 < len(args)]
+for config in configs:
+    for line in Path(config).read_text().splitlines():
+        if line.startswith('url = '):
+            urls.append((None, json.loads(line[6:])))
+if len(urls) != 1 or len(configs) > 1:
     raise SystemExit('curl isolation: exactly one URL required')
 i, url = urls[0]
 role = None
@@ -221,7 +226,11 @@ if os.environ.get('FAKE_METHOD') == role + ':' + method:
     sys.stderr.write(os.environ.get('FAKE_STDERR', 'transport failure 12345:SYNTHETIC_TOKEN'))
     raise SystemExit(int(os.environ.get('FAKE_EXIT', '7')))
 base = os.environ['SOURCE_URL' if role == 'source' else 'TARGET_URL']
-args[i] = base + '/' if method == 'probe' else base + '/bot12345:SYNTHETIC_TOKEN/' + method
+rewritten = base + '/' if method == 'probe' else base + '/bot12345:SYNTHETIC_TOKEN/' + method
+if configs:
+    Path(configs[0]).write_text('url = ' + json.dumps(rewritten) + '\n')
+else:
+    args[i] = rewritten
 os.execv(os.environ['REAL_CURL'], [os.environ['REAL_CURL']] + args)
 '''
 
