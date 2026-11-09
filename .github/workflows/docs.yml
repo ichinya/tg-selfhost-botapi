@@ -13,6 +13,7 @@ on:
       - 'tg_selfhost_botapi_migrator.html'
       - 'tools/check_docs.py'
       - 'tools/test_docs_privacy.py'
+      - 'tools/test_issue11_docs.py'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
@@ -36,6 +37,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      - name: Create synthetic private-storage sentinel
+        run: |
+          mkdir -p logs/migration
+          printf 'synthetic publication exclusion check\n' > logs/migration/issue11-sentinel.txt
       - name: Build the GitHub Pages site
         uses: actions/jekyll-build-pages@v1
         with:
@@ -43,4 +48,8 @@ jobs:
           destination: ./.site-check
       - name: Check rendered links and the original migrator URL
         timeout-minutes: 2
-        run: timeout 60 python3 tools/check_docs.py .site-check
+        run: |
+          test ! -e .site-check/logs/migration/issue11-sentinel.txt
+          test ! -e .site-check/logs
+          timeout 60 python3 tools/check_docs.py .site-check
+          timeout 30 python3 -m unittest discover -s tools -p 'test_issue11_docs.py' -v

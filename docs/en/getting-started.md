@@ -36,7 +36,11 @@ UI/API share this origin. Pages only explains this workflow. For a remote host:
 - For doctor: host Python 3.11+ (stdlib only). Full runtime evidence requires a
   local Linux engine with bridge access; pure checks also work on Windows.
 - A Telegram application API ID and hash from [my.telegram.org](https://my.telegram.org).
-- For migration: Linux/WSL, Python 3.11+; Bash for the compatibility adapter.
+- For migration: Linux/WSL, Python 3.11+; the Bash compatibility adapter also
+  needs curl, jq and GNU coreutils on a POSIX host (`mktemp`, `date`, `stat`,
+  `mkdir`, `mv`, `chmod`, `rm`, `rmdir`, `cat`) for the retained standalone
+  helper path. Private diagnostics require owner-only POSIX permissions; Windows
+  runtime validation is deferred to Linux CI.
 - Node 24 is required for development/UI acceptance, not for operating the helper.
 
 The application API ID/hash identify your Telegram application. They are different

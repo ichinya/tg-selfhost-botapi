@@ -54,7 +54,8 @@ The new interface never infers polling/preserve from an empty webhook.
 CLI flags override process environment, which overrides an explicit `--env-file`.
 Env files are parsed as data with an allowlist; shell expansion is rejected.
 The Bash filename remains compatible and forwards subcommands to the same CLI.
-Positional token/target/webhook arguments are rejected without echoing values.
+On `--option` calls positional token/target/webhook arguments are rejected
+without echoing values.
 Use process environment or an explicitly selected private input file.
 Legacy invocation prints a sealed plan and requires a separate apply with its
 digest. It never performs the old independent curl sequence.
@@ -71,6 +72,10 @@ Exit codes: 0 handled (inspect payload outcome), 1 proven step failure,
 2 UNKNOWN/BLOCKED/checkpoint required, 3 WAITING, 4 invalid input/state.
 Export preserves ID/digest and references `MIGRATION_STATE_DIR`; it cannot create
 a second authority. Keep profile/certificate inputs in a private `--profile-file`.
+
+The root helper limits each request with `MIGRATION_CONNECT_TIMEOUT` and
+`MIGRATION_REQUEST_DEADLINE`; see [configuration](configuration.md) for defaults,
+limits and precedence. The token-free probe has a maximum deadline of 10 seconds.
 
 A migration changes the Bot API endpoint used by your application and may also
 change its webhook. Know the old endpoint before starting. Do not use cloud
@@ -117,16 +122,32 @@ or guarantee continuity.
 
 The shared `tqueue.binlog` and `webhooks_db.binlog` are outside per-bot directories. Moving one bot directory does not prove its local queue is preserved. Drain or explicitly account for backlog; merging shared binlogs into a running target with other bots is unsupported. `drop_pending_updates=false` is not a preservation guarantee.
 
+### Local → cloud
+
+Drain backlog or explicitly accept its loss, stop all old API clients, save the
+profile, detach the webhook and obtain successful local `logOut` before any cloud
+request. Local `logOut` can clear the update queue even if webhook deletion used
+`drop_pending_updates=false`. The cloud cannot import local state. Once cloud
+access is available, call cloud `getMe`, restore the profile or explicit polling,
+and verify delivery. Stop on errors or unknown results.
+
+This logout-first recipe is an inference from the upstream implementation and
+the general moving rules, not a separate verbatim upstream local-to-cloud guide.
+The cloud's ten-minute return restriction after cloud `logOut` and the local
+`close` 429 window are different constraints. The browser supplies a manual plan
+for this direction; it does not execute it.
+
 ## Adapter compatibility
 
 Use `bash migrate_off_to_self.sh plan/apply/status/resume/export ...` with the
 same flags as Python. There are no curl/jq requirements for migration itself.
 The repository `.env` and `.env.example` are Compose configuration only.
 Migration inputs belong in process environment or a separate private file
-selected with `--env-file`; the wrapper never reads `.env` automatically.
+selected with `--env-file`; the executor path never reads `.env` automatically.
 Environment values take precedence. An empty webhook requires an explicit action
 even in legacy mode. Use `BOT_TOKEN` or `BOT_TOKEN_FILE`; positional credentials
-are rejected. Legacy mode prints the plan and
+are rejected on `--option` invocations. Pure positional calls keep the retained
+[standalone helper](#bash-helper) contract. Legacy mode prints the plan and
 returns code 2 for separate digest confirmation; it does not auto-apply.
 
 ## Browser workflow
@@ -175,6 +196,226 @@ combinations plus four preserved-polling variants against loopback HTTP mocks.
 See [recovery](maintenance.md#recovering-the-migration-journal),
 [private configuration](configuration.md#private-migration-authority) and the
 [offline fixture walkthrough](maintenance.md#isolated-mock-walkthrough).
+
+## Bash helper
+
+The current script supports **cloud → local**. It loads `.env` beside the script,
+or the file selected by `ENV_FILE` (relative paths are relative to the caller's
+working directory). An absent default file is allowed; an invalid explicit file
+stops execution. This is trusted shell code, not a sandbox. Arguments take
+precedence over process environment, then file values, then defaults. Within a
+source, `SELF_BOT_URL` and `WEBHOOK_URL` take precedence over legacy
+`TELEGRAM_BOT_URL` and `WEB_HOOK`; process aliases override file values.
+Empty webhook values retain the legacy fallback described below. For example,
+from another directory use `ENV_FILE="/path/to/settings.env" bash
+/path/to/migrate_off_to_self.sh "$BOT_TOKEN"`.
+
+Arguments are `BOT_TOKEN`, `SELF_BOT_URL`, then `WEBHOOK_URL`:
+
+<!-- issue10-example:environment -->
+```sh
+set -euo pipefail
+read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
+SELF_BOT_URL="http://127.0.0.1:18080" \
+WEBHOOK_URL="https://example.com/telegram/webhook" \
+  bash ./migrate_off_to_self.sh "$BOT_TOKEN"
+unset BOT_TOKEN
+```
+
+Alternatively pass all three positional arguments. Do not put the webhook URL in
+argument 2: that argument is the Bot API endpoint.
+
+<!-- issue10-example:positional -->
+```sh
+set -euo pipefail
+read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
+bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
+  "http://127.0.0.1:18080" "https://example.com/telegram/webhook"
+unset BOT_TOKEN
+```
+
+Both forms use external API port **18080**; nginx forwards to `botapi:8081`.
+The webhook URL is an application address. These commands do not start a polling
+consumer. From another working directory, use an absolute helper path:
+
+```sh
+read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
+ENV_FILE="/path/to/settings.env" \
+  bash /path/to/migrate_off_to_self.sh "$BOT_TOKEN"
+unset BOT_TOKEN
+```
+
+`DROP_PENDING_UPDATES=true` discards pending updates. Its default is `false`.
+
+### Current helper limitations
+
+- The token-free target probe checks a characteristic error response, not the
+  host's identity or bot readiness. Verify the endpoint before confirmation.
+- Token-bearing calls start only after confirmation; the helper does not implement
+  resume after an ambiguous `logOut` result. Do not blindly rerun after a lost response.
+- An empty webhook argument reuses the old webhook when present. It does not
+  explicitly request polling.
+- The helper does not transfer `secret_token`, certificates or the full delivery
+  profile. Restore required parameters deliberately.
+- Tokens can appear in process arguments and external logs. The helper sanitizes
+  its own console and diagnostic artifacts; crash leftovers remain private raw.
+
+These are tracked in [#2](https://github.com/ichinya/tg-selfhost-botapi/issues/2),
+[#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7) and
+[#9](https://github.com/ichinya/tg-selfhost-botapi/issues/9).
+Use a test bot before relying on the helper for a working installation.
+
+### Request time limits (root Bash helper)
+
+`MIGRATION_CONNECT_TIMEOUT` defaults to 5 seconds (range 1..60);
+`MIGRATION_REQUEST_DEADLINE` defaults to 30 seconds (range 1..300). Both accept
+whole decimal seconds; connect must not exceed deadline. The deadline covers
+one HTTP attempt, including its response body, excluding operator input. The
+token-free probe uses min(deadline, 10) and caps connect to that value.
+
+The trusted file loader supports both settings. Process values override file
+values; only an unset setting uses its default. An explicitly empty value is an
+error, unlike the legacy endpoint settings' empty-value fallback. Invalid values
+stop before any HTTP request. These are host-side settings, absent from Compose
+and the container environment. See [migration](migration.md).
+
+### Outcomes and private diagnostics
+
+The root Bash helper stores schema version 1 evidence in `logs/migration` beside
+the script, independently of the caller's directory. Directories must be owned by
+the user and have mode 0700; files are 0600 (`umask 077`). Unsafe existing paths
+and symlinks stop execution before HTTP. Each run has a unique `run.*` directory:
+`summary.json` links to `request-*.*/intent.json` written before every HTTP attempt
+and `receipt.json` written afterwards. Receipts link separate full sanitized
+`body.txt`, `transport-error.txt` and `http-status.txt` artifacts. HTTP status,
+curl exit, parse/schema status, API fields, effective time limits, timestamps,
+observations and outcome remain independent. Status 000 becomes null; a transport
+failure can still preserve HTTP status and a partial body. Sanitized text is not a
+byte-exact original; controls, JSON and escaped secrets are normalized.
+
+Success requires complete transport, HTTP 2xx, boolean `ok:true` and a valid
+method result. A complete valid rejection on HTTP 2xx/4xx is
+`CONFIRMED_REJECTION` (exit 1); 429 reports `retry_after` without sleeping or
+retrying. HTTP 5xx, malformed or contradictory replies and lost responses to any
+authenticated request yield `UNKNOWN` (exit 3). Even `getMe` and
+`getWebhookInfo` may affect session state. No dependent request, readback,
+rollback or automatic retry follows an unknown outcome. A local pre-send error
+is `NOT_SENT`; success and operator cancellation exit 0. The expected token-free
+404 probe is checked separately from method success and cannot authenticate a host.
+
+A root-wide atomic lock is acquired before inspecting previous runs or probing.
+An active/stale lock, unfinished authenticated intent, UNKNOWN authenticated attempt or partial
+migration blocks a new invocation before HTTP. This guard covers one script copy
+and all bots using its storage root. Confirmed steps/effects remain in the summary
+after a later failure. Stop and reconcile the dossier with independent evidence;
+waiting for `retry_after`, repeating `getMe` or reading back a URL does not prove
+that a previous effect did not occur. There is no automatic bypass or resume.
+
+An unfinished token-free probe does not block after its lock has been released.
+Every surviving lock blocks, including one left by SIGKILL. To recover, first stop
+all helper processes and reconcile the attempts and confirmed effects against
+independent evidence. After deciding a safe next procedure, archive the entire
+dossier in an owner-only location outside `logs/migration`, then deliberately
+remove the reconciled run directories and stale lock. Keep that archive until
+the migration is resolved. Removing a lock alone is not reconciliation; copying
+the script to another directory does not make an unknown effect safe to repeat.
+This manual operator action is the recovery boundary pending issue #2.
+
+Raw capture is private and removed only after sanitization succeeds. Crashes,
+SIGKILL and storage failures may leave private raw files or incomplete intents;
+retain and inspect those locally. Do not upload raw files or the dossier to public
+issues. Retention lasts until deliberate manual removal after reconciliation.
+The journal uses atomic rename, not an fsync durability guarantee. Issue #2 needs
+an explicit adapter for this schema; other executors' journals are not interchangeable.
+This contract applies only to `migrate_off_to_self.sh`: browser execution,
+generated Bash and the raw-curl runbook below retain their separate contracts.
+The manual curl examples create no dossier and do not implement the guard.
+Obtain the updated helper from an up-to-date repository checkout. It runs on the
+host, is excluded from the server image and Pages, and requires no server redeploy.
+
+## Browser tool
+
+An operation records its plan and observations separately in the current tab.
+SUCCESS requires a confirmed final target URL; it does not establish delivery.
+The stage journal is local to the page and is not the durable recovery mechanism
+tracked in #2. Declining consent does not create an operation.
+An authenticated Bot API rejection is distinct from an unreliable or lost
+response, whose effect may be UNKNOWN. A valid `retry_after` establishes a
+cooldown; its expiry neither retries nor resolves an uncertain operation. A local
+`close` 429 window differs from the cloud return restriction after `logOut`.
+During the cooldown the page offers a waiting instruction instead of executable
+commands; expiry does not lift a separate recovery guard.
+The result distinguishes ERROR, PARTIAL and UNKNOWN from SUCCESS. Source and
+target bot IDs must match, and the final URL is read from the target rather than
+assumed from the requested URL. The summary distinguishes source observation,
+expected URL, target observation and the stage journal. Webhook URL paths and query
+strings are masked in the result and history. After a failed or uncertain logout, follow the
+recovery procedure in #2; do not log back into source merely to check it.
+The tab blocks simultaneous actions and retains per-bot recovery guards in
+memory. Editing settings invalidates the check. Closing or reloading the tab
+loses these guards; coordination between processes remains outside this tool
+(#2 and #14). After a completed transfer, a fresh webhook-only operation may
+use the confirmed target, while the old source remains blocked in this tab.
+The generated Bash plan stops on errors and reports its phase and outcome;
+it compares bot IDs and the final URL. It is a separate process with no shared
+lock or durable state with the page. Reconcile PARTIAL or UNKNOWN before any
+repeat; a cooldown never restarts the plan automatically.
+
+The generated Bash plan prompts separately for the webhook URL; it does not
+copy the URL from the form into the script. Leave it empty to inherit the source URL.
+
+[Open the migrator](../../tg_selfhost_botapi_migrator.html). The page is a static
+client, not a server-side migration executor. It uses requests from your browser;
+the API needs an appropriate origin/access setup.
+
+Local checks and plan generation send no requests. State checks require consent
+and read only the explicitly selected source; they do not discover where a bot
+is logged in. Cloud → local execution probes the target without a token, asks
+for consent, reads the source, detaches and logs out there, then accesses the
+target. Webhook-only never calls `logOut` or `close`. Editing the form invalidates
+cached source data. A partial or unknown operation blocks further execution for
+that bot in the tab; reconcile state manually. A known rejection before any
+effect may be retried after any applicable cooldown. Local transitions use manual checklists.
+
+Browser execution and generated plans still have incompletely verified
+[error-handling](https://github.com/ichinya/tg-selfhost-botapi/issues/6) and
+[shell-escaping](https://github.com/ichinya/tg-selfhost-botapi/issues/8) limitations.
+A CORS failure can hide the response to an already executed mutation: check the
+current state before trying another plan. Review generated commands before use.
+
+## Polling, webhook profile and files
+
+The independent fixes in [#5](https://github.com/ichinya/tg-selfhost-botapi/issues/5),
+[#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7) and
+[#9](https://github.com/ichinya/tg-selfhost-botapi/issues/9) are not integrated in
+this candidate. Their unfinished modules are not dependencies of these helpers.
+Empty webhook input retains legacy inheritance; it is not a polling action.
+For explicit polling, after completing the server transition, manually delete
+the **target** webhook and verify that `result.url` is a string equal to `""`:
+
+```sh
+# BOT_TOKEN and SELF_BOT_URL refer to the chosen target, after migration.
+set -euo pipefail
+curl -q -fsS --connect-timeout 5 --max-time 30 -X POST \
+  "$SELF_BOT_URL/bot$BOT_TOKEN/deleteWebhook" \
+  --data-urlencode 'drop_pending_updates=false' | jq -e '.ok == true and .result == true'
+curl -q -fsS --connect-timeout 5 --max-time 30 \
+  "$SELF_BOT_URL/bot$BOT_TOKEN/getWebhookInfo" | \
+  jq -e '.ok == true and (.result.url | type == "string") and .result.url == ""'
+```
+
+Stop if either check fails. Start your own polling client only after verification;
+the examples do not consume updates. URL readback does not prove webhook delivery.
+Restore `secret_token`, certificate, `allowed_updates`, `max_connections` and other
+required settings from your saved profile. Secrets and the uploaded certificate
+cannot be reconstructed from `getWebhookInfo`.
+
+In local mode an absolute `getFile.file_path` names a path on the server/container.
+It requires compatible mounts and application paths; state transfer alone does
+not fix them. nginx forwards `/file/` requests to the Bot API instead of exposing
+the state directory. Do not invent `X-Telegram-Bot-Token` authorization. See
+[file access](configuration.md).
+An independent downloads service's port 18081 does not replace API port 18080.
 
 [Configuration](configuration.md) · [Maintenance](maintenance.md)
 

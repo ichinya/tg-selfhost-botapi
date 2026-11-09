@@ -1,38 +1,559 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer">
-<title>Bot API · Migration workspace</title>
-<style>
-:root{color-scheme:dark;font:16px/1.55 system-ui,sans-serif;background:#10151c;color:#e5edf6}*{box-sizing:border-box}body{margin:0}main{max-width:1100px;margin:48px auto;padding:0 24px}header{border-bottom:1px solid #34414f;margin-bottom:32px;padding-bottom:24px}small,.muted{color:#9eafc2}h1{font-size:2.2rem;line-height:1.15;margin:10px 0}h2{font-size:1.2rem}section,fieldset{border:1px solid #34414f;border-radius:12px;padding:24px;margin:24px 0;background:#171f29}fieldset{min-width:0}legend{font-weight:650;padding:0 8px}label{display:block;margin:12px 0}input,select,textarea,button{font:inherit}input:not([type=checkbox]),select,textarea{display:block;width:100%;border:1px solid #4a5d72;border-radius:6px;background:#10151c;color:#e5edf6;padding:10px;margin-top:5px}textarea{min-height:90px}button{background:#b9e7d8;color:#12261f;border:0;border-radius:6px;padding:10px 16px;cursor:pointer;font-weight:650}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #92bdf1;outline-offset:2px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}.actions{display:flex;gap:10px;flex-wrap:wrap}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem;max-height:650px;overflow:auto}code{color:#b9e7d8}a{color:#a7ccff}#notice{min-height:2em;padding:14px 0;color:#f2d398}[hidden]{display:none!important}@media(max-width:650px){main{margin-top:24px}.grid{grid-template-columns:1fr}section,fieldset{padding:16px}h1{font-size:1.8rem}}
-</style></head><body><main>
-<header><small>SELF-HOSTED TELEGRAM BOT API · OPERATOR WORKSPACE</small><h1>Миграция с проверяемым состоянием</h1><p class="muted">Один план · подтверждения каждого этапа · безопасное продолжение<br>One plan · durable receipts · phase-aware recovery</p></header>
-<section id="entry"><h2>Запустите локальный helper / Start the local helper</h2><p>Эта публичная страница и file:// не выполняют запросы Bot API или localhost. Linux/WSL, Python 3.11+, приватные state/evidence/provider files обязательны.</p><pre><code>python3 tools/migration_helper.py --config "$HELPER_CONFIG" --bootstrap-file "$PAIRING_FILE" --port 8765</code></pre><p>Откройте <code>http://127.0.0.1:8765/</code> и введите одноразовый код из приватного PAIRING_FILE (срок действия — пять минут). Read the one-time code privately from PAIRING_FILE. Для удалённого хоста используйте SSH tunnel. <a href="docs/en/getting-started.html">English setup</a> · <a href="docs/ru/getting-started.html">Инструкция</a></p></section>
-<section id="session" hidden><h2>Доступ оператора / Operator session</h2><label>Одноразовый код / One-time code<input id="session-code" type="password" autocomplete="off"></label><button id="login" type="button">Открыть сессию / Connect</button></section>
-<p id="notice" role="status" aria-live="polite"></p>
-<div id="workspace" hidden>
-<form id="runtime-form" autocomplete="off">
-<fieldset><legend>1 · Входы плана / Plan inputs</legend><div class="grid">
-<label>Направление / Direction<select id="direction"><option value="cloud_to_local">Cloud → Local</option><option value="local_to_local">Local → Local</option><option value="local_to_cloud">Local → Cloud</option><option value="webhook_only">Webhook only</option></select></label>
-<label>Проверенный режим target / Verified target mode<select id="local-mode"><option value="true">Local mode</option><option value="false">Cloud / non-local</option></select></label>
-<label>Source API endpoint<input id="source" type="password" autocomplete="off" spellcheck="false"></label>
-<label>Target API endpoint<input id="target" type="password" autocomplete="off" spellcheck="false"></label>
-<label>Bot token<input id="token" type="password" autocomplete="off" spellcheck="false"></label>
-<label>Явное действие / Explicit action<select id="action"><option value="">Выберите / Choose…</option><option value="preserve">Preserve webhook</option><option value="set">Set webhook</option><option value="polling">Polling</option></select></label>
-<label>Область профиля / Profile scope<select id="scope"><option value="url_only">URL only (limited)</option><option value="full">Full private profile</option><option value="polling">Preserve source polling / Сохранить polling источника</option></select></label>
-<label>Webhook URL<input id="webhook" type="password" autocomplete="off" spellcheck="false"></label>
-</div><label>Private profile JSON (secret_token, certificate_pem, allowed_updates…)<textarea id="profile" autocomplete="off" spellcheck="false"></textarea></label>
-<label><input id="drop" type="checkbox"> Явный drop только на target / Drop only once on target</label>
-<label><input id="ack-scope" type="checkbox"> Принимаю ограничение URL-only / Acknowledge URL-only scope</label>
-<label><input id="queue-ack" type="checkbox"> Принимаю ограничение очереди Local → Cloud / Acknowledge queue limitation</label>
-<label>Cloud not-before (verified epoch seconds)<input id="cooldown" type="number" min="0"></label>
-</fieldset></form>
-<fieldset><legend>2 · Приватные подтверждения / Private provider receipts</legend><p class="muted">Signed provider JSON. Plain text and checkboxes do not prove external actions. Retain the original authority and backup. Full preserve without verified original private settings stays blocked.</p>
-<div class="grid"><label>Quiescence<textarea id="quiescence" spellcheck="false"></textarea></label><label>State transfer<textarea id="state-transfer" spellcheck="false"></textarea></label><label>Endpoint change<textarea id="endpoint-change" spellcheck="false"></textarea></label><label>Application start (after target verification)<textarea id="application-start" spellcheck="false"></textarea></label></div>
-<label>Reconciliation JSON: {"evidence": signed_receipt} or {"delivery": signed_receipt}<textarea id="evidence" spellcheck="false"></textarea></label></fieldset>
-<fieldset><legend>3 · Неизменяемая операция / Sealed operation</legend><p>Проверьте ID, digest, шаги, action/drop и checkpoints. Для apply/resume введите показанный digest. Потеря ответа UI требует status этой же операции. UNKNOWN detach/drop требует evidence.</p><label>Проверенный digest / Reviewed digest<input id="confirm-digest" autocomplete="off" spellcheck="false"></label><div class="actions"><button id="plan" type="button">Plan</button><button id="apply" type="button">Apply</button><button id="status" type="button">Status · offline</button><button id="refresh" type="button">Refresh</button><button id="resume" type="button">Resume</button><button id="reconcile" type="button">Reconcile</button><button id="export" type="button">Export</button></div></fieldset>
-<section><h2>Состояние / State</h2><p class="muted">Service readiness ≠ migration outcome ≠ webhook configuration ≠ delivery. HTTP 200 and matching URL do not prove delivery.</p><pre id="result" aria-live="polite"></pre></section>
-<section><h2>Безопасный экспорт / Redacted export</h2><pre id="export-result"></pre></section>
-</div><footer class="muted">No raw curl fallback. No automatic restart of a plan. Secrets stay in memory/private files.</footer>
-</main><script type="module" src="assets/js/migration-client.mjs"></script></body></html>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TG Selfhost BotAPI Migrator</title>
+  <style>
+    :root {
+      --primary: #0088cc;
+      --success: #4caf50;
+      --warning: #ff9800;
+      --danger: #f44336;
+      --dark: #333;
+      --light: #f5f5f5;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background-color: #f0f2f5; padding: 20px; line-height: 1.6; }
+    .container { max-width: 1000px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.1); overflow: hidden; }
+    header { background: var(--dark); color: white; padding: 20px; text-align: center; }
+    .content { padding: 30px; }
+    .card { background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 20px; border: 1px solid #e0e0e0; }
+    .card h2 { color: var(--dark); margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid var(--primary); }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: 600; color: #555; }
+    input, select, textarea { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(0,136,204,0.2); }
+    textarea { min-height: 120px; resize: vertical; }
+    .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+    button { flex: 1; min-width: 150px; padding: 12px 20px; border: none; border-radius: 4px; color: white; font-weight: 600; cursor: pointer; transition: all 0.3s; font-size: 16px; }
+    .btn-primary { background: var(--primary); }
+    .btn-success { background: var(--success); }
+    .btn-warning { background: var(--warning); }
+    .btn-danger { background: var(--danger); }
+    .btn-ghost { background: #6c757d; }
+    button:hover { opacity: 0.9; transform: translateY(-2px); }
+    button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+    .log-container { background: #1e1e1e; color: #dcdcdc; padding: 15px; border-radius: 5px; font-family: monospace; max-height: 300px; overflow-y: auto; margin-top: 20px; white-space: pre-wrap; }
+    .step-log { margin-bottom: 5px; padding: 8px; border-radius: 4px; }
+    .step-log.info { background: rgba(0, 136, 204, 0.1); }
+    .step-log.success { background: rgba(76, 175, 80, 0.1); color: #4caf50; }
+    .step-log.warning { background: rgba(255, 152, 0, 0.1); color: #ff9800; }
+    .step-log.error { background: rgba(244, 67, 54, 0.1); color: #f44336; }
+    .resume { padding: 15px; background: #e8f5e9; border-left: 4px solid var(--success); margin-top: 20px; border-radius: 4px; }
+    .resume .warning { color: var(--warning); }
+    .resume .error { color: var(--danger); }
+    .curl-plan { background: #1e1e1e; color: #dcdcdc; padding: 15px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; max-height: 400px; overflow-y: auto; font-family: monospace; }
+    .hidden { display: none; }
+    .check-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+    .check-item { font-size: 14px; padding: 8px; background: #f8f9fa; border-radius: 4px; }
+    .check-item.good { color: var(--success); }
+    .check-item.bad { color: var(--danger); }
+    .check-item.warn { color: var(--warning); }
+    .mode-selector { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 15px; }
+    .mode-btn { padding: 15px; text-align: center; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s; background: #f8f9fa; }
+    .mode-btn:hover { border-color: var(--primary); }
+    .mode-btn.active { border-color: var(--primary); background: rgba(0,136,204,0.1); font-weight: bold; }
+    @media (max-width: 768px) {
+      .btn-group { flex-direction: column; }
+      button { width: 100%; }
+      .mode-selector { grid-template-columns: 1fr; }
+      .check-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>TG Selfhost BotAPI Migrator</h1>
+            <p>Удобный инструмент для миграции ботов между серверами</p>
+        </header>
+        
+        <div class="content">
+            <!-- Режим и параметры -->
+            <div class="card">
+                <h2>1. Режим миграции</h2>
+                <div class="mode-selector" id="modeGrid">
+                    <div class="mode-btn active" data-mode="official-to-self">Official → Self</div>
+                    <div class="mode-btn" data-mode="self-to-self">Self → Self</div>
+                    <div class="mode-btn" data-mode="self-to-official">Self → Official</div>
+                    <div class="mode-btn" data-mode="hook-only">Webhook only</div>
+                </div>
+                <div id="modeDescription" class="hint" style="margin-top: 10px; padding: 10px; background: #f0f0f0; border-radius: 4px;">
+                    Official → Self: Переезд с api.telegram.org на свой Bot API. Включает logOut на official.
+                </div>
+                
+                <div class="form-group">
+                    <label for="botToken">Bot Token:</label>
+                    <input id="botToken" type="text" placeholder="123456:AA..." autocomplete="off" />
+                </div>
+                
+                <div class="form-group" id="oldApiBlock">
+                    <label for="oldApi">Старый Bot API:</label>
+                    <input id="oldApi" type="text" placeholder="https://api.telegram.org" />
+                </div>
+                
+                <div class="form-group" id="newApiBlock">
+                    <label for="newApi">Новый Bot API:</label>
+                    <input id="newApi" type="text" placeholder="https://your-server.com" />
+                </div>
+                
+                <div class="form-group">
+                    <label for="webhookUrl">Webhook URL:</label>
+                    <input id="webhookUrl" type="text" placeholder="https://mysite/hook" />
+                </div>
+                
+                <div class="form-group">
+                    <label class="check"><input id="dropPending" type="checkbox" /> Drop pending updates</label>
+                </div>
+                
+                <div class="btn-group" style="margin-top: 15px;">
+                    <button id="btnCheck" class="btn-primary">Проверить состояние</button>
+                    <button id="btnExecute" class="btn-success">Выполнить команды</button>
+                    <button id="btnCopyCurl" class="btn-ghost">Скопировать curl-план</button>
+                </div>
+                <div class="hint" style="margin-top: 10px; font-size: 13px; color: #666;">
+                    Запросы с токеном требуют подтверждения. При CORS/UNKNOWN сначала сверяйте состояние вручную; повторный план может повторить уже выполненную операцию.
+                </div>
+            </div>
+            
+            <!-- Быстрые проверки -->
+            <div class="card">
+                <h2>2. Быстрые проверки</h2>
+                <div class="check-grid" id="checksList">
+                    <div class="check-item" id="chkToken">Формат токена: не проверено</div>
+                    <div class="check-item" id="chkOldApi">Старый API: не проверено</div>
+                    <div class="check-item" id="chkNewApi">Новый API: не проверено</div>
+                    <div class="check-item" id="chkHook">Webhook URL: не проверено</div>
+                    <div class="check-item" id="chkHookTls">Сертификат: не проверено</div>
+                    <div class="check-item" id="chkCors">CORS: best effort</div>
+                </div>
+            </div>
+            
+            <!-- Резюме -->
+            <div class="card" id="resumeCard">
+                <h2>3. Резюме</h2>
+                <div id="summaryBox" class="resume">Пока пусто.</div>
+            </div>
+            
+            <!-- Лог выполнения -->
+            <div class="card">
+                <h2>4. Лог выполнения</h2>
+                <div id="logBox" class="log-container">Ожидание команды...</div>
+            </div>
+            
+            <!-- Curl-план -->
+            <div class="card">
+                <h2>5. Curl-план</h2>
+                <div class="hint" style="margin-bottom: 10px;">
+                    Для cloud → local и webhook-only: Bash-план с подтверждением и проверкой ответов.
+                    Для local → local и local → official: отдельные ручные этапы; автоматическое выполнение отключено.
+                </div>
+                <pre id="curlPlan" class="curl-plan">Сначала выбери режим и нажми «Проверить состояние».</pre>
+            </div>
+        </div>
+    </div>
+
+  <script>
+    const officialApi = 'https://api.telegram.org';
+    const els = Object.fromEntries([
+      'modeGrid','botToken','oldApi','newApi','webhookUrl','dropPending','btnCheck',
+      'btnExecute','btnCopyCurl','logBox','summaryBox','curlPlan','oldApiBlock','newApiBlock',
+      'chkToken','chkOldApi','chkNewApi','chkHook','chkHookTls','chkCors'
+    ].map(id => [id, document.getElementById(id)]));
+    const state = {mode:'official-to-self', currentWebhookFromCheck:'', checkedConfig:null,
+      busy:false, revision:0, guards:new Map(),
+      preflight:null, activeRun:null, history:[], nextOperation:1};
+    const stages = ['prepared','source_webhook_detached','source_disabled',
+      'target_authorized','delivery_configured','target_verified'];
+    // Public records deliberately exclude the token and the private configuration fingerprint.
+    function newOperation(cfg) {
+      const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
+      return {id:'operation-' + state.nextOperation++, revision:state.revision,
+        plan:Object.freeze({mode:cfg.mode, source:cfg.oldApi, target,
+          webhookIntent:maskHook(cfg.webhook), dropPending:cfg.dropPending}), botId:null,
+        expectedUrl:null, sourceObservation:null, finalObservation:null,
+        stages:Object.fromEntries(stages.map(stage => [stage, 'NOTRUN'])), receipts:[]};
+    }
+    function recordStage(run, stage, status, details = {}) {
+      run.stages[stage] = status;
+      run.receipts.push({stage, status, observedAt:new Date().toISOString(), ...details});
+    }
+    function operationOutcome(run) {
+      if (run.receipts.some(r => r.status === 'UNKNOWN')) return 'UNKNOWN';
+      const effects = run.receipts.some(r => r.status === 'CONFIRMED' && r.effect === true);
+      if (run.receipts.some(r => r.status === 'REJECTED')) return effects ? 'PARTIAL' : 'ERROR';
+      return run.stages.target_verified === 'CONFIRMED' ? 'SUCCESS' : (effects ? 'PARTIAL' : 'ERROR');
+    }
+    const norm = value => (value || '').trim().replace(/\/$/, '');
+    const tokenLooksValid = value => /^\d+:[A-Za-z0-9_-]{20,}$/.test(value || '');
+    function apiUrlValid(value) {
+      try {
+        const u = new URL(value);
+        return ['http:','https:'].includes(u.protocol) && !u.username && !u.password && !u.search && !u.hash;
+      } catch { return false; }
+    }
+    function hookUrlValid(value, targetIsCloud) {
+      if (!value) return true;
+      try { const u = new URL(value); return (u.protocol === 'https:' || (!targetIsCloud && u.protocol === 'http:')) && !u.username && !u.password && !u.hash; }
+      catch { return false; }
+    }
+    function currentConfig() {
+      return {mode:state.mode, token:els.botToken.value.trim(),
+        oldApi:state.mode === 'official-to-self' ? officialApi : norm(els.oldApi.value),
+        newApi:state.mode === 'self-to-official' ? officialApi : norm(els.newApi.value),
+        webhook:els.webhookUrl.value.trim(), dropPending:!!els.dropPending.checked};
+    }
+    const targetIsCloud = cfg => (cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi) === officialApi;
+    const sameConfig = (a, b) => !!a && !!b && ['mode','token','oldApi','newApi','webhook','dropPending'].every(k => a[k] === b[k]);
+    const guardKey = cfg => {
+      const prefix = cfg.token.split(':')[0];
+      return /^\d+$/.test(prefix) ? prefix.replace(/^0+(?=\d)/, '') : prefix;
+    };
+    const guardFor = cfg => state.guards.get(guardKey(cfg)) || {};
+    function setGuard(cfg, details) { state.guards.set(guardKey(cfg), {...guardFor(cfg), ...details}); }
+    const blocked = cfg => !!guardFor(cfg).reconcile || (!!guardFor(cfg).completed &&
+      (cfg.mode !== 'hook-only' || cfg.oldApi !== guardFor(cfg).target));
+    const isManual = cfg => ['self-to-self','self-to-official'].includes(cfg.mode);
+    function validate(cfg) {
+      if (!tokenLooksValid(cfg.token)) throw new Error('Проверьте формат токена.');
+      if (!apiUrlValid(cfg.oldApi)) throw new Error('Укажите известный исходный Bot API без credentials, query или fragment.');
+      if (cfg.mode !== 'hook-only' && (!apiUrlValid(cfg.newApi) || cfg.newApi === cfg.oldApi)) {
+        throw new Error('Укажите отдельный целевой Bot API.');
+      }
+      if (cfg.mode.startsWith('self-to-') && cfg.oldApi === officialApi) throw new Error('Укажите исходный local API.');
+      if (!hookUrlValid(cfg.webhook, targetIsCloud(cfg))) throw new Error(targetIsCloud(cfg) ? 'Для облачного Bot API webhook должен быть HTTPS URL без credentials и fragment.' : 'Для local Bot API webhook должен быть HTTP или HTTPS URL без credentials и fragment.');
+    }
+    function log(message, type = 'info') {
+      if (els.logBox.dataset.initialized !== 'true') { els.logBox.textContent = ''; els.logBox.dataset.initialized = 'true'; }
+      const entry = document.createElement('div');
+      entry.className = 'step-log ' + type;
+      entry.textContent = message;
+      els.logBox.appendChild(entry);
+    }
+    function maskHook(value) {
+      if (value === '') return '(пустой URL)';
+      if (value === '(пустой URL)' || value === '(некорректный URL скрыт)') return value;
+      try { const url = new URL(value); return url.origin + '/… (путь и параметры скрыты)'; }
+      catch { return '(некорректный URL скрыт)'; }
+    }
+    function setSummary(message) { els.summaryBox.textContent = message; }
+    function setCheck(el, message, good) { el.textContent = message; el.className = 'check-item ' + (good ? 'good' : 'warn'); }
+    function runLocalChecks() {
+      const cfg = currentConfig();
+      setCheck(els.chkToken, 'Формат токена: ' + (tokenLooksValid(cfg.token) ? 'корректен' : 'проверьте'), tokenLooksValid(cfg.token));
+      setCheck(els.chkOldApi, 'Исходный API: URL проверяется локально; автоматического определения нет', apiUrlValid(cfg.oldApi));
+      setCheck(els.chkNewApi, 'Целевой API: проверка адреса не авторизует бота', cfg.mode === 'hook-only' || apiUrlValid(cfg.newApi));
+      setCheck(els.chkHook, cfg.webhook ? (targetIsCloud(cfg) ? 'Webhook: для cloud обязателен HTTPS' : 'Webhook: для local допускаются HTTP и HTTPS') : 'Пусто: наследовать прежний webhook, если он задан', hookUrlValid(cfg.webhook, targetIsCloud(cfg)));
+      setCheck(els.chkHookTls, 'Доставка и TLS проверяются отдельно; запросы на webhook не отправляются', false);
+      setCheck(els.chkCors, 'CORS может скрыть ответ уже выполненной операции', false);
+    }
+    function invalidate() {
+      state.revision++; state.preflight = null;
+      state.currentWebhookFromCheck = ''; state.checkedConfig = null;
+      setSummary('Настройки изменены. Предыдущее состояние сброшено.');
+      els.btnCheck.disabled = state.busy || blocked(currentConfig());
+      els.btnExecute.disabled = state.busy || isManual(currentConfig()) || blocked(currentConfig());
+      els.btnCopyCurl.disabled = state.busy || blocked(currentConfig());
+      runLocalChecks(); buildPlan();
+    }
+    function applyMode() {
+      if (state.busy) return;
+      document.querySelectorAll('.mode-btn').forEach(card => card.classList.toggle('active', card.dataset.mode === state.mode));
+      els.oldApiBlock.style.display = state.mode === 'official-to-self' ? 'none' : 'block';
+      els.newApiBlock.style.display = ['hook-only','self-to-official'].includes(state.mode) ? 'none' : 'block';
+      els.oldApi.readOnly = state.mode === 'official-to-self';
+      if (state.mode === 'official-to-self') els.oldApi.value = officialApi;
+      else if (els.oldApi.value === officialApi) els.oldApi.value = '';
+      els.btnExecute.disabled = isManual(currentConfig()) || blocked(currentConfig());
+      els.btnCopyCurl.disabled = blocked(currentConfig());
+      document.getElementById('modeDescription').textContent = {
+        'official-to-self':'Остановите старых API-клиентов. После согласия: source logOut, затем первый запрос к target. Очередь не гарантируется.',
+        'self-to-self':'Только ручные этапы: detach/close → перенос согласованного state → target. Одношаговое выполнение отключено.',
+        'self-to-official':'Только ручной план: local logOut перед cloud. Локальный state в облако не переносится; очередь может быть очищена.',
+        'hook-only':'Изменение webhook на явно выбранном API; без logOut и close. Пустое поле наследует прежний URL.'
+      }[state.mode];
+      invalidate();
+    }
+    async function fetchJson(url, options = {}) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const res = await fetch(url, {...options, redirect:'error', signal:controller.signal});
+        const text = await res.text();
+        let json = null;
+        try { json = JSON.parse(text); } catch { /* preserve HTTP status without trusting the body */ }
+        return {ok:res.ok, status:res.status, json, observedAt:Date.now()};
+      } finally { clearTimeout(timer); }
+    }
+    async function probe(base) {
+      try {
+        const r = await fetchJson(base + '/');
+        if (r.status !== 404 || r.json.ok !== false || r.json.error_code !== 404 || r.json.description !== 'Not Found') throw new Error();
+      } catch { throw new Error('Target не прошёл проверку без токена. Исходный сервер не изменён.'); }
+    }
+    async function api(base, token, method, data) {
+      const mutation = !['getMe','getWebhookInfo'].includes(method);
+      const options = mutation ? {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams(data || {}).toString()} : {};
+      let r;
+      try { r = await fetchJson(`${base}/bot${token}/${method}`, options); }
+      catch { throw apiFailure(method, 'UNKNOWN', null, null, null); }
+      const envelope = r.json;
+      if (!r.ok && envelope?.ok === false && Number.isSafeInteger(envelope.error_code) && envelope.error_code === r.status) {
+        const seconds = envelope.parameters?.retry_after;
+        let deadline = null;
+        if (Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= Math.floor((8640000000000000 - r.observedAt) / 1000)) {
+          deadline = r.observedAt + seconds * 1000;
+        }
+        throw apiFailure(method, 'REJECTED', r.status, envelope.error_code, deadline);
+      }
+      const valid = r.ok && envelope?.ok === true &&
+        (method === 'getMe' ? Number.isSafeInteger(envelope.result?.id) && envelope.result.id > 0 :
+         method === 'getWebhookInfo' ? typeof envelope.result?.url === 'string' : envelope.result === true);
+      if (!valid) throw apiFailure(method, 'UNKNOWN', r.status, null, null);
+      return r.json.result;
+    }
+    function apiFailure(method, certainty, httpStatus, apiCode, retryNotBefore) {
+      const retry = retryNotBefore === null ? '' : ` Повтор не ранее ${new Date(retryNotBefore).toISOString()} (осталось ${Math.max(0, Math.ceil((retryNotBefore - Date.now()) / 1000))} с).`;
+      const error = new Error(`${method}: ${certainty}; цепочка остановлена.${retry}`);
+      Object.assign(error, {certainty, httpStatus, apiCode, retryNotBefore, method});
+      return error;
+    }
+    function consent(cfg, action) {
+      return confirm(`${action}\nSource: ${cfg.oldApi}\nTarget: ${cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi}\nWebhook: ${cfg.webhook || 'наследовать прежний, если задан'}\nDrop updates: ${cfg.dropPending}\nПроверка адреса не подтверждает подлинность узла. Старые API-клиенты остановлены? Разрешить запросы с токеном?`);
+    }
+    async function withLock(action) {
+      if (state.busy) return;
+      state.busy = true;
+      const initial = currentConfig();
+      const controls = [els.botToken,els.oldApi,els.newApi,els.webhookUrl,els.dropPending,els.btnCheck,els.btnExecute,els.btnCopyCurl];
+      controls.forEach(el => el.disabled = true);
+      try { await action(); }
+      catch (error) { log(error.message, 'error'); setSummary(error.message); }
+      finally {
+        state.busy = false;
+        if (!sameConfig(initial, currentConfig())) invalidate();
+        controls.forEach(el => el.disabled = false);
+        els.btnExecute.disabled = isManual(currentConfig()) || blocked(currentConfig());
+        els.btnCheck.disabled = blocked(currentConfig());
+        els.btnCopyCurl.disabled = blocked(currentConfig());
+        buildPlan();
+      }
+    }
+    async function checkCurrentState() {
+      return withLock(async () => {
+        const cfg = currentConfig(); validate(cfg);
+        if (blocked(cfg)) throw new Error('Сначала вручную сверьте исход предыдущей операции; повторный вход заблокирован.');
+        if (guardFor(cfg).retryNotBefore > Date.now()) throw new Error('Действует ограничение retry_after до ' + new Date(guardFor(cfg).retryNotBefore).toISOString());
+        state.currentWebhookFromCheck = ''; state.checkedConfig = null; state.preflight = null;
+        if (!consent(cfg, 'Чтение только известного source; это не обнаружение текущего сервера.')) return;
+        let identity, hook;
+        try {
+          identity = await api(cfg.oldApi, cfg.token, 'getMe');
+          hook = await api(cfg.oldApi, cfg.token, 'getWebhookInfo');
+        } catch (error) {
+          if (error.retryNotBefore != null) setGuard(cfg, {retryNotBefore:error.retryNotBefore});
+          throw error;
+        }
+        if (!sameConfig(cfg, currentConfig())) return;
+        state.currentWebhookFromCheck = hook.url;
+        state.checkedConfig = cfg;
+        state.preflight = {revision:state.revision, botId:identity.id};
+        setSummary('Состояние source прочитано. Профиль и secret_token сохраняйте отдельно.');
+        buildPlan();
+      });
+    }
+    // A generated local migration is deliberately a checklist, never copy-all code.
+    function manualPlan(cfg) {
+      if (cfg.mode === 'self-to-self') return [
+        '# Этап 1 — только исходный сервер ' + cfg.oldApi,
+        '# Остановите API-клиентов/pollers/retries, сохраните профиль и согласованную резервную копию.',
+        '# На source: deleteWebhook без намеренного сброса, затем close; требуются HTTP success, ok=true, result=true.',
+        '# Ошибка, 429/retry_after или UNKNOWN: СТОП, target не вызывайте.',
+        '# СТОП — внешний перенос и проверка state. Выполнение из браузера отключено.',
+        '# Перенос per-bot каталога не переносит общую tqueue.binlog. Не объединяйте shared binlogs.',
+        '# Этап 2 — отдельно, после подтверждённого переноса и отсутствия прежних writers:',
+        '# На target ' + cfg.newApi + ': первый getMe, затем восстановление полного webhook-профиля или явного polling.',
+        '# Проверьте конфигурацию и доставку тестового update; только затем возобновите API-клиентов.',
+        '# Подробный per-bot/cold-transfer runbook: docs/ru/migration.html'
+      ];
+      return [
+        '# Ручной возврат local → official; browser execution отключён.',
+        '# Обработайте backlog или явно примите потерю очереди; остановите старые API-клиенты.',
+        '# На source ' + cfg.oldApi + ': сохраните профиль, deleteWebhook, затем успешный logOut.',
+        '# logOut может очистить локальную очередь. drop_pending_updates=false это не отменяет.',
+        '# Ошибка/UNKNOWN: СТОП. Нельзя входить на обе стороны для проверки.',
+        '# После подтверждённого source logOut и доступности cloud: первый getMe на ' + officialApi,
+        '# Локальный state в cloud не копируется. Восстановите профиль/явный polling и проверьте доставку.'
+      ];
+    }
+    const shellQuote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
+    function buildCommands(cfg) {
+      if (isManual(cfg)) return manualPlan(cfg);
+      const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
+      const drop = cfg.dropPending ? 'true' : 'false';
+      const commands = [
+        '# Bash + curl + jq. Остановите старых API-клиентов; проверьте адреса и полный профиль.',
+        'set -euo pipefail',
+        'phase=prepared; progress=0',
+        'fail() { local outcome="$1" reason="$2"; echo "$outcome phase=$phase progress=$progress $reason" >&2; return 1; }',
+        'api() {',
+        '  local base="$1" method="$2" response status outcome retry now; shift 2',
+        '  response=$(curl -q -sS --connect-timeout 5 --max-time 30 -w "\\n%{http_code}" "$base/bot$BOT_TOKEN/$method" "$@" 2>/dev/null) || { fail UNKNOWN "response unavailable"; return 1; }',
+        "  status=${response##*$'\\n'}",
+        "  response=${response%$'\\n'*}",
+        '  if [[ ! $status =~ ^2[0-9][0-9]$ ]] && jq -e --argjson status "$status" ".ok == false and .error_code == \\$status" >/dev/null 2>&1 <<<"$response"; then',
+        '    outcome=ERROR; (( progress > 0 )) && outcome=PARTIAL',
+        '    retry=$(jq -r \'if (.parameters.retry_after | type == "number" and . >= 0 and . == floor and . <= 2147483647) then .parameters.retry_after else empty end\' <<<"$response")',
+        '    if [[ -n $retry ]]; then now=$(date +%s); echo "retryNotBefore_epoch=$((now + retry))" >&2; fi',
+        '    fail "$outcome" "HTTP/API $status rejected"; return 1',
+        '  fi',
+        '  [[ $status =~ ^2[0-9][0-9]$ ]] && jq -e ".ok == true" >/dev/null 2>&1 <<<"$response" || { fail UNKNOWN "unreliable response"; return 1; }',
+        '  case "$method" in',
+        '    getMe) jq -e \'.result.id | type == "number"\' >/dev/null <<<"$response" ;;',
+        '    getWebhookInfo) jq -e \'.result.url | type == "string"\' >/dev/null <<<"$response" ;;',
+        '    *) jq -e ".result == true" >/dev/null <<<"$response" ;;',
+        '  esac || { fail UNKNOWN "invalid result"; return 1; }',
+        '  printf "%s" "$response"',
+        '}'
+      ];
+      if (cfg.mode === 'official-to-self') commands.push(
+        `probe=$(curl -q -sS --connect-timeout 5 --max-time 10 -w '\\n%{http_code}' ${shellQuote(target + '/')}) || { fail UNKNOWN "probe unavailable"; exit 1; }`,
+        "[[ ${probe##*$'\\n'} == 404 ]] || { fail UNKNOWN \"probe unexpected response\"; exit 1; }",
+        "jq -e '.ok == false and .error_code == 404 and .description == \"Not Found\"' >/dev/null <<<\"${probe%$'\\n'*}\" || { fail UNKNOWN \"probe envelope invalid\"; exit 1; }"
+      );
+      commands.push(
+        `printf '%s\\n' ${shellQuote('Source: ' + cfg.oldApi)} ${shellQuote('Target: ' + target)} 'Webhook: вводится отдельно или наследуется' ${shellQuote('Drop updates: ' + drop)}`,
+        'read -r -p "Allow token-bearing requests? [y/N]: " answer || exit 0',
+        'case "$answer" in y|Y|yes|YES) ;; *) exit 0 ;; esac',
+        'read -rsp "Bot token: " BOT_TOKEN; printf "\\n"',
+        `source_me=$(api ${shellQuote(cfg.oldApi)} getMe)`,
+        'source_id=$(jq -r .result.id <<<"$source_me"); [[ $source_id == "${BOT_TOKEN%%:*}" ]] || { fail ERROR "source identity mismatch"; exit 1; }',
+        `source_hook=$(api ${shellQuote(cfg.oldApi)} getWebhookInfo)`,
+        'read -rsp "Webhook URL (empty to inherit): " hook; printf "\\n"',
+        'if [[ -z "$hook" ]]; then hook=$(jq -r .result.url <<<"$source_hook"); fi'
+      );
+      if (cfg.mode === 'official-to-self') commands.push(
+        'phase=source_webhook_detached',
+        `api ${shellQuote(cfg.oldApi)} deleteWebhook -X POST --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null; progress=1`,
+        'phase=source_disabled',
+        `api ${shellQuote(cfg.oldApi)} logOut -X POST >/dev/null; progress=2`,
+        'phase=target_authorized',
+        `target_me=$(api ${shellQuote(target)} getMe)`,
+        '[[ $(jq -r .result.id <<<"$target_me") == "$source_id" ]] || { fail PARTIAL "target identity mismatch"; exit 1; }',
+        'progress=3'
+      );
+      commands.push('phase=delivery_configured', 'if [[ -n "$hook" ]]; then',
+        `  api ${shellQuote(target)} setWebhook -X POST --data-urlencode "url=$hook" --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`);
+      if (cfg.mode === 'hook-only') commands.push('else',
+        `  api ${shellQuote(target)} deleteWebhook -X POST --data-urlencode ${shellQuote('drop_pending_updates=' + drop)} >/dev/null`);
+      commands.push('fi', 'progress=4; phase=target_verified', `final=$(api ${shellQuote(target)} getWebhookInfo)`,
+        'jq -e --arg expected "$hook" \'.result.url == $expected\' >/dev/null <<<"$final" || { fail PARTIAL "target URL mismatch"; exit 1; }',
+        'echo "SUCCESS phase=$phase progress=$progress" >&2',
+        'unset BOT_TOKEN', '# URL readback не доказывает доставку. Проверьте полный профиль и тестовый update.');
+      return commands;
+    }
+    function buildPlan() {
+      const cfg = currentConfig();
+      if (guardFor(cfg).retryNotBefore > Date.now()) {
+        els.curlPlan.textContent = '# Ожидание retry_after до ' + new Date(guardFor(cfg).retryNotBefore).toISOString() + '; автоматического повтора нет.';
+        return;
+      }
+      if (state.busy) {
+        els.curlPlan.textContent = '# Операция выполняется; план недоступен до её завершения.';
+        return;
+      }
+      if (blocked(cfg)) {
+        els.curlPlan.textContent = guardFor(cfg).reconcile
+          ? '# Сначала вручную сверьте исход предыдущей операции; повторное выполнение заблокировано.'
+          : '# Сверьте состояние через getWebhookInfo на целевом API. Повторные запросы с токеном к source заблокированы.';
+        return;
+      }
+      els.curlPlan.textContent = buildCommands(cfg).join('\n');
+    }
+    async function copyCurlPlan() {
+      if (state.busy) return;
+      buildPlan();
+      try { await navigator.clipboard.writeText(els.curlPlan.textContent); log('План скопирован.'); }
+      catch { log('Скопируйте план вручную.', 'warning'); }
+    }
+    async function executeInBrowser() {
+      return withLock(async () => {
+        const cfg = currentConfig(); validate(cfg); buildPlan();
+        if (guardFor(cfg).retryNotBefore > Date.now()) throw new Error('Действует ограничение retry_after до ' + new Date(guardFor(cfg).retryNotBefore).toISOString());
+        if (blocked(cfg)) throw new Error('Сначала сверьте исход предыдущей операции вручную; повторное выполнение заблокировано.');
+        if (isManual(cfg)) throw new Error('Этот переход выполняется только по отдельным ручным этапам; см. план.');
+        if (cfg.mode === 'official-to-self') await probe(cfg.newApi);
+        if (!consent(cfg, 'Выполнение изменит webhook/сессию. Полный профиль восстанавливается отдельно.')) return;
+        const run = newOperation(cfg); state.activeRun = run; state.history.push(run);
+        const target = cfg.mode === 'hook-only' ? cfg.oldApi : cfg.newApi;
+        let currentStage = 'prepared';
+        const step = async (stage, role, method, data, effect = false) => {
+          currentStage = stage; run.stages[stage] = 'RUNNING';
+          try {
+            const result = await api(role === 'source' ? cfg.oldApi : target, cfg.token, method, data);
+            recordStage(run, stage, 'CONFIRMED', {method, role, effect});
+            return result;
+          } catch (error) {
+            if (error.retryNotBefore != null) setGuard(cfg, {retryNotBefore:error.retryNotBefore});
+            const uncertain = error.certainty === 'UNKNOWN' && (effect || run.receipts.some(r => r.effect));
+            recordStage(run, stage, uncertain ? 'UNKNOWN' : 'REJECTED', {method, role,
+              httpStatus:error.httpStatus ?? null, apiCode:error.apiCode ?? null,
+              retryNotBefore:error.retryNotBefore ?? null, effect:false});
+            throw error;
+          }
+        };
+        try {
+          const source = await step('prepared', 'source', 'getMe');
+          run.botId = source.id;
+          const prefix = Number(cfg.token.split(':')[0]);
+          if (source.id !== prefix || (sameConfig(state.checkedConfig, cfg) && state.preflight && state.preflight.botId !== source.id)) throw new Error('ID исходного бота не совпадает с проверенным планом.');
+          const info = await step('prepared', 'source', 'getWebhookInfo');
+          const hook = cfg.webhook || info.url;
+          run.sourceObservation = {url:maskHook(info.url), endpoint:cfg.oldApi, observedAt:new Date().toISOString()};
+          run.expectedUrl = maskHook(hook);
+          const drop = {drop_pending_updates:String(cfg.dropPending)};
+          if (cfg.mode === 'official-to-self') {
+            await step('source_webhook_detached', 'source', 'deleteWebhook', drop, true);
+            await step('source_disabled', 'source', 'logOut', {}, true);
+            const targetBot = await step('target_authorized', 'target', 'getMe', undefined, true);
+            if (targetBot.id !== source.id) throw new Error('ID бота на target не совпадает с source.');
+          }
+          if (hook) await step('delivery_configured', 'target', 'setWebhook', {...drop,url:hook}, true);
+          else if (cfg.mode === 'hook-only') await step('delivery_configured', 'target', 'deleteWebhook', drop, true);
+          const final = await step('target_verified', 'target', 'getWebhookInfo');
+          run.finalObservation = {url:maskHook(final.url), endpoint:target, observedAt:new Date().toISOString()};
+          if (final.url !== hook) throw new Error('Итоговый webhook не совпадает; проверьте состояние вручную.');
+          if (cfg.mode === 'official-to-self') setGuard(cfg, {completed:true, target});
+          log('Конфигурация проверена. Проверьте полный профиль и доставку тестового update.', 'success');
+        } catch (error) {
+          if (!run.receipts.length || run.receipts[run.receipts.length - 1].status === 'CONFIRMED')
+            recordStage(run, currentStage, 'REJECTED', {effect:false});
+          if (run.receipts.some(r => r.effect || r.status === 'UNKNOWN')) setGuard(cfg, {reconcile:true});
+          log(error.message, 'error');
+        }
+        const last = run.receipts[run.receipts.length - 1];
+        const observation = run.finalObservation;
+        const sourceObservation = run.sourceObservation;
+        const journal = run.receipts.map(r => `${r.stage}: ${r.status} ${r.method || ''} ${r.role || ''} ${r.observedAt}`).join('\n');
+        setSummary(`${operationOutcome(run)} | ${run.id} | bot ID: ${run.botId ?? 'неизвестно'}\nSource: ${run.plan.source}\nTarget: ${run.plan.target}\nSource URL: ${sourceObservation ? maskHook(sourceObservation.url) + ' (' + sourceObservation.endpoint + ', ' + sourceObservation.observedAt + ')' : 'неизвестно'}\nОжидание: ${run.expectedUrl == null ? 'неизвестно' : maskHook(run.expectedUrl)}\nФактический target URL: ${observation ? maskHook(observation.url) + ' (' + observation.endpoint + ', ' + observation.observedAt + ')' : 'неизвестно'}\nЭтап: ${last?.stage ?? 'неизвестно'}; HTTP/API: ${last?.httpStatus ?? '—'}/${last?.apiCode ?? '—'}; retry: ${last?.retryNotBefore == null ? '—' : new Date(last.retryNotBefore).toISOString()}\n${journal}\nДоставка требует отдельной проверки.`);
+        state.activeRun = null;
+      });
+    }
+    document.querySelectorAll('.mode-btn').forEach(card => card.addEventListener('click', () => {
+      if (state.busy) return;
+      state.mode = card.dataset.mode; applyMode();
+    }));
+    [els.botToken,els.oldApi,els.newApi,els.webhookUrl,els.dropPending].forEach(el => {
+      for (const event of ['input','change']) el.addEventListener(event, () => { if (!state.busy) invalidate(); });
+    });
+    els.btnCheck.addEventListener('click', checkCurrentState);
+    els.btnExecute.addEventListener('click', executeInBrowser);
+    els.btnCopyCurl.addEventListener('click', copyCurlPlan);
+    applyMode();
+
+  </script>
+  <script type="module" src="assets/js/migration-client.mjs"></script>
+</body>
+</html>
