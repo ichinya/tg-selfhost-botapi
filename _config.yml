@@ -32,6 +32,13 @@ exclude:
   - data
   - logs
   - .site-check
+  - examples
+  - Dockerfile.downloads
+  - docker-compose.files.yml
+  - docker-compose.downloads.yml
+  - media
+  - secrets
+  - files
 navigation:
   en:
     - title: Overview

@@ -289,7 +289,17 @@ def nginx_routes(tree):
                              and all(not nested and len(values) == 1
                                      and (key == "default" or key.startswith("~"))
                                      for key, values, nested in children))
+                supported |= (args == ["$request_uri", "$legacy_file_request"] and children == [
+                    ("default", ["0"], []), (r"~^/file(?:/|%2[fF]|%25|\?|$)", ["1"], [])])
                 unknown |= not supported
+                continue
+            if name == "if":
+                if args == ["($legacy_file_request)"] and children == [("return", ["404"], [])]:
+                    continue
+                unknown = True
+            elif name == "return":
+                if args != ["404"] or children:
+                    unknown = True
                 continue
             if name in {"root", "alias"}:
                 if len(args) != 1 or "$" in args[0] or not args[0].startswith("/"):
@@ -301,9 +311,6 @@ def nginx_routes(tree):
                     unknown = True
                 else:
                     proxies.append(args[0])
-            elif name == "return":
-                if len(args) != 1 or not re.fullmatch(r"[0-9]{3}", args[0]) or children:
-                    unknown = True
             elif name == "listen":
                 if not args:
                     unknown = True
@@ -332,6 +339,15 @@ def backing(path, mounts):
     if not mount or not mount.get("Source"):
         return None
     return posixpath.normpath(mount["Source"] + "/" + posixpath.relpath(path, mount["Destination"]))
+
+
+def media_conflicts(media, private, mounts):
+    """Compare both namespace paths and their resolved Docker backings."""
+    if not media or not private or not all(isinstance(p, str) and p.startswith('/') for p in [media, *private]):
+        return None
+    source = backing(media, mounts)
+    return any(overlaps(media, p) or (source and backing(p, mounts)
+               and overlaps(source, backing(p, mounts))) for p in private)
 
 
 INPUT_BOOLS = {"workflow_prepared", "webhook_profile_prepared", "drop_pending_updates", "source_backup_prepared"}
@@ -397,7 +413,7 @@ def migration_checks(scenario, data):
     access = data.get("file_access")
     if access == "remote_authenticated":
         result.append(check("migration.file_access", "unknown", "file_contract_unverified", "Remote authenticated file access requires an independently verified contract at the boundary of issue #5.",
-                            provenance="declared", remediation="Verify the authenticated file workflow separately; doctor v1 does not implement or certify a download service."))
+                            provenance="declared", remediation="Run tools/check_file_contract.py independently; doctor does not certify remote auth from a declaration or receipt."))
     else:
         add("file_access", True if access else None)
     # False is a valid explicit queue decision, not a rejected plan.

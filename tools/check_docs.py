@@ -6,6 +6,15 @@ from urllib.parse import unquote, urlsplit
 
 
 BASE = "/tg-selfhost-botapi"
+PRIVATE_CONTENT = ("Dockerfile", "Dockerfile.downloads", "nginx.conf", "docker-entrypoint.sh",
+                   "docker-compose.yml", "docker-compose.build.yml", "docker-compose.files.yml",
+                   "docker-compose.downloads.yml", "migrate_off_to_self.sh", "tools", "data",
+                   "examples", "media", "secrets", "files", "logs")
+
+
+def check_private_content(root):
+    return [f"Non-documentation content published: {name}"
+            for name in PRIVATE_CONTENT if (root / name).exists()]
 
 
 class Page(HTMLParser):
@@ -66,9 +75,7 @@ def check(root):
     retained = root / source.name
     if retained.is_file() and retained.read_bytes() != source.read_bytes():
         errors.append("The original migrator must be copied without changes")
-    for private in ("Dockerfile", "nginx.conf", "docker-entrypoint.sh", "migrate_off_to_self.sh", "tools", "data", "logs"):
-        if (root / private).exists():
-            errors.append(f"Non-documentation content published: {private}")
+    errors.extend(check_private_content(root))
     if errors:
         raise SystemExit("\n".join(errors))
     print(f"Checked {len(pages)} HTML pages, internal links, language navigation and migrator compatibility.")

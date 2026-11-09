@@ -5,7 +5,35 @@ translation: /docs/en/maintenance.html
 
 # Обслуживание
 
+Перед первым включением split storage создайте новый пустой host-каталог командой
+`sudo install -d -m 0770 -o 101 -g 101 ./media`: Compose отказывает при отсутствии
+root. Не применяйте эту команду рекурсивно к существующему cache.
+
+Для split storage нужно окно обслуживания: остановите клиентов и writers,
+согласованно сохраните private state и конфигурацию, затем включите files override.
+Создаётся новый media cache; старые загрузки и сохранённые абсолютные пути
+автоматически не переносятся. Legacy storage остаётся приватным; повторите getFile
+для сохранённых file_id. Identity и реальные modes TDLib проверяются на конкретном
+образе; исходники и unit-проверки не подтверждают права production.
+
+
+Doctor проверяет persistence split media и разделение private backings без
+скачивания реальных файлов. Optional handlers и consumer mapping остаются UNKNOWN;
+нужен независимый synthetic file gate и проверка развёрнутого mapping.
+
 ## Сборка образа
+
+Build key Bot API включает resolved revisions/digests и file-contract recipe,
+tests/configs. У downloads отдельный key с immutable Python base. Даже если Bot API
+переиспользуется из registry, текущий file gate проверяет точную пару образов снова.
+После gate и проверки Pages публикуются `tg-selfhost-botapi:build-<key>` и
+`tg-selfhost-botapi-downloads:build-<downloads-key>` в GHCR, затем без пересборки
+продвигаются их `latest`.
+
+Отдельный `files.yml` выполняет полный unit discovery на чистом checkout, Compose
+combinations, state isolation, local/TLS/security integration и docs checks.
+Недоступные локальные runtime-проверки — `verification deferred to CI/gates`;
+для публикации CI обязан их пройти. Публикация не развёртывает и не проверяет VPS.
 
 Workflow проверяет официальный исходник tdlib и digest Alpine 3.22 каждую ночь
 около **04:37 Asia/Yekaterinburg** (23:37 UTC), при изменении основной ветки и
@@ -20,7 +48,10 @@ Workflow проверяет официальный исходник tdlib и dig
 1. Проверяет применимость патча User-Agent к выбранной официальной ревизии.
 2. Компилирует весь сервер.
 3. Выполняет `--version`, проверяет строку заголовка в бинарнике и синтаксис entrypoint.
-4. Публикует `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` и продвигает `latest`.
+4. Собирает downloads, проверяет точную пару через synthetic local/TLS/security
+   matrix и actual startup без сети, сохраняет IDs/source hashes и проверяет Pages.
+5. Публикует проверенные Bot API/downloads `build-<key>` и продвигает их `latest`
+   без пересборки.
 
 Ошибка проверки оставляет прежний опубликованный `latest`. Из PR публикации нет.
 Наличие строки в бинарнике не заменяет проверку доставки реального webhook.
@@ -30,6 +61,34 @@ Workflow проверяет официальный исходник tdlib и dig
 публичность пакета либо авторизацию клиентов.
 
 ## Обновление установки
+
+### Включение split storage и откат
+
+1. Остановите клиентов, downloads, writers Bot API и supervisors, которые их
+   перезапускают. Согласованно сохраните private state, identity образа, Compose/env,
+   secret files и отдельно media для уже разделённой установки.
+2. В окно обслуживания включите `docker-compose.files.yml` с проверенным образом
+   и конфигурацией. Не копируйте state/binlogs в media и не исправляйте пути TDLib
+   DB вручную. По умолчанию переход создаёт новый media cache.
+3. Повторите getFile по сохранённым file_id. Перед доступом consumers проверьте
+   новую media subtree, bytes/digest, ownership и mapping. Если upstream вернул
+   старый private path, оставьте отказ и разберитесь в причине; доступ к state
+   расширять нельзя. Сохранность старого cache/path не обещается. Холодный перенос
+   с сохранением путей требует отдельной проверки выбранной upstream-версии.
+4. Для rollback остановите новых writers и восстановите совместимые image,
+   конфигурацию, private state и прежний layout из согласованного backup. Одного
+   отката образа недостаточно. При self-to-self снимки media и state согласуются.
+
+Не меняйте права cache рекурсивно и не открывайте его всем. Проверьте реальные
+TDLib modes и UID/GID 101:101; reader использует ту же identity либо отдельно
+проверенную read/traverse ACL. Каждому reader/handler — одна RO subtree, без parent,
+соседних ботов, private temp/log/secrets и nested mounts. Local API и writer
+доверенные; взаимно недоверенным операторам нужны отдельные instances/storage.
+
+Для ротации замените защищённый Bearer-файл и перезапустите downloads. Проверьте
+401 со старым credential и synthetic bytes с новым. Cache eviction, I/O timeout
+30 секунд и общий deadline могут прервать передачу; Range/resume и retention SLA
+не обещаются. Не вставляйте token-bearing paths в отчёты.
 
 Публикация в registry не перезапускает VPS. Выберите проверенный тег/digest через
 `BOTAPI_IMAGE` в `.env`, затем:

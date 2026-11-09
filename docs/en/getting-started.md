@@ -5,6 +5,31 @@ translation: /docs/ru/getting-started.html
 
 # Getting started
 
+File downloads require the explicit split-storage override and a scoped reader:
+see [configuration](configuration.md) and the
+[runnable examples](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+Do not append an absolute getFile path to an HTTP URL. Missing bot directories
+must fail closed; never fix a missing mount by exposing the whole private cache.
+
+For file-enabled installations, keep the same ordered files on every command:
+
+```sh
+sudo install -d -m 0770 -o 101 -g 101 ./media
+docker compose -f docker-compose.yml -f docker-compose.files.yml up -d
+# Local reader, after setting the private bindings described in the example:
+docker compose -f docker-compose.yml -f docker-compose.files.yml \
+  -f examples/files/compose.local.yml run --rm reader '<FILE_ID>' > downloaded.bin
+# Remote per-bot handler (qualified DOWNLOADS_IMAGE and protected files required):
+docker compose -f docker-compose.yml -f docker-compose.files.yml \
+  -f docker-compose.downloads.yml up -d
+```
+
+For a local Bot API build insert `-f docker-compose.build.yml` immediately after
+the base file and use `up -d --build`. Build the downloads image separately with
+`docker build -f Dockerfile.downloads -t downloads-candidate:check .`; set
+`DOWNLOADS_IMAGE` only to a candidate qualified by the file gate. API port is
+18080; downloads HTTP port is loopback 18082 behind the supplied TLS frontend.
+
 ## Requirements
 
 - Docker with Compose v2.

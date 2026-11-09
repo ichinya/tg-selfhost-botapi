@@ -84,24 +84,54 @@ jobs:
             BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
             ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
             BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
-            BUILD_JOBS=2
+            BUILD_JOBS=1
+      - name: Load reused candidate for fresh qualification
+        if: steps.existing.outputs.exists == 'true' && github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ steps.existing.outputs.image }}
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+        run: |
+          docker pull "$IMAGE:build-$BUILD_FINGERPRINT"
+          docker tag "$IMAGE:build-$BUILD_FINGERPRINT" botapi-candidate:check
       - name: Smoke-test built binary
-        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
         run: |
           docker run --rm botapi-candidate:check --version
           docker run --rm --entrypoint sh botapi-candidate:check -ec \
             'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
+      - name: Build downloads pair and qualify exact images
+        env:
+          PYTHON_IMAGE: ${{ steps.inputs.outputs.python_image }}
+        run: |
+          docker build -f Dockerfile.downloads --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
+          python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
+            --downloads-image downloads-candidate:check --report "$RUNNER_TEMP/file-report.json"
+      - name: Build Pages before promotion
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./.site-check
+      - name: Check rendered docs and private exclusions
+        run: python3 tools/check_docs.py .site-check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-file-contract-receipt
+          path: ${{ runner.temp }}/file-report.json
       - name: Publish tested build then promote latest
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
           IMAGE: ${{ steps.existing.outputs.image }}
           BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
           EXISTS: ${{ steps.existing.outputs.exists }}
+          DOWNLOADS_FINGERPRINT: ${{ steps.inputs.outputs.downloads_key }}
         run: |
           if [ "$EXISTS" != true ]; then
             docker tag botapi-candidate:check "$IMAGE:build-$BUILD_FINGERPRINT"
             docker push "$IMAGE:build-$BUILD_FINGERPRINT"
           fi
-          # Existing immutable builds have already passed the same checks.
+          # Both new and reused candidates passed this run's exact-pair gates.
+          docker tag downloads-candidate:check "$IMAGE-downloads:build-$DOWNLOADS_FINGERPRINT"
+          docker push "$IMAGE-downloads:build-$DOWNLOADS_FINGERPRINT"
+          docker buildx imagetools create --tag "$IMAGE-downloads:latest" "$IMAGE-downloads:build-$DOWNLOADS_FINGERPRINT"
           docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:build-$BUILD_FINGERPRINT"
           echo "Published $IMAGE:build-$BUILD_FINGERPRINT" >> "$GITHUB_STEP_SUMMARY"

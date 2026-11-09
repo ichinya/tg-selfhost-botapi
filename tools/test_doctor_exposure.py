@@ -8,13 +8,29 @@ from doctor_runtime import Installation
 
 
 class ExposureTests(unittest.TestCase):
+    def test_split_media_consumers_are_scoped_readonly_and_still_unknown(self):
+        for source, rw, unsafe in (('/host/media/bot-a', False, False),
+                                   ('/host/media', False, True),
+                                   ('/host/media/bot-a', True, True),
+                                   ('/host/state', False, True)):
+            obj = Installation(parser().parse_args(['--scenario', 'official-to-self']), None, None, [], [])
+            obj.process = dict(work='/state', temp='/temp', files='/media')
+            obj.containers = {'botapi': {'Mounts': [dict(Destination='/state', Source='/host/state'),
+                dict(Destination='/media', Source='/host/media')]},
+                'downloads': {'Mounts': [dict(Source=source, Destination='/media/bot-a', RW=rw)]}}
+            obj.exposure()
+            self.assertEqual(unsafe, any(c['status'] == 'fail' for c in obj.checks))
+            self.assertTrue(any(c['reason_code'] == 'http_handler_unverified' for c in obj.checks) or unsafe)
+
     def test_shipped_logging_map_and_unknown_routes(self):
         from pathlib import Path
         config = (Path(__file__).resolve().parent.parent / "nginx.conf").read_text()
         roots, proxies, listens, unknown = nginx_routes(nginx_config(config))
         self.assertEqual(([], ["http://botapi:8081"], [80], False), (roots, proxies, listens, unknown))
         for extra in ("server { root $uri_redacted; }", "server { unknown_route on; }",
-                      "map $uri $uri_redacted { root /private; }"):
+                      "map $uri $uri_redacted { root /private; }",
+                      "map $request_uri $legacy_file_request { default 0; root /private; }",
+                      "server { if ($legacy_file_request) { proxy_pass http://other:80; } }"):
             self.assertTrue(nginx_routes(nginx_config(config + extra))[-1])
         roots, _, _, unknown = nginx_routes(nginx_config(config + "server { alias /private; }"))
         self.assertIn("/private", roots)
@@ -29,16 +45,16 @@ class ExposureTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 nginx_config(text)
 
-    def test_static_return_only(self):
+    def test_backing(self):
+        self.assertEqual("/private/data/binlog", backing("/media/binlog", [{"Destination": "/media", "Source": "/private/data"}]))
+
+    def test_only_known_static_denial_is_understood(self):
         self.assertFalse(nginx_routes(nginx_config('server { location /file/ { return 404; } }'))[-1])
         for directive in ('return $status;', 'return 302 /elsewhere;', 'return 40;',
                           'return 404 { root /private; }', 'rewrite / /other;',
                           'try_files $uri /fallback;', 'auth_basic on;'):
             with self.subTest(directive=directive):
                 self.assertTrue(nginx_routes(nginx_config('server { location / { ' + directive + ' } }'))[-1])
-
-    def test_backing(self):
-        self.assertEqual("/private/data/binlog", backing("/media/binlog", [{"Destination": "/media", "Source": "/private/data"}]))
 
     def test_current_alias_and_safe_gateway(self):
         for unsafe in (True, False):

@@ -117,17 +117,58 @@ nginx или запрос `setWebhook` этот исходящий заголо�
 
 ## Файлы в local mode
 
+Разделение storage включается явно: добавьте `-f docker-compose.files.yml` после
+базового Compose. Только Bot API пишет `./media` в `/var/lib/telegram-bot-api-files`
+через `TELEGRAM_FILES_DIR` / `--files-dir`. Без override прежний combined layout
+остаётся приватным. State, абсолютный private temp, логи и файлы учётных данных
+не должны пересекаться с media. Относительные логи, неканонические пути и symlink
+в предках отклоняются. Для новых каталогов действует umask `007`, identity —
+`101:101`. Права существующего cache рекурсивно не меняются.
+
+`--help` / `--version` работают без credentials. Явные server CLI arguments не
+дополняются из env: split CLI требует длинные `--files-dir`, `--dir`, `--temp-dir`,
+совпадающие с заданными directory/log env. Повтор directory-флага — ошибка.
+Для настройки identity используйте обычный entrypoint; произвольный Compose
+`user:` не поддерживается.
+
 `getFile` может вернуть абсолютный путь внутри контейнера. Для прямого чтения
 приложению бота нужен согласованный общий volume/путь. Нельзя превращать
 произвольный абсолютный путь в HTTP URL скачивания простым склеиванием строк.
 
+Для прямого чтения используйте [пример scoped reader](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+Монтируется только существующая subtree одного бота, RO, по тому же абсолютному
+пути. Linux/amd64 opener использует openat2 без symlink и переходов mount,
+отклоняет hardlink и special files, передаёт данные из проверенного FD. Вложенные
+mount и компрометация доверенного writer/host не входят в deployment-контракт.
+Общий stdlib getFile-клиент (`tools/file_contract.py`) ограничивает upstream JSON
+до 64 KiB / 30 секунд, не следует redirects и не использует environment proxies.
+
 Ранее описанная схема скачивания с `X-Telegram-Bot-Token` не реализована.
-Авторизованная удалённая выдача файлов запланирована в
-[issue #5](https://github.com/ichinya/tg-selfhost-botapi/issues/5).
+Удалённая выдача включается `docker-compose.downloads.yml` после base+files.
+Один handler обслуживает одного бота: `POST /v1/files/download`, JSON только с
+`file_id`, отдельный Bearer из `DOWNLOAD_AUTH_TOKEN_FILE`, bot token из
+`DOWNLOAD_BOT_TOKEN_FILE`. RO монтируется только настроенная subtree. Loopback
+HTTP 18082 должен быть за TLS frontend из
+[примера](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+Registry, alias URL и клиентские path/token не принимаются. Запросы и upstream
+ответы ограничены; streaming идёт блоками до 64 KiB, четыре slot, socket timeout
+30 секунд, общий deadline 600 секунд (`DOWNLOAD_MAX_DURATION`). Коды ошибок,
+подготовка, лимиты и ротация auth описаны в примере.
 
 ## Текущие ограничения
 
-- nginx отклоняет запросы `/file` и `/file/` с HTTP 404 и не раздаёт каталог состояния.
+Короткий флаг каталога файлов `-f` отклоняется: используйте проверяемые длинные
+флаги. Значения `file_id`, похожие на путь или URL, отклоняются до запроса upstream.
+Поставляемый remote client требует один Content-Length и завершается с ошибкой
+при усечённом ответе; после ненулевого exit удалите частично сохранённый файл.
+
+Doctor берёт `--files-dir` из фактического argv (fallback — work), сопоставляет
+media/private backings и проверяет scoped RO mounts consumers. Свободная ёмкость
+одной FS учитывается один раз. Auth handler и mapping приложения остаются UNKNOWN
+до независимой проверки `tools/check_file_contract.py`. Переданный JSON receipt
+не даёт READY.
+
+- nginx возвращает 404 для запросов `/file` и `/file/` и не раздаёт каталог состояния.
 - В nginx не задан увеличенный лимит загрузки. Большие multipart-запросы могут
   получить HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
 - По умолчанию gateway доступен только на localhost. Установите в `.env`

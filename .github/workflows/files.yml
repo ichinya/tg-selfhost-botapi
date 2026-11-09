@@ -1,0 +1,107 @@
+name: File contract
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile*'
+      - '.dockerignore'
+      - 'docker-entrypoint.sh'
+      - 'docker-compose*.yml'
+      - 'nginx.conf'
+      - 'tools/**'
+      - 'examples/**'
+      - 'docs/**'
+      - '.env.example'
+      - '_config.yml'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - '.github/workflows/files.yml'
+      - '.github/workflows/image.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile*'
+      - '.dockerignore'
+      - 'docker-entrypoint.sh'
+      - 'docker-compose*.yml'
+      - 'nginx.conf'
+      - 'tools/**'
+      - 'examples/**'
+      - 'docs/**'
+      - '.env.example'
+      - '_config.yml'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - '.github/workflows/files.yml'
+      - '.github/workflows/image.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Regression suite on clean checkout
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash curl jq
+          timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
+      - name: Compose combinations
+        env:
+          API_ID: '12345'
+          API_HASH: SYNTHETIC_ONLY
+          DOWNLOADS_IMAGE: downloads-candidate:check
+          BOT_A_ROOT: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
+          BOT_A_HOST_ROOT: /tmp/isolated-media/bot-a
+          BOT_TOKEN_FILE: /tmp/isolated-secrets/bot-token
+          DOWNLOAD_BOT_TOKEN_FILE: /tmp/isolated-secrets/bot-token
+          DOWNLOAD_AUTH_TOKEN_FILE: /tmp/isolated-secrets/auth
+        run: |
+          docker compose --env-file tools/fixtures/files/synthetic.env config --quiet
+          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml config --quiet
+          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.files.yml config --quiet
+          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f examples/files/compose.local.yml config --quiet
+          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml config --quiet
+          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.files.yml -f docker-compose.downloads.yml config --quiet
+      - name: State isolation before file services
+        run: python3 tools/check_file_contract.py --state-isolation-only
+      - name: Check exact build-context allowlist
+        run: |
+          docker build --output "type=local,dest=$RUNNER_TEMP/file-build-context" -f - . <<'DOCKERFILE'
+          FROM scratch
+          COPY . /
+          DOCKERFILE
+          CONTEXT_EXPORT="$RUNNER_TEMP/file-build-context" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['CONTEXT_EXPORT'])
+          seen = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()}
+          expected = set('Dockerfile Dockerfile.downloads docker-entrypoint.sh patches/webhook-user-agent.patch tools/file_access.py tools/file_contract.py tools/download_server.py examples/files/local_reader.py'.split())
+          assert seen == expected, 'build context is not the exact allowlist'
+          PY
+      - name: Build exact candidates
+        run: |
+          docker build --build-arg BUILD_JOBS=1 -t botapi-candidate:check .
+          docker build -f Dockerfile.downloads -t downloads-candidate:check .
+      - name: Full synthetic contract and actual image startup
+        run: |
+          python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
+            --downloads-image downloads-candidate:check --report "$RUNNER_TEMP/file-report.json"
+      - name: Build Pages
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./.site-check
+      - name: Check rendered docs and private exclusions
+        run: python3 tools/check_docs.py .site-check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: file-contract-receipt
+          path: ${{ runner.temp }}/file-report.json

@@ -5,6 +5,31 @@ translation: /docs/en/getting-started.html
 
 # Установка
 
+Для скачивания файлов нужен явный split-storage override и scoped reader:
+см. [настройки](configuration.md) и
+[исполняемые примеры](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+Не добавляйте абсолютный getFile-путь к HTTP URL. Отсутствующая bot subtree —
+ошибка; не устраняйте её монтированием всего private cache.
+
+Во всех командах file-enabled установки сохраняйте порядок Compose-файлов:
+
+```sh
+sudo install -d -m 0770 -o 101 -g 101 ./media
+docker compose -f docker-compose.yml -f docker-compose.files.yml up -d
+# Локальный reader после настройки private bindings из примера:
+docker compose -f docker-compose.yml -f docker-compose.files.yml \
+  -f examples/files/compose.local.yml run --rm reader '<FILE_ID>' > downloaded.bin
+# Per-bot handler: нужны проверенный DOWNLOADS_IMAGE и защищённые файлы:
+docker compose -f docker-compose.yml -f docker-compose.files.yml \
+  -f docker-compose.downloads.yml up -d
+```
+
+Для локальной сборки Bot API вставьте `-f docker-compose.build.yml` сразу после
+base и используйте `up -d --build`. Downloads-образ собирается отдельно:
+`docker build -f Dockerfile.downloads -t downloads-candidate:check .`.
+В `DOWNLOADS_IMAGE` задавайте candidate, прошедший file gate. API — порт 18080;
+downloads HTTP — loopback 18082 за TLS frontend из примера.
+
 ## Требования
 
 - Docker с Compose v2.

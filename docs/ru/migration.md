@@ -9,6 +9,13 @@ translation: /docs/en/migration.html
 и `MIGRATION_REQUEST_DEADLINE`; значения, диапазоны и приоритет описаны в
 [конфигурации](configuration.md). Проверка без токена ограничена 10 секундами.
 
+Доступ к файлам — отдельная граница: API 18080, downloads 18082 за TLS. Старый
+`/file` возвращает 404. Для общего volume или удалённого чтения включите split
+storage по [инструкции](configuration.md#файлы-в-local-mode).
+Self-to-self требует согласованных снимков state и media с прежним абсолютным
+mapping. При per-bot переносе нельзя копировать shared binlogs. File preflight
+не заменяет решения webhook-profile и delivery из #7/#9.
+
 При переносе меняется Bot API endpoint приложения и, при необходимости, webhook.
 До начала нужно знать старый endpoint. Облачный `getMe` не подходит для нейтрального
 определения текущего сервера: запросы с токеном могут влиять на сессию.
@@ -326,10 +333,11 @@ webhook. Восстановите `secret_token`, сертификат, `allowed
 
 В local-режиме абсолютный `getFile.file_path` обозначает путь сервера/контейнера.
 Нужны совместимые mounts и пути приложения; перенос state сам по себе их не
-исправляет. nginx передаёт запросы `/file/` в Bot API, не открывая каталог
-состояния. Не приписывайте ему авторизацию `X-Telegram-Bot-Token`.
+исправляет. nginx отклоняет `/file` и `/file/` с 404 и не монтирует storage.
+Используйте scoped reader или отдельный Bearer handler. Заголовок
+`X-Telegram-Bot-Token` не авторизует скачивание.
 См. [доступ к файлам](configuration.md).
-Порт 18081 отдельного downloads-сервиса не заменяет API-порт 18080.
+Порт 18082 отдельного downloads-сервиса не заменяет API-порт 18080.
 
 [Настройки](configuration.md) · [Обслуживание](maintenance.md)
 
