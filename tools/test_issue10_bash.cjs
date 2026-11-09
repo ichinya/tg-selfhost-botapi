@@ -24,6 +24,7 @@ const watchdog = setTimeout(() => {
       events.push([role, req.url, body, req.headers]);
       if (role === 'target' && !req.url.includes('/bot')) {
         if (scenario.probe === 'redirect') { res.writeHead(302, {Location:urls[2]}); return res.end(); }
+        if (scenario.probe === 'http') { res.writeHead(500); return res.end(); }
         if (scenario.probe === 'malformed') { res.writeHead(404); return res.end('<html>Not Found</html>'); }
         if (scenario.probe === 'timeout') return;
         res.writeHead(404, {'Content-Type':'application/json'});
@@ -151,8 +152,16 @@ const watchdog = setTimeout(() => {
       .replaceAll('https://api.telegram.org', urls[0])
       .replaceAll('http://target.test/prefix', urls[1])
       .replaceAll('https://sink.test/webhook', urls[2] + '/webhook');
+    for (const probe of ['redirect','malformed','http']) {
+      result = await run('', urls[1], {command:generated, probe});
+      assert.notStrictEqual(result.code, 0, result.output);
+      assert(result.stderr.includes('phase='), 'probe failure must report outcome');
+    }
+    result = await run('', urls[1], {command:generated.replaceAll(urls[1], 'http://127.0.0.1:1')});
+    assert.notStrictEqual(result.code, 0, result.output);
+    assert(result.stderr.includes('phase='), 'unavailable probe must report outcome');
     for (const failure of [null,'api','http','malformed','lost','redirect','false-result']) {
-      result = await run('y\n123:synthetic\n', urls[1], {command:generated,
+      result = await run(`y\n123:synthetic\n${urls[2]}/webhook\n`, urls[1], {command:generated,
         ...(failure ? {fail:'source:logOut',failure} : {})});
       if (failure) {
         assert.notStrictEqual(result.code, 0, result.output);

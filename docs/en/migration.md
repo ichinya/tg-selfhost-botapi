@@ -174,6 +174,35 @@ Use a test bot before relying on the helper for a working installation.
 
 ## Browser tool
 
+An operation records its plan and observations separately in the current tab.
+SUCCESS requires a confirmed final target URL; it does not establish delivery.
+The stage journal is local to the page and is not the durable recovery mechanism
+tracked in #2. Declining consent does not create an operation.
+An authenticated Bot API rejection is distinct from an unreliable or lost
+response, whose effect may be UNKNOWN. A valid `retry_after` establishes a
+cooldown; its expiry neither retries nor resolves an uncertain operation. A local
+`close` 429 window differs from the cloud return restriction after `logOut`.
+During the cooldown the page offers a waiting instruction instead of executable
+commands; expiry does not lift a separate recovery guard.
+The result distinguishes ERROR, PARTIAL and UNKNOWN from SUCCESS. Source and
+target bot IDs must match, and the final URL is read from the target rather than
+assumed from the requested URL. The summary distinguishes source observation,
+expected URL, target observation and the stage journal. Webhook URL paths and query
+strings are masked in the result and history. After a failed or uncertain logout, follow the
+recovery procedure in #2; do not log back into source merely to check it.
+The tab blocks simultaneous actions and retains per-bot recovery guards in
+memory. Editing settings invalidates the check. Closing or reloading the tab
+loses these guards; coordination between processes remains outside this tool
+(#2 and #14). After a completed transfer, a fresh webhook-only operation may
+use the confirmed target, while the old source remains blocked in this tab.
+The generated Bash plan stops on errors and reports its phase and outcome;
+it compares bot IDs and the final URL. It is a separate process with no shared
+lock or durable state with the page. Reconcile PARTIAL or UNKNOWN before any
+repeat; a cooldown never restarts the plan automatically.
+
+The generated Bash plan prompts separately for the webhook URL; it does not
+copy the URL from the form into the script. Leave it empty to inherit the source URL.
+
 [Open the migrator](../../tg_selfhost_botapi_migrator.html). The page is a static
 client, not a server-side migration executor. It uses requests from your browser;
 the API needs an appropriate origin/access setup.
@@ -183,10 +212,11 @@ and read only the explicitly selected source; they do not discover where a bot
 is logged in. Cloud → local execution probes the target without a token, asks
 for consent, reads the source, detaches and logs out there, then accesses the
 target. Webhook-only never calls `logOut` or `close`. Editing the form invalidates
-cached source data. A failed/unknown mutation blocks further execution on the
-page until you reconcile state manually. Local transitions use manual checklists.
+cached source data. A partial or unknown operation blocks further execution for
+that bot in the tab; reconcile state manually. A known rejection before any
+effect may be retried after any applicable cooldown. Local transitions use manual checklists.
 
-Browser execution and generated plans still have
+Browser execution and generated plans still have incompletely verified
 [error-handling](https://github.com/ichinya/tg-selfhost-botapi/issues/6) and
 [shell-escaping](https://github.com/ichinya/tg-selfhost-botapi/issues/8) limitations.
 A CORS failure can hide the response to an already executed mutation: check the
