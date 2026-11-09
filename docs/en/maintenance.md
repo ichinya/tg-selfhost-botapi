@@ -5,6 +5,38 @@ translation: /docs/ru/maintenance.html
 
 # Maintenance
 
+## Migration acceptance
+
+Use the required Linux/Node 24 mock gate documented in CONTRIBUTING. It covers
+response loss before/after effects, per-bot locking, crashes around intent and
+receipt, interface plan parity, helper access and UI response loss. The volume
+gate operates only on exact fixture IDs/labels and preserves production data.
+CI checks that required files are tracked and that no private artifacts enter
+the rendered site. Platform skips are not acceptance. The old curl-specific
+request assertions are retained as reference; executable adapter tests now
+exercise the same loopback protocol/journal as the canonical CLI. Issue #9's
+missing delivery-action fixture is a separate declared workspace baseline.
+
+Restarting the helper requires a new session code and private runtime inputs.
+Keep the same journal/key. Browser disconnect does not cancel the background
+job. Read status and its job result, then resupply credentials before resume.
+An operation locator is not authorization.
+
+## Recovering the migration journal
+
+Back up the whole private authority **together with `binding.key`** while idle.
+Restore both with their owner and private modes. Missing keys, token rotation,
+corrupt or unsupported state block continuation. Interrupted durable intents
+become UNKNOWN. Restore the original authority and reconcile the same operation;
+starting an empty state root cannot establish whether a remote effect occurred.
+
+After a UI timeout read the same operation's offline status first. If only the
+browser lost the response, durable receipts still apply. If the Bot API response
+was lost, reconcile UNKNOWN with a trusted provider receipt bound to the exact
+operation/digest/attempt/endpoints/token and observation time. Without evidence,
+keep it blocked. A changed token/deployment/profile requires investigation and
+review, preserving the original journal; never erase confirmed history.
+
 ## Image pipeline
 
 The image workflow checks official tdlib source and the Alpine 3.22 digest every
@@ -231,3 +263,70 @@ owner-only location outside `logs/migration` before removing reconciled run
 directories and a stale lock. Keep the archive until resolution. A lock must
 never be removed merely to retry an unknown request. An unfinished token-free
 probe without a surviving lock does not block; authenticated unfinished attempts do.
+
+## Isolated mock walkthrough
+
+Use Linux/WSL and the following loopback-only fixture. It cannot send requests
+to Telegram. Each scenario starts fresh fixture servers and private state; this
+is not a recovery recipe for a real bot. Set `MIGRATION_FIXTURE_DIRECTION` to
+one of the four direction names before starting. Complete within the evidence
+TTL (five minutes), otherwise restart the fixture for a new isolated scenario.
+
+```sh
+umask 077
+PYTHONPATH=tools python3 - <<'PY'
+import json, os, tempfile
+from pathlib import Path
+from migration_mock import Bot, TOKEN, deployment
+from migration_helper import Application, Server, write_bootstrap
+root = Path(tempfile.mkdtemp(prefix="botapi-fixture-"))
+source, target = Bot("source"), Bot("target")
+direction = os.environ.get("MIGRATION_FIXTURE_DIRECTION", "cloud_to_local")
+endpoint = source.endpoint if direction == "webhook_only" else target.endpoint
+evidence = root / "deployment.json"
+record = deployment(endpoint)
+record["local_mode"] = direction != "local_to_cloud"
+evidence.write_text(json.dumps(record))
+evidence.chmod(0o600)
+app = Application({"state_dir": str(root / "state"), "allowed_endpoints": [source.endpoint, target.endpoint],
+                   "evidence_file": str(evidence), "trust_file": None, "fixture": True})
+server = Server(app, 8765)
+pairing = root / "pairing-code"
+write_bootstrap(pairing, server.bootstrap, [root / "state"])
+print("Synthetic fixture only:", server.origin, "private pairing file:", pairing, flush=True)
+print("Source:", source.endpoint, "Target:", endpoint, "Token:", TOKEN, "Direction:", direction, flush=True)
+print("Retained fixture authority:", root, flush=True)
+try:
+    server.serve_forever()
+except KeyboardInterrupt:
+    pass
+finally:
+    server.server_close(); app.close(); target.close(); source.close()
+PY
+```
+
+1. Read the one-time code privately from the pairing file. Enter the printed fixture endpoints/
+   synthetic token, matching direction/mode, explicit polling and quiescence JSON
+   `"fixture"`. Local → Cloud also selects queue acknowledgement and cooldown 0.
+2. Plan, review the digest, then Apply. Confirm source detach precedes target
+   authorization. The migration remains partial until endpoint/start checkpoints.
+3. Enter `"fixture"` for endpoint-change and application-start receipts, then
+   Resume. Keep delivery as NOTRUN until a separate receiver receipt is imported.
+4. For Local → Local, execution first blocks after close. A fixture transfer
+   receipt needs exact operation_id/digest/close_attempt/source_fingerprint/
+   target_fingerprint, target_deployment equal to the plan deployment fingerprint,
+   matching 64-hex source_manifest/target_manifest, a 64-hex source_deployment,
+   uid/gid 1000, current observed_at and true source_closed/no_writers/layout_valid.
+   This tests the attestation boundary, not a real TDLib directory transfer.
+5. Reload the browser and read status. Repeated Resume does not increase confirmed
+   mutation counters. Automated fault tests separately inject lost responses.
+
+Provision real providers in a private `MIGRATION_TRUST_FILE` with shape
+`{"providers":{"audit":{"key_hex":"<private-64-hex-key>","kinds":["quiescence","effect","endpoint_change","application_start","state_transfer","delivery"],"fixture":false}}}`.
+A signed envelope has provider/payload/signature. Signature is HMAC-SHA256 of
+canonical sorted compact ASCII JSON payload using that independent key. Common
+payload fields: version 1, kind, operation_id, digest, source_fingerprint,
+target_fingerprint, token_fingerprint and observed_at. Quiescence additionally
+requires no_writers=true; endpoint/start require endpoint_fingerprint. Provider
+implementations must verify the external facts before signing. No provider is
+trusted by default, and fixture providers cannot attest real operations.

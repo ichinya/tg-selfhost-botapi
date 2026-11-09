@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Migration executor</title></head>
+<body>
+<h1>Migration executor</h1>
+<p id="entry">Start the local migration helper to use this interface.</p>
+<p id="notice" role="status"></p>
+<section id="session" hidden><label>Session code <input id="session-code" type="password" autocomplete="off"></label><button id="login" type="button">Sign in</button></section>
+<section id="workspace" hidden>
+<form id="runtime-form">
+<label>Source API <input id="source" type="url"></label>
+<label>Target API <input id="target" type="url"></label>
+<label>Bot token <input id="token" type="password" autocomplete="off"></label>
+<label>Action <select id="action"><option value="">Select action</option><option value="polling">Polling</option><option value="set">Set webhook</option></select></label>
+<label>Profile scope <select id="scope"><option value="url_only">URL only</option><option value="full">Full</option><option value="polling">Polling</option></select></label>
+<label>Webhook URL <input id="webhook" type="url"></label>
+<label>Profile JSON <textarea id="profile"></textarea></label>
+<label>Direction <select id="direction"><option value="cloud_to_local">Official to self</option><option value="local_to_cloud">Self to official</option><option value="webhook_only">Webhook only</option></select></label>
+<label>Local mode <select id="local-mode"><option value="false">No</option><option value="true">Yes</option></select></label>
+<label><input id="drop" type="checkbox"> Drop pending updates</label>
+<label><input id="queue-ack" type="checkbox"> Acknowledge queue handling</label>
+<label><input id="ack-scope" type="checkbox"> Acknowledge URL-only profile</label>
+<label>Cloud not before <input id="cooldown" type="number"></label>
+<label>Quiescence receipt JSON <textarea id="quiescence"></textarea></label>
+<label>Endpoint change receipt JSON <textarea id="endpoint-change"></textarea></label>
+<label>Application start receipt JSON <textarea id="application-start"></textarea></label>
+<label>State transfer receipt JSON <textarea id="state-transfer"></textarea></label>
+<label>Reconciliation evidence JSON <textarea id="evidence"></textarea></label>
+<button id="plan" type="button">Plan</button>
+<label>Reviewed digest <input id="confirm-digest"></label>
+<button id="apply" type="button">Apply</button><button id="resume" type="button">Resume</button><button id="refresh" type="button">Refresh</button><button id="reconcile" type="button">Reconcile</button><button id="status" type="button">Status</button><button id="export" type="button">Export</button>
+</form>
+<pre id="result"></pre><pre id="export-result"></pre>
+</section>
+<script type="module" src="assets/js/migration-client.mjs"></script>
+</body></html>

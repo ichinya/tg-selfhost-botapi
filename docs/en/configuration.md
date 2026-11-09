@@ -41,6 +41,33 @@ No binlog, real bot directory, statistics endpoint or state file is fetched.
 Read-only mounts, disabled directory listings and loopback publication do not
 prevent known-file HTTP reads. Unsupported remote file workflows use the boundary
 in issue #5; doctor does not certify or execute neighboring migration helpers.
+## Helper access
+
+The operator startup file allowlists full API endpoints. The loopback helper
+serves fixed routes/assets and accepts no arbitrary Docker command/container.
+One-time bootstrap creates an HttpOnly SameSite=Strict cookie and CSRF token.
+Exact Host/Origin checks reject external/null/file origins. Limits: 256 KiB body,
+ten-second HTTP lifetime, sixteen connections and one background migration.
+Access/body logs are disabled. The helper is never exposed through nginx.
+
+## Private migration authority
+
+Use one `MIGRATION_STATE_DIR` per operator/host on a private Linux filesystem
+outside the checkout, Bot API mounts and webroots (directory 0700, files 0600).
+All interfaces share its per-bot lock and unfinished-operation reservation.
+Windows and Windows-mounted WSL state are unsupported. Nested private artifacts
+are rejected by the documentation checker.
+
+Readiness is a fresh token-free protocol probe plus private deployment evidence
+with a five-minute TTL. Bind the image ID, runtime UID/GID, credentials readiness,
+persistent work mount and writable separate temp path. A local-build image need
+not have a RepoDigest; temp storage need not be persistent. `_FILE` credentials
+are supported. Managed Docker diagnostics perform explicit tiny write probes as
+the runtime user; they are not read-only. The HTTP helper cannot select containers.
+Local webhook mode must match deployment evidence: HTTP/private IP/any port is
+allowed in local mode; cloud requires HTTPS, a supported port and public IPv4.
+Unsupported profiles fail before source mutations. Transport has bounded DNS,
+connect/read/total time and body size, no redirects, inherited proxy or retries.
 
 ## Addresses and storage
 

@@ -43,6 +43,33 @@ Binlog, реальные каталоги ботов, statistics и state files 
 Read-only mounts, запрет листинга и публикация на loopback не предотвращают
 HTTP-чтение известного файла. Для неподдерживаемого remote file workflow используется
 граница #5; doctor не сертифицирует и не запускает соседние helpers.
+## Доступ к helper
+
+Оператор задаёт allowlist полных API endpoints в startup-файле. Loopback helper
+отдаёт фиксированные routes/assets, не принимает Docker command/container.
+Одноразовый bootstrap создаёт HttpOnly SameSite=Strict cookie и CSRF token.
+Точные Host/Origin проверки отвергают external/null/file origins. Лимиты:
+body 256 KiB, HTTP lifetime десять секунд, шестнадцать соединений и одна фоновая
+миграция. Access/body logs отключены. Helper не публикуется через nginx.
+
+## Приватное состояние миграции
+
+Используйте один `MIGRATION_STATE_DIR` на оператора/хост в приватной Linux ФС
+вне репозитория, mounts Bot API и webroot (каталог 0700, файлы 0600).
+Все интерфейсы используют общую блокировку бота и резерв незавершённой операции.
+Windows и state на Windows-диске в WSL не поддерживаются. Проверка документации
+отвергает вложенные приватные файлы.
+
+Readiness — свежая проверка протокола без токена и приватное свидетельство
+deployment с TTL пять минут: image ID, UID/GID, готовность credentials,
+persistent work mount и отдельный доступный temp. Для local-build RepoDigest
+не обязателен; temp не обязан быть persistent. Credentials через `_FILE`
+поддерживаются. Явная Docker-диагностика создаёт маленькие write probes от
+runtime user и не является read-only; HTTP-helper не выбирает контейнеры.
+Local mode подтверждается deployment: HTTP/private IP/любой порт разрешены
+в local; cloud требует HTTPS, допустимый порт и публичный IPv4.
+Несовместимый профиль блокируется до мутаций source. Транспорт ограничивает
+DNS/connect/read/total time и body, не наследует proxy, не делает redirects/retry.
 
 ## Адреса и хранение
 

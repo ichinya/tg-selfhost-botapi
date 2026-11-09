@@ -91,7 +91,7 @@ const watchdog = setTimeout(() => {
     let unauthorized = await run('y\n', urls[1], {fail:'source:getMe', failure:'unauthorized'});
     assert.notStrictEqual(unauthorized.code, 0);
     assert(unauthorized.stderr.includes('HTTP 401'));
-    assert(unauthorized.stderr.includes('error_code=429'));
+    assert(unauthorized.stderr.includes('error_code=429'), unauthorized.stderr);
     assert(!unauthorized.output.includes('123:synthetic'));
     assert(!unauthorized.stderr.includes('errorCode'));
     assert(!events.some(([role,url]) => role === 'target' && url.includes('/bot')));
