@@ -301,6 +301,9 @@ def nginx_routes(tree):
                     unknown = True
                 else:
                     proxies.append(args[0])
+            elif name == "return":
+                if len(args) != 1 or not re.fullmatch(r"[0-9]{3}", args[0]) or children:
+                    unknown = True
             elif name == "listen":
                 if not args:
                     unknown = True

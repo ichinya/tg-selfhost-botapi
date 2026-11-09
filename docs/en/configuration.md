@@ -125,7 +125,7 @@ A remote authenticated file handler is tracked in
 
 ## Current limitations
 
-- nginx forwards `/file/` requests to the Bot API; it does not serve the state directory.
+- nginx rejects `/file` and `/file/` requests with HTTP 404; it does not serve the state directory.
 - No upload-size override is configured in nginx. Large multipart requests can
   receive HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
 - The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`

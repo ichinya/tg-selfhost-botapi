@@ -127,7 +127,7 @@ nginx или запрос `setWebhook` этот исходящий заголо�
 
 ## Текущие ограничения
 
-- nginx передаёт запросы `/file/` в Bot API и не раздаёт каталог состояния.
+- nginx отклоняет запросы `/file` и `/file/` с HTTP 404 и не раздаёт каталог состояния.
 - В nginx не задан увеличенный лимит загрузки. Большие multipart-запросы могут
   получить HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
 - По умолчанию gateway доступен только на localhost. Установите в `.env`

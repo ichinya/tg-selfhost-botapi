@@ -29,6 +29,14 @@ class ExposureTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 nginx_config(text)
 
+    def test_static_return_only(self):
+        self.assertFalse(nginx_routes(nginx_config('server { location /file/ { return 404; } }'))[-1])
+        for directive in ('return $status;', 'return 302 /elsewhere;', 'return 40;',
+                          'return 404 { root /private; }', 'rewrite / /other;',
+                          'try_files $uri /fallback;', 'auth_basic on;'):
+            with self.subTest(directive=directive):
+                self.assertTrue(nginx_routes(nginx_config('server { location / { ' + directive + ' } }'))[-1])
+
     def test_backing(self):
         self.assertEqual("/private/data/binlog", backing("/media/binlog", [{"Destination": "/media", "Source": "/private/data"}]))
 
