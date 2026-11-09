@@ -210,3 +210,24 @@ CI получает точную ревизию, никогда master. Source a
 Запуск: `timeout 420 python3 -m unittest tools.test_webhook_profile_contract tools.test_webhook_profile_ui tools.test_webhook_profile_transport tools.test_webhook_profile_receiver -v`, `PYTHONPATH=.:tools`, Node 24+, Bash 4+, curl, jq, openssl и непривилегированный POSIX runner. 22 общих fixtures исполняют shipped inline resolver и Bash jq program; реальные HTTP-тесты разбирают urlencoded/multipart, запускают helper/export, отклоняют readback mismatch и проверяют receipts. Privacy canaries охватывают вывод, clipboard, public state, отражённые API errors и curl argv. Scoped workflow запускает ту же матрицу и регрессии #10; pinned-source sender выделен в отдельный job. Чужие untracked issue7 drafts и workflow с Node 20 не подключаются.
 
 Image/default upstream logger qualification, multipart через shipped nginx, C++ sender harness, Jekyll rendered checks и реальная Telegram delivery остаются явными внешними гейтами. Недоступный запуск — NOTRUN: verification deferred to CI/gates. Изменение не заявляет всеобщую upstream debug/VLOG redaction (#17); сохраняйте низкую verbosity и отдельно квалифицируйте default logs перед deployment.
+
+### Приватное досье миграции
+
+Корневой helper хранит schema version 1 intent/receipt/summary в `logs/migration`
+рядом со скриптом; права каталогов 0700, файлов 0600. Не размещайте их на публичном
+хостинге: checker запрещает публикацию `logs`. Retention продолжается до ручного
+удаления после reconciliation. Не прикладывайте raw и досье к публичным issue.
+При аварии возможен приватный raw; обычно он удаляется только после успешной
+очистки. Summary отмечает возможный retention при ошибке финализации.
+
+Активный/stale lock, незавершённый intent, UNKNOWN запроса с токеном или частичная
+миграция блокируют следующий запуск до HTTP. Остановитесь и проверьте независимые
+данные; автоматического unlock, повтора и resume нет. Schema v1 — контракт для
+явного будущего адаптера #2, а не финальный durable journal этой задачи. См.
+[исходы и приватную диагностику](migration.md).
+Для ручного восстановления остановите все helper, сопоставьте попытки с
+независимыми данными и определите безопасную дальнейшую процедуру. Архивируйте
+полное досье в приватном месте вне `logs/migration` до удаления проверенных
+каталогов запусков и stale lock. Храните архив до разрешения ситуации. Нельзя
+удалять lock ради повтора неизвестного запроса. Незавершённый probe без токена
+и сохранившегося lock не блокирует запуск; незавершённые запросы с токеном блокируют.

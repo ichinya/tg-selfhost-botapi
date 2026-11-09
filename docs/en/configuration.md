@@ -145,3 +145,13 @@ Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`
 Use `WEBHOOK_SECRET_TOKEN` or `WEBHOOK_SECRET_TOKEN_FILE`, exactly one for provided mode; none asserts an intentionally unprotected webhook. Secret files allow one final LF/CRLF; inline secrets are never trimmed. Use `WEBHOOK_CERTIFICATE_FILE` for a public PEM, never a private key. Protected files (including `BOT_TOKEN_FILE`) must be outside checkout/webroot, with operator-only access. Values from the process override trusted `ENV_FILE` (default: helper directory `.env`), including explicitly empty values; value/file pairs are selected at one tier. Positional URLs remain highest priority. Polling has no webhook profile.
 
 Full profile transport is enabled: urlencoded without a certificate, entirely multipart with a certificate. Secret/scalar files are private snapshots; no token/secret/URL is placed in curl argv or raw diagnostics. The helper disables tracing, uses curl -q without redirects, guards HTTP/ok/result and never retries a mutation. Public PEM requires Bash 4+, jq, curl, realpath and openssl X.509 validation; no private key is accepted. Temporary files use umask 077 and are removed on exit/signals.
+
+## Host-side migration timeouts
+
+The root `migrate_off_to_self.sh` helper accepts `MIGRATION_CONNECT_TIMEOUT`
+(default 5 seconds, integer 1..60) and `MIGRATION_REQUEST_DEADLINE` (default
+30 seconds, integer 1..300). The connect timeout must not exceed the deadline.
+The deadline applies to each request; the token-free probe is capped at 10
+seconds. Process settings take precedence over the trusted environment file;
+only an unset setting uses its default. Unlike the endpoint settings, an
+explicitly empty timeout is invalid. These settings are not passed to containers.

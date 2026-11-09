@@ -6,7 +6,7 @@ wp_load() {
   set +v
   umask 077
   local key file_values env_path
-  local -a names=(BOT_TOKEN BOT_TOKEN_FILE SELF_BOT_URL TELEGRAM_BOT_URL OFFICIAL_BOT_URL WEBHOOK_URL WEB_HOOK DROP_PENDING_UPDATES MIGRATION_MODE WEBHOOK_SECRET_MODE WEBHOOK_SECRET_TOKEN WEBHOOK_SECRET_TOKEN_FILE WEBHOOK_ALLOWED_UPDATES WEBHOOK_MAX_CONNECTIONS WEBHOOK_TARGET_LOCAL WEBHOOK_IP_MODE WEBHOOK_IP_ADDRESS WEBHOOK_CERTIFICATE_MODE WEBHOOK_CERTIFICATE_FILE)
+  local -a names=(BOT_TOKEN BOT_TOKEN_FILE SELF_BOT_URL TELEGRAM_BOT_URL OFFICIAL_BOT_URL WEBHOOK_URL WEB_HOOK DROP_PENDING_UPDATES MIGRATION_MODE MIGRATION_CONNECT_TIMEOUT MIGRATION_REQUEST_DEADLINE WEBHOOK_SECRET_MODE WEBHOOK_SECRET_TOKEN WEBHOOK_SECRET_TOKEN_FILE WEBHOOK_ALLOWED_UPDATES WEBHOOK_MAX_CONNECTIONS WEBHOOK_TARGET_LOCAL WEBHOOK_IP_MODE WEBHOOK_IP_ADDRESS WEBHOOK_CERTIFICATE_MODE WEBHOOK_CERTIFICATE_FILE)
   local -A process_values=() process_present=() file_present=() file_inputs=()
   for key in "${names[@]}"; do
     if [[ -v $key ]]; then process_present[$key]=1; process_values[$key]="${!key}"; fi
@@ -52,6 +52,18 @@ wp_load() {
   OFFICIAL_BOT_URL=${OFFICIAL_BOT_URL-https://api.telegram.org}
   MIGRATION_MODE=${MIGRATION_MODE-official-to-self}
   DROP_PENDING_UPDATES=${DROP_PENDING_UPDATES-false}
+  MIGRATION_CONNECT_TIMEOUT=${MIGRATION_CONNECT_TIMEOUT-5}
+  MIGRATION_REQUEST_DEADLINE=${MIGRATION_REQUEST_DEADLINE-30}
+  local value maximum name
+  for name in MIGRATION_CONNECT_TIMEOUT MIGRATION_REQUEST_DEADLINE; do
+    value=${!name}; maximum=300
+    [[ $name != MIGRATION_CONNECT_TIMEOUT ]] || maximum=60
+    [[ $value =~ ^[0-9]{1,10}$ ]] || wp_fail "Invalid $name"
+    while [[ ${#value} -gt 1 && ${value:0:1} == 0 ]]; do value=${value:1}; done
+    [[ ${#value} -le 3 ]] && (( 10#$value >= 1 && 10#$value <= maximum )) || wp_fail "Invalid $name"
+    printf -v "$name" '%s' "$((10#$value))"
+  done
+  (( MIGRATION_CONNECT_TIMEOUT <= MIGRATION_REQUEST_DEADLINE )) || wp_fail 'Connect timeout exceeds request deadline'
   WEBHOOK_TARGET_LOCAL=${WEBHOOK_TARGET_LOCAL-false}
   [[ $DROP_PENDING_UPDATES == true || $DROP_PENDING_UPDATES == false ]] || wp_fail 'Invalid drop policy'
   [[ $WEBHOOK_TARGET_LOCAL == true || $WEBHOOK_TARGET_LOCAL == false ]] || wp_fail 'Invalid local capability'
@@ -167,7 +179,8 @@ wp_preflight() {
       if $explicit_url!="yes" then del(.desired.url) else . end |
       if $cm!="auto" then .desired.certificate.mode=$cm else . end |
       if $ap=="x" then .desired.allowed_updates=($au|fromjson) else . end |
-      if $mp=="x" then .desired.max_connections=(if ($mc|test("^[1-9][0-9]*$")) then ($mc|tonumber) else null end) else . end' \
+      if $mp=="x" then .desired.max_connections=(if ($mc|test("^[1-9][0-9]*$")) then ($mc|tonumber) else null end)
+      elif ($source[0].result|has("max_connections")|not) then .desired.max_connections=40 else . end' \
       > "$WP_TMP/input" || wp_fail 'Invalid profile inputs'
   WP_PROFILE=$(wp_resolve < "$WP_TMP/input") || wp_fail 'Cannot resolve profile'
   wp_jq -e '.complete==true' >/dev/null <<< "$WP_PROFILE" || wp_fail 'Profile incomplete or invalid; source unchanged'
@@ -183,7 +196,7 @@ wp_request() {
   local base=$1 method=$2 status
   shift 2
   printf '%s' "$base/bot$BOT_TOKEN/$method" | wp_jq -Rsr '"url = " + tojson' > "$WP_TMP/request.conf" || wp_fail 'Cannot prepare private request'
-  status=$(curl -q -sS --connect-timeout 5 --max-time "${WP_REQUEST_TIMEOUT:-10}" --globoff --proto '=http,https' \
+  status=$(curl -q -sS --connect-timeout "$MIGRATION_CONNECT_TIMEOUT" --max-time "${WP_REQUEST_TIMEOUT:-$MIGRATION_REQUEST_DEADLINE}" --globoff --proto '=http,https' \
     --output "$WP_TMP/response" --write-out '%{http_code}' --config "$WP_TMP/request.conf" "$@" 2>/dev/null) || wp_fail 'UNKNOWN: response unavailable; reconcile without retry' 2
   [[ $status =~ ^2[0-9][0-9]$ ]] || wp_fail 'API HTTP rejection; stop and reconcile'
   wp_jq -e '.ok==true and has("result")' "$WP_TMP/response" >/dev/null || wp_fail 'API rejected or invalid response; stop and reconcile' 2
@@ -284,8 +297,11 @@ wp_main() {
   local source=$OFFICIAL_BOT_URL status answer source_id target_id
   [[ $MIGRATION_MODE == official-to-self ]] || source=$SELF_BOT_URL
   if [[ $MIGRATION_MODE == official-to-self ]]; then
-    status=$(curl -q -sS --connect-timeout 5 --max-time 10 --output "$WP_TMP/probe" --write-out '%{http_code}' "$SELF_BOT_URL/" 2>/dev/null) || wp_fail 'Token-free probe failed'
-    [[ $status == 404 ]] && wp_jq -e '.ok==false and .error_code==404 and .description=="Not Found"' "$WP_TMP/probe" >/dev/null || wp_fail 'Unexpected token-free probe'
+    local probe_deadline=$MIGRATION_REQUEST_DEADLINE probe_connect=$MIGRATION_CONNECT_TIMEOUT
+    (( probe_deadline <= 10 )) || probe_deadline=10
+    (( probe_connect <= probe_deadline )) || probe_connect=$probe_deadline
+    status=$(curl -q -sS --connect-timeout "$probe_connect" --max-time "$probe_deadline" --output "$WP_TMP/probe" --write-out '%{http_code}' "$SELF_BOT_URL/" 2>/dev/null) || wp_fail 'phase=preflight outcome=UNKNOWN reason=transport_error: Token-free probe failed'
+    [[ $status == 404 ]] && wp_jq -e '.ok==false and .error_code==404 and .description=="Not Found"' "$WP_TMP/probe" >/dev/null || wp_fail 'phase=preflight outcome=UNKNOWN reason=unexpected_response: Unexpected token-free probe'
   fi
   printf 'Probe does not authenticate the host. Stop old clients; permit token requests?\n'
   read -r answer || return 0
