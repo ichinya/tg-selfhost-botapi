@@ -103,6 +103,11 @@ class RuntimeTests(unittest.TestCase):
         obj.containers["gateway"]["NetworkSettings"]["Ports"]["80/tcp"].append({"HostIp": "::", "HostPort": "18080"})
         self.assertEqual((None, None), obj.gateway_endpoint())
 
+    def test_management_binding_does_not_change_api_selection(self):
+        obj = self.installation()
+        obj.containers['gateway']['NetworkSettings']['Ports']['81/tcp'] = [{'HostIp':'127.0.0.1', 'HostPort':'18081'}]
+        self.assertEqual(('http://127.0.0.1:18080/', '80/tcp'), obj.gateway_endpoint())
+
     def test_capture_tokenless_http(self):
         class Transport:
             calls = []

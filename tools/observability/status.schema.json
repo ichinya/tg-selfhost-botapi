@@ -1,0 +1,845 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "process": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "process"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "unknown",
+            "unavailable",
+            "disabled",
+            "not_observed",
+            "stale",
+            "last_error_recorded"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "none",
+            "disabled",
+            "producer_not_configured",
+            "invalid",
+            "timeout",
+            "transport_error",
+            "unexpected_response",
+            "closing",
+            "stale",
+            "permission_denied",
+            "not_observed",
+            "ownership_required",
+            "migration_pause",
+            "instance_changed",
+            "unsupported"
+          ]
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "maxLength": 20
+        },
+        "age_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "depth": {
+          "type": "string",
+          "enum": [
+            "http_handler_only",
+            "http_handler_and_manager"
+          ]
+        },
+        "live": {
+          "type": "boolean"
+        },
+        "ready": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source",
+        "state",
+        "reason",
+        "observed_at",
+        "age_seconds",
+        "depth",
+        "live",
+        "ready"
+      ],
+      "additionalProperties": false
+    },
+    "migration": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "migration"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "unknown",
+            "unavailable",
+            "disabled",
+            "not_observed",
+            "stale",
+            "last_error_recorded"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "none",
+            "disabled",
+            "producer_not_configured",
+            "invalid",
+            "timeout",
+            "transport_error",
+            "unexpected_response",
+            "closing",
+            "stale",
+            "permission_denied",
+            "not_observed",
+            "ownership_required",
+            "migration_pause",
+            "instance_changed",
+            "unsupported"
+          ]
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "maxLength": 20
+        },
+        "age_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "operation_id": {
+                "type": "string",
+                "format": "uuid",
+                "maxLength": 36
+              },
+              "alias": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$",
+                "maxLength": 32
+              },
+              "stage": {
+                "type": "string",
+                "enum": [
+                  "planned",
+                  "preflight",
+                  "source_switch",
+                  "target_configuration",
+                  "verification",
+                  "finished",
+                  "unknown"
+                ]
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "waiting",
+                  "blocked",
+                  "confirmed",
+                  "partial",
+                  "failed",
+                  "reconciliation_required",
+                  "unknown"
+                ]
+              },
+              "observed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "maxLength": 20
+              },
+              "delivery_evidence": {
+                "type": "string",
+                "enum": [
+                  "not_observed",
+                  "confirmed"
+                ]
+              }
+            },
+            "required": [
+              "operation_id",
+              "alias",
+              "stage",
+              "outcome",
+              "observed_at",
+              "delivery_evidence"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "source",
+        "state",
+        "reason",
+        "observed_at",
+        "age_seconds",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    "webhook": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "webhook"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "unknown",
+            "unavailable",
+            "disabled",
+            "not_observed",
+            "stale",
+            "last_error_recorded"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "none",
+            "disabled",
+            "producer_not_configured",
+            "invalid",
+            "timeout",
+            "transport_error",
+            "unexpected_response",
+            "closing",
+            "stale",
+            "permission_denied",
+            "not_observed",
+            "ownership_required",
+            "migration_pause",
+            "instance_changed",
+            "unsupported"
+          ]
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "maxLength": 20
+        },
+        "age_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "bots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "alias": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$",
+                "maxLength": 32
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "unknown",
+                  "unavailable",
+                  "disabled",
+                  "not_observed",
+                  "stale",
+                  "last_error_recorded"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "disabled",
+                  "producer_not_configured",
+                  "invalid",
+                  "timeout",
+                  "transport_error",
+                  "unexpected_response",
+                  "closing",
+                  "stale",
+                  "permission_denied",
+                  "not_observed",
+                  "ownership_required",
+                  "migration_pause",
+                  "instance_changed",
+                  "unsupported"
+                ]
+              },
+              "observed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "maxLength": 20
+              },
+              "age_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "webhook",
+                  "polling",
+                  "unknown"
+                ]
+              },
+              "pending_update_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "last_error_date": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "last_error_age_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "last_error_category": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  null,
+                  "timeout",
+                  "tls",
+                  "connect",
+                  "http_4xx",
+                  "http_5xx",
+                  "unclassified_error"
+                ]
+              },
+              "last_synchronization_error_date": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "delivery_evidence": {
+                "type": "string",
+                "enum": [
+                  "not_observed"
+                ]
+              }
+            },
+            "required": [
+              "alias",
+              "state",
+              "reason",
+              "observed_at",
+              "age_seconds",
+              "mode",
+              "pending_update_count",
+              "last_error_date",
+              "last_error_age_seconds",
+              "last_error_category",
+              "last_synchronization_error_date",
+              "delivery_evidence"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "source",
+        "state",
+        "reason",
+        "observed_at",
+        "age_seconds",
+        "bots"
+      ],
+      "additionalProperties": false
+    },
+    "queue": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "manager"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "unknown",
+            "unavailable",
+            "disabled",
+            "not_observed",
+            "stale",
+            "last_error_recorded"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "none",
+            "disabled",
+            "producer_not_configured",
+            "invalid",
+            "timeout",
+            "transport_error",
+            "unexpected_response",
+            "closing",
+            "stale",
+            "permission_denied",
+            "not_observed",
+            "ownership_required",
+            "migration_pause",
+            "instance_changed",
+            "unsupported"
+          ]
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "maxLength": 20
+        },
+        "age_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "sampled": {
+          "type": "object",
+          "properties": {
+            "coverage": {
+              "type": "string",
+              "enum": [
+                "sampled",
+                "registered"
+              ]
+            },
+            "observed_clients": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "known_pending_clients": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "pending_lower_bound": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            }
+          },
+          "required": [
+            "coverage",
+            "observed_clients",
+            "known_pending_clients",
+            "pending_lower_bound"
+          ],
+          "additionalProperties": false
+        },
+        "registered": {
+          "type": "object",
+          "properties": {
+            "coverage": {
+              "type": "string",
+              "enum": [
+                "sampled",
+                "registered"
+              ]
+            },
+            "observed_clients": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "known_pending_clients": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "pending_lower_bound": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            }
+          },
+          "required": [
+            "coverage",
+            "observed_clients",
+            "known_pending_clients",
+            "pending_lower_bound"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "source",
+        "state",
+        "reason",
+        "observed_at",
+        "age_seconds",
+        "sampled",
+        "registered"
+      ],
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "runtime"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "unknown",
+            "unavailable",
+            "disabled",
+            "not_observed",
+            "stale",
+            "last_error_recorded"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "none",
+            "disabled",
+            "producer_not_configured",
+            "invalid",
+            "timeout",
+            "transport_error",
+            "unexpected_response",
+            "closing",
+            "stale",
+            "permission_denied",
+            "not_observed",
+            "ownership_required",
+            "migration_pause",
+            "instance_changed",
+            "unsupported"
+          ]
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "maxLength": 20
+        },
+        "age_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "filesystems": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": [
+                  "work",
+                  "temp"
+                ]
+              },
+              "filesystem": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 256,
+                "pattern": "^fs-[0-9a-f]{16}$"
+              },
+              "available_bytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "available_inodes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              }
+            },
+            "required": [
+              "role",
+              "filesystem",
+              "available_bytes",
+              "available_inodes"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "source",
+        "state",
+        "reason",
+        "observed_at",
+        "age_seconds",
+        "filesystems"
+      ],
+      "additionalProperties": false
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "runtime"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "unknown",
+            "unavailable",
+            "disabled",
+            "not_observed",
+            "stale",
+            "last_error_recorded"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "none",
+            "disabled",
+            "producer_not_configured",
+            "invalid",
+            "timeout",
+            "transport_error",
+            "unexpected_response",
+            "closing",
+            "stale",
+            "permission_denied",
+            "not_observed",
+            "ownership_required",
+            "migration_pause",
+            "instance_changed",
+            "unsupported"
+          ]
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "maxLength": 20
+        },
+        "age_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "instance": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "binary_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256,
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "upstream_revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256,
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "build_key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256,
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "image_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "registry_digest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256,
+          "pattern": "^linux/(amd64|arm64)(/v[0-9]+)?$"
+        }
+      },
+      "required": [
+        "source",
+        "state",
+        "reason",
+        "observed_at",
+        "age_seconds",
+        "instance",
+        "binary_version",
+        "upstream_revision",
+        "build_key",
+        "image_id",
+        "registry_digest",
+        "platform"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "process",
+    "migration",
+    "webhook",
+    "queue",
+    "storage",
+    "image"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

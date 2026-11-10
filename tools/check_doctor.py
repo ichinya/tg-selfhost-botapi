@@ -128,7 +128,7 @@ class Harness:
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            timeout=60, check=True)
             if self.built:
-                subprocess.run(["docker", "image", "rm", self.project + ":synthetic"],
+                subprocess.run(["docker", "image", "rm", self.project + ":synthetic", self.project + ':observer'],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                timeout=30, check=True)
         except (OSError, subprocess.SubprocessError):
@@ -137,7 +137,7 @@ class Harness:
     def run(self):
         self.command(["docker", "version", "--format", "{{.Server.Version}}"])
         cases = []
-        env_keys = ("DOCTOR_FIXTURE_IMAGE", "DOCTOR_PYTHON_IMAGE", "DOCTOR_NGINX_IMAGE")
+        env_keys = ("DOCTOR_FIXTURE_IMAGE", "DOCTOR_PYTHON_IMAGE", "DOCTOR_NGINX_IMAGE", 'DOCTOR_OBSERVER_IMAGE')
         previous = {k: os.environ.get(k) for k in env_keys}
         signals = {}
         for signum in (signal.SIGINT, signal.SIGTERM):
@@ -146,7 +146,8 @@ class Harness:
             self.bases = {"python": self.pin(os.environ.get("DOCTOR_PYTHON_IMAGE", "python:3.13.5-alpine3.22")),
                           "nginx": self.pin(os.environ.get("DOCTOR_NGINX_IMAGE", "nginx:1.28.0-alpine3.21"))}
             os.environ.update(DOCTOR_FIXTURE_IMAGE=self.project + ":synthetic", DOCTOR_PYTHON_IMAGE=self.bases["python"], DOCTOR_NGINX_IMAGE=self.bases["nginx"])
-            self.command(self.compose + ["build", "botapi"])
+            os.environ['DOCTOR_OBSERVER_IMAGE'] = self.project + ':observer'
+            self.command(self.compose + ["build", "botapi", 'observer'])
             self.built = True
             with tempfile.TemporaryDirectory(prefix="doctor-integration-") as temporary:
                 private = Path(temporary)

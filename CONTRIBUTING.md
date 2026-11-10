@@ -122,3 +122,25 @@ production; недоступный gate — NOTRUN. Реальные migration-i
 Проверяйте схему отчёта, вход v1, exit codes 0/1/2/3 и shell-синтаксис fixture.
 Запускайте тесты на чистом candidate без чужих helpers и `tools/__init__.py`;
 внутренние ошибки сбора должны отличаться от неверного вызова.
+## Observability checks (issue #16)
+
+On a dirty checkout use owned patterns; unrelated untracked suites are not release
+evidence. On Linux/CI run:
+
+```sh
+python3 -m unittest discover -s tools -p 'test_observability*.py' -v
+python3 -m unittest discover -s tools -p 'test_observe_runtime.py' -v
+python3 -m unittest discover -s tools -p 'test_botapi_healthcheck.py' -v
+python3 -m unittest discover -s tools -p 'test_doctor*.py' -v
+python3 -m unittest discover -s tools -p 'test_check_doctor.py' -v
+bash -n migrate_off_to_self.sh
+sh -n tools/botapi_healthcheck.sh
+python3 tools/check_stats_source.py /path/to/exact/upstream-checkout
+python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
+```
+
+Helper and producer acceptance requires POSIX Bash, curl, jq and coreutils.
+Windows skips are NOTRUN. Docker source/image/privacy, Jekyll and actual Kuma
+gates are separate from Python unit results. Both release images must share one
+build key and pass qualification before promotion. Never use real bot credentials
+in fixtures or logs. Keep documentation paired in docs/en and docs/ru.

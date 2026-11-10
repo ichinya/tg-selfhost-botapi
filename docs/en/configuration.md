@@ -146,3 +146,48 @@ The deadline applies to each request; the token-free probe is capped at 10
 seconds. Process settings take precedence over the trusted environment file;
 only an unset setting uses its default. Unlike the endpoint settings, an
 explicitly empty timeout is invalid. These settings are not passed to containers.
+
+## Safe statistics
+
+`TELEGRAM_STAT` defaults to false. When enabled, raw statistics bind only to
+127.0.0.1:8082 in the Bot API namespace. Never publish or proxy this port.
+The observer accepts the reviewed tab-separated manager format and returns only
+numeric observations. Queue coverage is always sampled: omitted pending fields
+mean unknown, and the observed sum is a lower bound, never a global total.
+Malformed, duplicate, oversized, Closing or incompatible responses are unavailable.
+
+## Observer deployment and isolation
+
+Before Compose up, prepare inputs on the Linux host:
+
+```sh
+install -d -m 0700 .observability
+install -d -m 0755 .observability/runtime .observability/migration
+sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+The observer shares only Bot API's network namespace. It runs as 101:101 with a
+read-only root, dropped capabilities and no Docker socket, state/temp or private
+migration dossier mount. Empty directories work without bot credentials. Host
+management is `http://127.0.0.1:18081`; only three exact management routes are
+proxied, GET/HEAD only, without query/body/Authorization. API listener 18080
+blocks these routes. Both APIs use delayed Docker DNS resolution so nginx can
+start while a target is absent; management upstream errors become a fixed 503.
+API ports 8082/8090 are reserved. A custom API port also needs an nginx override
+and doctor validation. Raw stats remain loopback-only. Observer 8090 is trusted
+Compose-network access, never a public monitoring ingress.
+
+Doctor understands the supported route contexts and network owner; unsupported
+variables, extra management routes, public management bindings, raw stats proxying,
+state/socket mounts or wrong namespace owners fail or remain unknown. Doctor is
+preflight and never substitutes for continuous health or actual delivery evidence.
+The base is pinned Alpine; APK Python/curl/jq package repositories remain mutable.
+Immutable image pairs capture the resulting build; byte-reproducibility is not promised.
+
+The published observer uses a digest-pinned Python base resolved by CI. The local
+fallback uses pinned Alpine plus APK Python; set OBSERVER_BASE to an approved
+Python image digest to reproduce the release base. Host producer supervision,
+registry/credential permissions and ownership/rotation are described in
+[maintenance](maintenance.md). A section's ready state describes its observation
+source; inspect migration outcomes separately from process readiness.

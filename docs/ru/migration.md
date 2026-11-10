@@ -402,3 +402,18 @@ BLOCKED/1; неверный или нечитаемый вход — exit 2. О�
 Doctor не запускает миграцию, helpers, методы бота, cloud probes, journals и locks.
 READY означает готовность начать подготовленную процедуру и не подтверждает
 helpers, завершённый перенос, авторизацию или доставку.
+
+## Опциональное наблюдение миграции
+
+Перед любой миграцией отключите registry worker observer и дождитесь завершения
+текущих запросов. Snapshot не является lock; состояние браузера не наблюдается.
+Bash helper может выдать безопасную финальную проекцию без изменения сценария:
+задайте в окружении процесса `MIGRATION_STATUS_DIR="$PWD/.observability/migration"`
+и `MIGRATION_STATUS_ALIAS=public_label` (не в .env helper). Подготовьте принадлежащий
+оператору каталог без symlink с правами 0755; атомарный `status.json` имеет 0644,
+не содержит private receipts, URL или токенов. Проекция v1 содержит UTC observed_at
+и до 100 операций: UUID operation_id, публичный alias, stage, outcome, UTC observed_at,
+delivery_evidence. Схема операции: `tools/observability/status.schema.json`.
+Producer запускается только после финализации summary; текущим операциям нужен
+отдельный heartbeat producer. Отсутствующий, неверный или stale настроенный вход
+блокирует запросы с токеном. Старые terminal результаты — только исторические данные.

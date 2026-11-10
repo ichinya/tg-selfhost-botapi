@@ -12,13 +12,39 @@ class ExposureTests(unittest.TestCase):
         from pathlib import Path
         config = (Path(__file__).resolve().parent.parent / "nginx.conf").read_text()
         roots, proxies, listens, unknown = nginx_routes(nginx_config(config))
-        self.assertEqual(([], ["http://botapi:8081"], [80], False), (roots, proxies, listens, unknown))
+        self.assertEqual(([], ["http://botapi:8081"] + ["http://botapi:8090"] * 3, [80, 81], False), (roots, proxies, listens, unknown))
         for extra in ("server { root $uri_redacted; }", "server { unknown_route on; }",
                       "map $uri $uri_redacted { root /private; }"):
             self.assertTrue(nginx_routes(nginx_config(config + extra))[-1])
         roots, _, _, unknown = nginx_routes(nginx_config(config + "server { alias /private; }"))
         self.assertIn("/private", roots)
         self.assertFalse(unknown)
+
+    def test_management_context_contract(self):
+        from doctor_checks import nginx_route_contract
+        from pathlib import Path
+        config = Path(__file__).resolve().parent.parent.joinpath('nginx.conf').read_text()
+        self.assertTrue(nginx_route_contract(nginx_config(config), '8081'))
+        for before, after in [('http://botapi:8090', 'http://botapi:8082'), ('listen 81', 'listen 80'),
+                              ('$observer_upstream$uri', '$observer_upstream$request_uri'),
+                              ('location = /status', 'location /extra'), ('Authorization ""', 'Authorization $http_authorization')]:
+            self.assertFalse(nginx_route_contract(nginx_config(config.replace(before, after)), '8081'))
+
+    def test_observer_namespace_and_mount_isolation(self):
+        import copy
+        obj = Installation(parser().parse_args(['--scenario','official-to-self']), None, None, [], [])
+        labels = {'org.opencontainers.image.source':'https://github.com/ichinya/tg-selfhost-botapi', 'io.tg-selfhost.build-key':'local'}
+        base = {'Config':{'User':'101:101', 'Entrypoint':['python3','-m','observability.server']},
+                'HostConfig':{'NetworkMode':'container:'+'a'*64, 'ReadonlyRootfs':True, 'CapDrop':['ALL'], 'SecurityOpt':['no-new-privileges']},
+                'Mounts':[{'Source':'/repo/.observability/runtime', 'Destination':'/inputs/runtime', 'RW':False}]}
+        for change, expected in [(lambda c:None, 'pass'), (lambda c:c['HostConfig'].update(NetworkMode='host'), 'fail'),
+             (lambda c:c['Mounts'].append({'Source':'/var/run/docker.sock','Destination':'/socket','RW':False}), 'fail'),
+             (lambda c:c['Mounts'].append({'Source':'/private/state','Destination':'/data','RW':False}), 'fail')]:
+            obj.checks.clear(); observer=copy.deepcopy(base); change(observer)
+            obj.containers={'botapi':{'Id':'a'*64, 'Config':{}, 'Mounts':[{'Source':'/private/state', 'Destination':'/var/lib/telegram-bot-api'}]}, 'observer':observer}
+            obj.image_data={k:{'Config':{'Labels':labels}} for k in ['botapi','observer']}
+            obj.exposure()
+            self.assertEqual(expected, next(c for c in obj.checks if c['id'].endswith('observer_isolation'))['status'])
 
     def test_parser_includes_and_dynamic(self):
         text = '# configuration file /etc/nginx/nginx.conf:\nhttp { include /etc/nginx/conf.d/*.conf; }\n# configuration file /etc/nginx/conf.d/default.conf:\nserver { listen 80; location / { proxy_pass http://botapi:8081; } }'

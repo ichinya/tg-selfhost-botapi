@@ -33,13 +33,14 @@ LABEL org.opencontainers.image.source="https://github.com/ichinya/tg-selfhost-bo
       io.tg-selfhost.build-key="${BUILD_FINGERPRINT}"
 ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
     TELEGRAM_TEMP_DIR="/tmp/telegram-bot-api"
-RUN apk add --no-cache openssl libstdc++ \
+RUN apk add --no-cache openssl libstdc++ curl jq \
  && addgroup -g 101 -S telegram-bot-api \
  && adduser -S -D -H -u 101 -h /var/lib/telegram-bot-api -s /sbin/nologin -G telegram-bot-api telegram-bot-api \
  && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api \
  && chown telegram-bot-api:telegram-bot-api /var/lib/telegram-bot-api /tmp/telegram-bot-api
 COPY --from=build /usr/local/bin/telegram-bot-api /usr/local/bin/telegram-bot-api
 COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
+COPY --chmod=755 tools/botapi_healthcheck.sh /usr/local/bin/botapi-healthcheck
 COPY --from=source /usr/src/telegram-bot-api/LICENSE_1_0.txt /usr/share/licenses/telegram-bot-api/LICENSE_1_0.txt
-EXPOSE 8081/tcp 8082/tcp
+EXPOSE 8081/tcp
 ENTRYPOINT ["/docker-entrypoint.sh"]

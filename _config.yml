@@ -31,6 +31,9 @@ exclude:
   - tools
   - data
   - logs
+  - .observability
+  - .issue-flow
+  - .stats-source
   - .site-check
 navigation:
   en:

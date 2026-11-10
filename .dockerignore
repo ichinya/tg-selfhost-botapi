@@ -3,3 +3,11 @@
 !docker-entrypoint.sh
 !patches/
 !patches/webhook-user-agent.patch
+!tools/
+!tools/botapi_healthcheck.sh
+!tools/observability/
+!tools/observability/*.py
+!tools/observability/status.schema.json
+!tools/observability/Dockerfile
+**/__pycache__
+**/*.pyc

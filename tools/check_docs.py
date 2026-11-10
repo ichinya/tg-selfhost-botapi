@@ -66,9 +66,12 @@ def check(root):
     retained = root / source.name
     if retained.is_file() and retained.read_bytes() != source.read_bytes():
         errors.append("The original migrator must be copied without changes")
-    for private in ("Dockerfile", "nginx.conf", "docker-entrypoint.sh", "migrate_off_to_self.sh", "tools", "data", "logs"):
+    for private in ("Dockerfile", "nginx.conf", "docker-entrypoint.sh", "migrate_off_to_self.sh", "tools", "data", "logs", '.observability', '.issue-flow', '.stats-source'):
         if (root / private).exists():
             errors.append(f"Non-documentation content published: {private}")
+    for path in root.rglob('*'):
+        if path.is_file() and b'OBS16_PUBLICATION_SENTINEL' in path.read_bytes():
+            errors.append('Private observability sentinel published')
     if errors:
         raise SystemExit("\n".join(errors))
     print(f"Checked {len(pages)} HTML pages, internal links, language navigation and migrator compatibility.")

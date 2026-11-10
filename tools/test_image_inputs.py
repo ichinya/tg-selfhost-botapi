@@ -5,10 +5,18 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from image_inputs import build_key, digest, revision
+from image_inputs import build_key, digest, revision, recipe_files
 
 
 class BuildInputsTest(unittest.TestCase):
+    def test_each_shipped_runtime_input_changes_key(self):
+        files = recipe_files()
+        baseline = build_key({}, files)
+        for name in files:
+            with self.subTest(name=name):
+                self.assertNotEqual(baseline, build_key({}, {**files, name:files[name]+b'changed'}))
+        self.assertIn('tools/observability/runtime.py', files)
+        self.assertIn('tools/botapi_healthcheck.sh', files)
     def test_any_upstream_change_invalidates_published_build(self):
         inputs = dict(source="a", base="b")
         files = {"Dockerfile": b"recipe", "patch": b"header"}

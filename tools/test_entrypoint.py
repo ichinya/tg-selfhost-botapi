@@ -70,6 +70,15 @@ class EntrypointTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["args"], ["--version"])
 
+    def test_statistics_loopback_and_port_conflicts(self):
+        self.env['TELEGRAM_STAT'] = 'true'
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('--http-stat-ip-address=127.0.0.1', json.loads(result.stdout)['args'])
+        for port in ['8082', '8090', '65536', 'invalid']:
+            self.env['TELEGRAM_HTTP_PORT'] = port
+            self.assertNotEqual(self.run_script().returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

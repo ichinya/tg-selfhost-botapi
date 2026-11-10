@@ -25,6 +25,8 @@ a webhook User-Agent patch, and migration helpers.
 | Official tdlib server | Bot API implementation |
 | This project's image | Builds the server, applies the webhook patch and starts it from environment variables |
 | nginx gateway | Forwards HTTP requests to the server |
+| Observer | Token-free health and filtered operational snapshots on a private management listener |
+| Runtime host CLI | Writes sanitized disk and actual image metadata without granting observer Docker access |
 | Doctor host CLI | Checks installation and migration prerequisites with safe text/JSON reports |
 | Bash helper | Automates cloud → local migration with a confirmation step |
 | Browser tool | Reads an explicitly selected source with consent; executes cloud → local or webhook-only; gives manual stages for local transitions |

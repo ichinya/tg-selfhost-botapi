@@ -12,7 +12,16 @@ RECIPE = (
     "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
     "tools/test_webhook_user_agent.py",
     ".github/workflows/image.yml",
+    'tools/botapi_healthcheck.sh', 'tools/check_stats_source.py',
+    'tools/observability/Dockerfile', 'tools/observability/status.schema.json',
+    'docker-compose.yml', 'docker-compose.build.yml', 'nginx.conf',
 )
+
+
+def recipe_files():
+    names = set(RECIPE)
+    names.update(str(p.relative_to(ROOT)).replace('\\', '/') for p in (ROOT / 'tools/observability').glob('*.py'))
+    return {name: (ROOT / name).read_bytes() for name in sorted(names)}
 
 
 def command(*args):
@@ -47,7 +56,8 @@ def resolve():
         "bot_api_revision": revision("tdlib/telegram-bot-api"),
         "alpine_image": "alpine:3.22@" + digest("alpine:3.22"),
     }
-    inputs["build_key"] = build_key(inputs, {name: (ROOT / name).read_bytes() for name in RECIPE})
+    inputs['observer_base'] = 'python:3.13.5-alpine3.22@' + digest('python:3.13.5-alpine3.22')
+    inputs["build_key"] = build_key(inputs, recipe_files())
     return inputs
 
 

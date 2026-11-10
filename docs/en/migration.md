@@ -400,3 +400,18 @@ is BLOCKED/1; malformed or unreadable input exits 2. Reports retain pending acti
 Doctor does not run migration, helpers, bot methods, cloud probes, journals or
 locks. READY means readiness to begin the prepared procedure; it does not certify
 helpers, completed transfer, authorization or delivery.
+
+## Optional migration observation
+
+Before any migration, disable the observer registry worker and wait for in-flight
+requests to finish. A snapshot is not a lock and browser state is unobserved.
+The Bash helper can emit a sanitized final projection without changing its workflow:
+set process environment `MIGRATION_STATUS_DIR="$PWD/.observability/migration"` and
+`MIGRATION_STATUS_ALIAS=public_label` (not in the helper .env). Prepare that owned
+non-symlink directory as 0755; output is atomic 0644 `status.json`, with no private
+receipts, URLs or tokens. The v1 projection contains UTC observed_at and at most
+100 operations: UUID operation_id, public alias, stage, outcome, UTC observed_at,
+and delivery_evidence. See `tools/observability/status.schema.json` for the operation
+schema. The producer runs only after summary finalization; live operations need a
+separate heartbeat producer. Missing, invalid or stale configured input blocks
+authenticated observation. Old terminal results remain historical evidence only.
