@@ -8,6 +8,29 @@ from urllib.parse import unquote, urlsplit
 BASE = "/tg-selfhost-botapi"
 
 
+def private_site_paths(root):
+    """Return relative private artifact paths accidentally copied into a site."""
+    root = Path(root)
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if any(part in (".migration-state", ".migration-private", "files", "secrets", "examples") for part in relative.parts) or (
+            path.name == ".env" or path.name.startswith(".env.") and path.name != ".env.example"
+        ) or path.name in ("binding.key", "migration-helper.env", "Dockerfile.downloads", "docker-compose.downloads.yml") or (
+            path.name.startswith("downloads.config.")
+        ):
+            yield relative
+        elif path.is_file() and path.suffix == '.json':
+            # Recognize renamed private journal envelopes as well as paths.
+            import json
+            try:
+                if path.stat().st_size <= 4194304:
+                    value = json.loads(path.read_text(encoding='utf-8'))
+                    if isinstance(value, dict) and {'state', 'mac'} <= set(value):
+                        yield relative
+            except (ValueError, UnicodeError, OSError):
+                pass
+
+
 class Page(HTMLParser):
     def __init__(self, text):
         super().__init__()
@@ -28,6 +51,7 @@ def check(root):
     root = root.resolve()
     pages = {path.resolve(): Page(path.read_text(encoding="utf-8")) for path in root.rglob("*.html")}
     errors = []
+    errors.extend(f"Private content published: {path}" for path in private_site_paths(root))
     for path, page in pages.items():
         for link in page.links:
             parsed = urlsplit(link)
