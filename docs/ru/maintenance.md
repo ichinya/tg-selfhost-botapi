@@ -5,6 +5,37 @@ translation: /docs/en/maintenance.html
 
 # Обслуживание
 
+## Приёмка миграции
+
+Обязательный Linux/Node 24 mock-gate описан в CONTRIBUTING: потеря ответа до/после
+эффекта, per-bot lock, crash вокруг intent/receipt, паритет планов интерфейсов,
+доступ к helper и потеря ответа UI. Volume-gate использует только точные
+fixture IDs/labels. CI проверяет tracked зависимости и отсутствие приватных
+файлов в сайте. Платформенные skips не являются приёмкой. Старые curl-specific
+assertions сохранены как справочный код; исполняемые тесты адаптера проверяют
+тот же loopback protocol/journal, что CLI. Отсутствующий delivery-action fixture
+issue #9 остаётся отдельным declared workspace baseline.
+
+После перезапуска helper нужны новый session code и private runtime inputs.
+Сохраняйте прежний журнал/ключ. Browser disconnect не отменяет фоновую задачу.
+Прочитайте status/job result, заново подайте credentials перед resume.
+Locator операции не является полномочием.
+
+## Восстановление журнала миграции
+
+Сохраняйте весь приватный каталог **вместе с `binding.key`**, когда операции
+не выполняются. Восстанавливайте оба с владельцем и приватными правами.
+Потеря ключа, смена токена, повреждение или неизвестная версия state блокируют
+продолжение. Незавершённый intent становится UNKNOWN. Верните исходный журнал
+и сверяйте ту же операцию; пустой state root не доказывает отсутствие эффекта.
+
+После timeout UI сначала прочитайте offline status той же операции. Потеря
+ответа только браузером не отменяет durable receipts. При потере ответа Bot API
+сверьте UNKNOWN по trusted provider receipt с точными operation/digest/attempt,
+endpoint/token bindings и временем. Без доказательств сохраняйте блокировку.
+Изменение токена/deployment/профиля требует разбора и проверки с сохранением
+исходного журнала; подтверждённую историю нельзя стирать.
+
 ## Сборка образа
 
 Workflow проверяет официальный исходник tdlib и digest Alpine 3.22 каждую ночь
@@ -185,6 +216,32 @@ identity, restart count, effective Compose или on-disk snapshot nginx.
 для identity сервера. `unsafe_input_permissions` даёт BLOCKED/1; нечитаемый или
 неверный private input — exit 2, непроверенная приватность платформы — UNKNOWN/3.
 
+Postflight делает два чтения target через две секунды с общим deadline десять секунд. Сверяются точный URL, множество updates, connections, наличие сертификата и fixed IP. DNS IP — наблюдение. Тренд очереди и исторические/новые delivery/synchronization errors выводятся отдельно, только безопасными счётчиками. Пустая очередь не доказывает доставку. WebhookInfo не проверяет байты секрета и сертификата. Новые ошибки, отсутствующие счётчики или несовпадения останавливают приёмку; мутации не повторяются.
+
+## Независимый receipt webhook и sender gate
+
+Используйте отдельного test-bot и обработчик. Ожидаемый секрет задайте через защищённый environment либо WEBHOOK_SECRET_TOKEN_FILE вне checkout/webroot:
+
+~~~sh
+python3 tools/webhook_profile_receiver.py --expected-update-id 701 --seconds 60
+~~~
+
+Receiver слушает только loopback; для реального test-bot подключите свой контролируемый TLS test reverse proxy. Выбранный loopback_port выводится при старте. Ручной synthetic POST проверяет только приём обработчиком: отсутствующий/неверный/дублирующий secret header получает 403, посторонний update_id — 409. Receipt содержит только update_id, time, secret_matched, count. Храните receipt вне webroot и сопоставляйте update_id с новым событием test-bot; WebhookInfo и посторонний receipt не подтверждают доставку. Загружать можно публичный сертификат; test private key остаётся вне exports/repository.
+
+Явный source gate проверяет закреплённую BOT_API_REVISION и реальный условный header в WebhookActor после применения tracked patches/webhook-user-agent.patch:
+
+~~~sh
+python3 tools/check_issue7_sender.py --source /path/to/pinned/telegram-bot-api
+~~~
+
+CI получает точную ревизию, никогда master. Source assertion не является runtime-доставкой. Изолированный C++ sender harness — NOTRUN без отдельной сборки из тех же исходников; реальный test-bot update с коррелированным receipt — третий уровень проверки конкретного развёртывания. Для unit-тестов receiver реальные Telegram credentials не нужны.
+
+## Гейты квалификации профиля
+
+Запуск: `timeout 420 python3 -m unittest tools.test_webhook_profile_contract tools.test_webhook_profile_ui tools.test_webhook_profile_transport tools.test_webhook_profile_receiver -v`, `PYTHONPATH=.:tools`, Node 24+, Bash 4+, curl, jq, openssl и непривилегированный POSIX runner. 22 общих fixtures исполняют shipped inline resolver и Bash jq program; реальные HTTP-тесты разбирают urlencoded/multipart, запускают helper/export, отклоняют readback mismatch и проверяют receipts. Privacy canaries охватывают вывод, clipboard, public state, отражённые API errors и curl argv. Scoped workflow запускает ту же матрицу и регрессии #10; pinned-source sender выделен в отдельный job. Чужие untracked issue7 drafts и workflow с Node 20 не подключаются.
+
+Image/default upstream logger qualification, multipart через shipped nginx, C++ sender harness, Jekyll rendered checks и реальная Telegram delivery остаются явными внешними гейтами. Недоступный запуск — NOTRUN: verification deferred to CI/gates. Изменение не заявляет всеобщую upstream debug/VLOG redaction (#17); сохраняйте низкую verbosity и отдельно квалифицируйте default logs перед deployment.
+
 ### Приватное досье миграции
 
 Корневой helper хранит schema version 1 intent/receipt/summary в `logs/migration`
@@ -339,3 +396,70 @@ docker compose up -d --force-recreate botapi observer gateway
 при необходимости нужна совместимая backup состояния. Обновление только botapi
 с --no-deps неполно. Docker unhealthy — сигнал, а не автоматический restart или
 recovery. После замены проверьте health, freshness источников и ownership.
+
+## Изолированный пример с mock-сервером
+
+Используйте Linux/WSL и loopback-only fixture ниже. Он не может обратиться
+к Telegram. Для каждого сценария запускаются новые fixture servers/state;
+это не способ восстановления реального бота. Перед запуском задайте
+`MIGRATION_FIXTURE_DIRECTION` одним из четырёх direction names. Завершите
+проверку за TTL evidence (пять минут), иначе перезапустите изолированный fixture.
+
+```sh
+umask 077
+PYTHONPATH=tools python3 - <<'PY'
+import json, os, tempfile
+from pathlib import Path
+from migration_mock import Bot, TOKEN, deployment
+from migration_helper import Application, Server, write_bootstrap
+root = Path(tempfile.mkdtemp(prefix="botapi-fixture-"))
+source, target = Bot("source"), Bot("target")
+direction = os.environ.get("MIGRATION_FIXTURE_DIRECTION", "cloud_to_local")
+endpoint = source.endpoint if direction == "webhook_only" else target.endpoint
+evidence = root / "deployment.json"
+record = deployment(endpoint)
+record["local_mode"] = direction != "local_to_cloud"
+evidence.write_text(json.dumps(record))
+evidence.chmod(0o600)
+app = Application({"state_dir": str(root / "state"), "allowed_endpoints": [source.endpoint, target.endpoint],
+                   "evidence_file": str(evidence), "trust_file": None, "fixture": True})
+server = Server(app, 8765)
+pairing = root / "pairing-code"
+write_bootstrap(pairing, server.bootstrap, [root / "state"])
+print("Synthetic fixture only:", server.origin, "private pairing file:", pairing, flush=True)
+print("Source:", source.endpoint, "Target:", endpoint, "Token:", TOKEN, "Direction:", direction, flush=True)
+print("Retained fixture authority:", root, flush=True)
+try:
+    server.serve_forever()
+except KeyboardInterrupt:
+    pass
+finally:
+    server.server_close(); app.close(); target.close(); source.close()
+PY
+```
+
+1. Прочитайте одноразовый код приватно из pairing-файла. Укажите напечатанные endpoints/token,
+   соответствующие direction/mode, явный polling и quiescence JSON `"fixture"`.
+   Для Local → Cloud также отметьте queue acknowledgement и cooldown 0.
+2. Plan, проверка digest, Apply. Source detach предшествует target authorization.
+   Миграция остаётся partial до endpoint/start checkpoints.
+3. Введите `"fixture"` в endpoint-change и application-start receipts, затем
+   Resume. Delivery остаётся NOTRUN до отдельного receiver receipt.
+4. В Local → Local выполнение сначала остановится после close. Fixture transfer
+   receipt требует точных operation_id/digest/close_attempt/source_fingerprint/
+   target_fingerprint, target_deployment равного deployment fingerprint плана,
+   совпадающих 64-hex source_manifest/target_manifest, 64-hex source_deployment,
+   uid/gid 1000, текущего observed_at и true source_closed/no_writers/layout_valid.
+   Это проверка границы аттестации, а не реальный перенос каталога TDLib.
+5. Обновите вкладку и прочитайте status. Повторный Resume не увеличивает counters
+   подтверждённых мутаций. Потерю ответов отдельно внедряют автоматические тесты.
+
+Реальные providers задаются в private `MIGRATION_TRUST_FILE`:
+`{"providers":{"audit":{"key_hex":"<private-64-hex-key>","kinds":["quiescence","effect","endpoint_change","application_start","state_transfer","delivery"],"fixture":false}}}`.
+Подписанный envelope содержит provider/payload/signature. Signature — HMAC-SHA256
+канонического sorted compact ASCII JSON payload на независимом ключе. Общие
+поля payload: version 1, kind, operation_id, digest, source_fingerprint,
+target_fingerprint, token_fingerprint, observed_at. Quiescence также требует
+no_writers=true, endpoint/start — endpoint_fingerprint. Provider проверяет
+внешние факты до подписи. По умолчанию доверенных providers нет; fixture
+providers не могут подтверждать реальные операции.

@@ -28,8 +28,9 @@ a webhook User-Agent patch, and migration helpers.
 | Observer | Token-free health and filtered operational snapshots on a private management listener |
 | Runtime host CLI | Writes sanitized disk and actual image metadata without granting observer Docker access |
 | Doctor host CLI | Checks installation and migration prerequisites with safe text/JSON reports |
-| Bash helper | Automates cloud → local migration with a confirmation step |
-| Browser tool | Reads an explicitly selected source with consent; executes cloud → local or webhook-only; gives manual stages for local transitions |
+| Python executor | Sealed plan/apply/status/resume for all four migration directions |
+| Bash helper | Compatibility adapter to the same executor |
+| Browser tool | Same-origin loopback helper UI; Pages remains the entry screen |
 
 The build does not depend on aiogram. Their project packages the same official
 server; this repository maintains its own Docker packaging.

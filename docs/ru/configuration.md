@@ -43,6 +43,33 @@ Binlog, реальные каталоги ботов, statistics и state files 
 Read-only mounts, запрет листинга и публикация на loopback не предотвращают
 HTTP-чтение известного файла. Для неподдерживаемого remote file workflow используется
 граница #5; doctor не сертифицирует и не запускает соседние helpers.
+## Доступ к helper
+
+Оператор задаёт allowlist полных API endpoints в startup-файле. Loopback helper
+отдаёт фиксированные routes/assets, не принимает Docker command/container.
+Одноразовый bootstrap создаёт HttpOnly SameSite=Strict cookie и CSRF token.
+Точные Host/Origin проверки отвергают external/null/file origins. Лимиты:
+body 256 KiB, HTTP lifetime десять секунд, шестнадцать соединений и одна фоновая
+миграция. Access/body logs отключены. Helper не публикуется через nginx.
+
+## Приватное состояние миграции
+
+Используйте один `MIGRATION_STATE_DIR` на оператора/хост в приватной Linux ФС
+вне репозитория, mounts Bot API и webroot (каталог 0700, файлы 0600).
+Все интерфейсы используют общую блокировку бота и резерв незавершённой операции.
+Windows и state на Windows-диске в WSL не поддерживаются. Проверка документации
+отвергает вложенные приватные файлы.
+
+Readiness — свежая проверка протокола без токена и приватное свидетельство
+deployment с TTL пять минут: image ID, UID/GID, готовность credentials,
+persistent work mount и отдельный доступный temp. Для local-build RepoDigest
+не обязателен; temp не обязан быть persistent. Credentials через `_FILE`
+поддерживаются. Явная Docker-диагностика создаёт маленькие write probes от
+runtime user и не является read-only; HTTP-helper не выбирает контейнеры.
+Local mode подтверждается deployment: HTTP/private IP/любой порт разрешены
+в local; cloud требует HTTPS, допустимый порт и публичный IPv4.
+Несовместимый профиль блокируется до мутаций source. Транспорт ограничивает
+DNS/connect/read/total time и body, не наследует proxy, не делает redirects/retry.
 
 ## Адреса и хранение
 
@@ -78,7 +105,7 @@ BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
 
 ## Окружение помощника миграции
 
-Bash-помощник миграции считывает из доверенного файла `.env` только `SELF_BOT_URL`, `TELEGRAM_BOT_URL`, `WEBHOOK_URL`, `WEB_HOOK` и `DROP_PENDING_UPDATES`; остальные значения из файла не экспортируются в окружение помощника. `OFFICIAL_BOT_URL` — расширенная настройка для тестовой подмены исходного endpoint; она читается из окружения процесса, а не из файла.
+Bash helper импортирует документированные migration settings из trusted `.env`/`ENV_FILE`, включая `OFFICIAL_BOT_URL`. Полный whitelist указан ниже; per-bot входы отделены от настроек контейнера.
 
 ## Переменные контейнера
 
@@ -140,6 +167,15 @@ nginx или запрос `setWebhook` этот исходящий заголо�
   необработанную диагностику.
 
 [Установка](getting-started.md) · [Обслуживание](maintenance.md)
+
+## Полный профиль webhook
+
+До изменения source helper разрешает `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON-массив строк), `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL=true|false`. Неизвестный секрет/IP и отсутствующий custom certificate останавливают preflight. `fixed` — алиас pinned для canonical IPv4. Source `ip_address` не раскрывает намерение pinning. Явные параметры перекрывают source; отсутствие optional updates означает документированный default `[]`. `[]` исключает chat_member, message_reaction и message_reaction_count, а не включает все типы. Null и неверные типы отклоняются. Per-bot max_connections: 1–100; до 100000 только при явном подтверждении local mode (`TELEGRAM_LOCAL`/`--local`), независимо от серверного `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. Self-host URL этого не доказывает.
+
+Используйте ровно один из `WEBHOOK_SECRET_TOKEN` и `WEBHOOK_SECRET_TOKEN_FILE` для provided; none явно утверждает отсутствие секрета. В файле разрешён один конечный LF/CRLF; inline-секрет не обрезается. `WEBHOOK_CERTIFICATE_FILE` — публичный PEM, никогда private key. Protected files, включая `BOT_TOKEN_FILE`, должны находиться вне checkout/webroot с доступом только оператору. Process env перекрывает trusted `ENV_FILE` (по умолчанию `.env` рядом с helper), включая явные пустые значения; пары value/file выбираются на одном уровне. Positional URL имеют высший приоритет. Для polling профиль webhook не применяется.
+
+Передача полного профиля включена: urlencoded без сертификата, полностью multipart с сертификатом. Секрет и scalar-файлы — приватные снимки; токен/секрет/URL не попадают в curl argv и raw diagnostics. Helper отключает trace, применяет curl -q без redirects, проверяет HTTP/ok/result и не повторяет мутации. Для публичного PEM нужны Bash 4+, jq, curl, realpath и проверка openssl X.509; private key отклоняется. Временные файлы создаются с umask 077 и очищаются при выходе/сигналах.
+
 ## Таймауты миграции на хосте
 
 Корневой скрипт `migrate_off_to_self.sh` принимает `MIGRATION_CONNECT_TIMEOUT`

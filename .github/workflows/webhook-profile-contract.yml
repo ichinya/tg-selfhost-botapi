@@ -1,0 +1,50 @@
+name: Webhook profile contract
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Explicit POSIX prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl openssl
+          test "$(id -u)" -ne 0
+          bash -n migrate_off_to_self.sh
+          node tools/embed_webhook_profile.cjs --check
+      - name: Three-surface contract, wire, privacy and tracked regressions
+        env:
+          PYTHONPATH: .:tools
+        run: |
+          timeout 420 python -m unittest tools.test_webhook_profile_contract tools.test_webhook_profile_ui tools.test_webhook_profile_transport tools.test_webhook_profile_receiver -v
+          timeout 180 python -m unittest tools.test_issue10_config tools.test_issue10_contract tools.test_issue10_examples tools.test_issue10_html tools.test_issue10_platform tools.test_webhook_user_agent -v
+  pinned-sender:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Explicit pinned source fetch and tracked header patch
+        run: |
+          revision=$(sed -n 's/^ARG BOT_API_REVISION=//p' Dockerfile | head -1)
+          test "${#revision}" -eq 40
+          git init /tmp/profile-sender
+          git -C /tmp/profile-sender remote add origin https://github.com/tdlib/telegram-bot-api.git
+          git -C /tmp/profile-sender fetch --depth 1 origin "$revision"
+          git -C /tmp/profile-sender checkout --detach FETCH_HEAD
+          git -C /tmp/profile-sender apply --check "$GITHUB_WORKSPACE/patches/webhook-user-agent.patch"
+          git -C /tmp/profile-sender apply "$GITHUB_WORKSPACE/patches/webhook-user-agent.patch"
+          python tools/check_issue7_sender.py --source /tmp/profile-sender

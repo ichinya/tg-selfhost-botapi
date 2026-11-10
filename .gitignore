@@ -3,6 +3,15 @@
 /.env
 /data
 /logs
+**/.migration-state/
+**/.migration-private/
+**/binding.key
+**/migration-helper.env
+**/.env.*
+!**/.env.example
 __pycache__/
 /_site/
 /.jekyll-cache/
+*.pem
+*.key
+*.crt

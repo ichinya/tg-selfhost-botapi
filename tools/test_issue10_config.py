@@ -20,7 +20,11 @@ class ConfigTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.script = self.root / 'script' / 'helper.sh'
         self.script.parent.mkdir()
-        shutil.copy(SCRIPT, self.script)
+        # Test-only preview at the resolved configuration boundary; shipped diagnostics remain private.
+        # The preview stays masked like the shipped script; webhook resolution is asserted through the curl log.
+        self.script.write_text(SCRIPT.read_text(encoding='utf-8').replace('  wp_load "$@"',
+            '  wp_load "$@"\n  printf "Webhook: %s\\nDrop updates: %s\\n" "${WEBHOOK_URL:+configured}" "$DROP_PENDING_UPDATES"'), encoding='utf-8', newline='\n')
+        self.script.chmod(0o755)
         self.cwd = self.root / 'other'
         self.cwd.mkdir()
         self.bin = self.root / 'bin'
@@ -28,21 +32,26 @@ class ConfigTests(unittest.TestCase):
         for name, contents in {'curl': '''printf "%s\\n" "$*" >> "$CALLS"
 [ "${API_ID+x}" != x ] || printf 'API_ID_EXPORTED\\n' >> "$CALLS"
 [ "${API_HASH+x}" != x ] || printf 'API_HASH_EXPORTED\\n' >> "$CALLS"
-output= url= hook=
+output= url= hook= config=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --output) output="$2"; shift;;
-    --data-urlencode) case "$2" in url=*) hook="${2#url=}";; esac; shift;;
+    --config) config="$2"; shift;;
+    --data-urlencode) case "$2" in url=*) hook="${2#url=}";; url@*) hook=$(cat -- "${2#url@}");; esac; shift;;
     http://*|https://*) url="$1";;
   esac
   shift
 done
+[ -z "$config" ] || url=$(sed -n 's/^url = //p' "$config" | tr -d '"')
+endpoint=${url%%/bot*}; endpoint=${endpoint%/}/
+[ -z "$url" ] || printf 'endpoint=%s\\n' "$endpoint" >> "$CALLS"
+[ -z "$hook" ] || printf 'url=%s\\n' "$hook" >> "$CALLS"
 case "$url" in
   */getMe) printf '{"ok":true,"result":{"id":123}}' > "$output";;
   */getWebhookInfo)
     saved_hook=
     [ ! -f "$CALLS.hook" ] || saved_hook=$(cat "$CALLS.hook")
-    printf '{"ok":true,"result":{"url":"%s"}}' "$saved_hook" > "$output";;
+    printf '{"ok":true,"result":{"url":"%s","max_connections":40,"allowed_updates":[],"has_custom_certificate":false,"pending_update_count":0}}' "$saved_hook" > "$output";;
   */setWebhook)
     printf '%s' "$hook" > "$CALLS.hook"
     printf '{"ok":true,"result":true}' > "$output";;
@@ -134,6 +143,7 @@ printf '200' '''}.items():
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('url=https://process/hook', self.calls())
         self.assertNotIn('https://process/hook', result.stdout)
+        self.assertIn('Webhook: configured', result.stdout)
         self.assertIn('Drop updates: false', result.stdout)
         (self.root / 'calls').unlink()
         result = self.run_helper('http://argument', 'https://argument/hook', answer='y\n',
@@ -141,6 +151,7 @@ printf '200' '''}.items():
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('url=https://argument/hook', self.calls())
         self.assertNotIn('url=https://process/hook', self.calls())
+        self.assertNotIn('/bot123:', self.calls())
 
     def test_file_canonical_hook_beats_file_alias(self):
         (self.script.parent / '.env').write_text(

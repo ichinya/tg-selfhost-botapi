@@ -80,6 +80,17 @@ Doctor reports follow `tools/doctor.schema.json`; private decisions use input v1
 Check exit codes 0/1/2/3 and keep internal collection failures separate from usage
 errors. Run from a clean candidate without untracked helpers or `tools/__init__.py`.
 
+Migration acceptance uses Python 3.11+ and Node 24 on Linux:
+`python3 tools/check_migration_safety.py --require-posix` and
+`node --test tools/test_migration_ui.mjs`. The dedicated workflow also exercises
+only labelled fixture volumes, never a production bot. Windows passes are not
+POSIX/volume acceptance. A browser timeout is tested separately from lost Bot API
+responses. No live credentials or inference are used by these fixtures.
+
+Приёмка миграции: Python 3.11+, Node 24 и Linux, команды выше. Проверки используют
+mock APIs и временные volumes с точными IDs/labels. Windows-прогон не заменяет
+POSIX/volume-приёмку; потеря ответа UI и Bot API проверяются отдельно.
+
 Update [English](docs/en/README.md) and [Russian](docs/ru/README.md) documentation
 together. Keep the root README short. Documentation changes get a Jekyll build
 and internal-link check in CI; the existing migrator URL must keep working.
@@ -144,3 +155,11 @@ Windows skips are NOTRUN. Docker source/image/privacy, Jekyll and actual Kuma
 gates are separate from Python unit results. Both release images must share one
 build key and pass qualification before promotion. Never use real bot credentials
 in fixtures or logs. Keep documentation paired in docs/en and docs/ru.
+
+
+Webhook profile #7 gates: Node 24+, Python 3.13, Bash 4+, curl/jq/openssl, non-root POSIX.
+Run the four explicit `tools.test_webhook_profile_*` modules listed in maintenance, then all tracked #10 tests and `test_webhook_user_agent`.
+`node tools/embed_webhook_profile.cjs --check` verifies standalone helper/browser/export sync.
+`check_issue7_sender.py --source` is a separate pinned-source gate, not unit discovery.
+Receiver/manual POST, source assertions, actual image logs/nginx pass-through and live Telegram receipts are different evidence.
+Unavailable execution: NOTRUN, verification deferred to CI/gates.
