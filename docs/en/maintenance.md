@@ -205,3 +205,7 @@ owner-only location outside `logs/migration` before removing reconciled run
 directories and a stale lock. Keep the archive until resolution. A lock must
 never be removed merely to retry an unknown request. An unfinished token-free
 probe without a surviving lock does not block; authenticated unfinished attempts do.
+
+### APK refresh identity
+
+The build inputs use a UTC calendar-day refresh window and a generation from `tools/apk_policy.json`. Increase generation in a commit for an emergency refresh within the same day. The scheduled check runs at 23:37 UTC; a delayed or failed run delays the refresh. This policy includes ordinary package updates, not only security fixes. Matching build keys do not guarantee reproducible bytes: package repositories can change within a window. The resolver freezes one inputs snapshot per invocation; a new window changes the key even when source and base digest do not change. This identity alone does not refresh Docker layers; that requires the installation stages to consume it.

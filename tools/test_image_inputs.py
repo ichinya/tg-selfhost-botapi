@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -5,10 +6,41 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from image_inputs import build_key, digest, revision
+from image_inputs import build_key, digest, revision, resolve, validate_policy, check_generation
 
 
 class BuildInputsTest(unittest.TestCase):
+    @patch("image_inputs.digest", return_value="sha256:" + "a" * 64)
+    @patch("image_inputs.revision", return_value="b" * 40)
+    def test_refresh_identity_and_clock(self, revision_mock, digest_mock):
+        policy = {"policy_version": 1, "refresh": "utc-day", "generation": 0}
+        calls = []
+        def clock():
+            calls.append(1)
+            return datetime(2026, 1, 2, 1, tzinfo=timezone(timedelta(hours=2)))
+        first = resolve(clock, policy)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(first["apk_refresh_id"], "v1-2026-01-01-g0")
+        same = resolve(lambda: datetime(2026, 1, 1, 23, tzinfo=timezone.utc), policy)
+        self.assertEqual(first, same)
+        for other in (resolve(lambda: datetime(2026, 1, 2, tzinfo=timezone.utc), policy),
+                      resolve(clock, {**policy, "generation": 1}),
+                      resolve(clock, policy, "linux/arm64")):
+            self.assertNotEqual(first["build_key"], other["build_key"])
+        with self.assertRaises(ValueError):
+            resolve(lambda: datetime(2026, 1, 1), policy)
+
+    def test_policy_validation_and_downgrade(self):
+        good = {"policy_version": 1, "refresh": "utc-day", "generation": 0}
+        for bad in ({}, {**good, "generation": True}, {**good, "generation": -1},
+                    {**good, "policy_version": 2}, {**good, "extra": 1},
+                    {**good, "refresh": "weekly"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_policy(bad)
+        check_generation(good, None)
+        with self.assertRaises(ValueError):
+            check_generation(good, {**good, "generation": 1})
+
     def test_any_upstream_change_invalidates_published_build(self):
         inputs = dict(source="a", base="b")
         files = {"Dockerfile": b"recipe", "patch": b"header"}
