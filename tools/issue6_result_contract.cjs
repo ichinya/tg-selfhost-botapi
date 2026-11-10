@@ -54,7 +54,7 @@ async function main() {
   p = refusingPage('setWebhook', 400, null, {mode:'hook-only',hook:'https://sink.test/hook'});
   await p.run('executeInBrowser()');
   assert.match(p.elements.get('summaryBox').textContent, /^ERROR/);
-  assert.equal(p.calls.filter(c => c.method === 'getWebhookInfo').length, 1);
+  assert.equal(p.calls.filter(c => c.method === 'getWebhookInfo').length, 2); // Initial snapshot and pre-mutation recheck.
 
   p = refusingPage('deleteWebhook', 429, '600');
   await p.run('executeInBrowser()');
@@ -82,13 +82,14 @@ async function main() {
   p = page({mismatch:true,hook:'https://sink.test/hook'});
   await p.run('executeInBrowser()');
   assert.match(p.elements.get('summaryBox').textContent, /^PARTIAL/);
-  assert.match(p.elements.get('summaryBox').textContent, /https:\/\/other\.test\//);
+  assert.match(p.elements.get('summaryBox').textContent, /target_verified: REJECTED/);
   p.elements.get('botToken').value = '456:another_synthetic_token_only';
-  p.run('invalidate()'); assert(!p.run('blocked(currentConfig())'));
+  p.run('invalidate()'); assert(!p.run('guardFor(currentConfig()).reconcile'));
+  assert(p.run('blocked(currentConfig())'), 'unresolved operation blocks the page even for a different token');
   p.elements.get('botToken').value = '123:rotated_synthetic_token_only';
-  p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
+  p.run('invalidate()'); assert(p.run('guardFor(currentConfig()).reconcile'));
   p.elements.get('botToken').value = '00123:rotated_synthetic_token_only';
-  p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
+  p.run('invalidate()'); assert(p.run('guardFor(currentConfig()).reconcile'));
   console.log('issue 6 result contract: 10 scenarios passed; 1 privacy scenario passed');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

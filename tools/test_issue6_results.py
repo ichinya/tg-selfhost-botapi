@@ -1,6 +1,8 @@
 """Run the shipped-page result contract with an external watchdog."""
 import subprocess
 import json
+import os
+import tempfile
 import socket
 import sys
 import threading
@@ -47,8 +49,10 @@ class ResultContract(unittest.TestCase):
                 if method == 'getMe':
                     result = {'id': 456 if scenario == 'id-mismatch' and role == 'target' else 123}
                 else:
-                    final = sum(m == 'getWebhookInfo' for _, m in calls) > 1
-                    result = {'url': 'https://other.test/hook' if final and scenario == 'url-mismatch' else hooks[role]}
+                    final = sum(m == 'getWebhookInfo' for _, m in calls) > 2
+                    result = {'url': 'https://other.test/hook' if final and scenario == 'url-mismatch' else hooks[role],
+                              'pending_update_count': 0, 'has_custom_certificate': False,
+                              'max_connections': 40, 'allowed_updates': []}
                 self.reply(200, {'ok': True, 'result': result})
 
             def do_POST(self):
@@ -95,9 +99,17 @@ class ResultContract(unittest.TestCase):
                                   capture_output=True, text=True, timeout=10).stdout
             self.assertNotIn(HOOK, plan)
             self.assertNotIn(TOKEN, plan)
-            result = subprocess.run([bash_binary(), '-c', plan],
-                                    input=('y\n' + TOKEN + '\n' + runtime_hook + '\n').encode(), cwd=ROOT,
-                                    capture_output=True, timeout=20)
+            env = {key: value for key, value in os.environ.items() if key.upper() in
+                   {'PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME'}}
+            env.update(BOT_TOKEN=TOKEN, OFFICIAL_BOT_URL=address + '/source',
+                       SELF_BOT_URL=address + ('/source' if mode == 'hook-only' else '/target'),
+                       WEBHOOK_URL=runtime_hook, WEBHOOK_SECRET_MODE='none', WEBHOOK_IP_MODE='dns',
+                       NO_PROXY='127.0.0.1', no_proxy='127.0.0.1')
+            with tempfile.TemporaryDirectory() as temp:
+                script = Path(temp) / 'plan.sh'
+                script.write_text(plan, encoding='utf-8', newline='\n')
+                result = subprocess.run([bash_binary(), str(script)], input=b'y\n', cwd=temp,
+                                        env=env, capture_output=True, timeout=30)
             for secret in (TOKEN, HOOK):
                 self.assertNotIn(secret.encode(), result.stdout + result.stderr)
             return result, calls, effects, hooks, initial_hook
