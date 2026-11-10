@@ -38,6 +38,17 @@ def request(host, port, path='/', max_body=65536):
             if not part: break
             raw.extend(part)
             if len(raw) > max_body + 8192: raise ValueError('body_limit')
+            # Bot API may keep the connection open even for HTTP/1.0 and
+            # Connection: close. A complete, framed response needs no EOF.
+            head, sep, body = bytes(raw).partition(b'\r\n\r\n')
+            if sep:
+                fields = [line.partition(b':') for line in head.split(b'\r\n')[1:]]
+                lengths = [value.strip() for key, colon, value in fields
+                           if colon and key.lower() == b'content-length']
+                transfer = any(colon and key.lower() == b'transfer-encoding'
+                               for key, colon, _ in fields)
+                if len(lengths) == 1 and lengths[0].isdigit() and not transfer:
+                    if len(body) >= int(lengths[0]): break
     head, sep, body = bytes(raw).partition(b'\r\n\r\n')
     if not sep or len(head) > 8192 or len(body) > max_body:
         raise ValueError('invalid_response')

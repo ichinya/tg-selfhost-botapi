@@ -22,6 +22,7 @@ def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
     prefix = 'obs16-' + uuid.uuid4().hex[:12]
     network = prefix+'-network'
     names=[]
+    stage = 'network'
     def launch(name, args, image, extra=()):
         name=prefix+'-'+name
         command(['docker','run','-d','--name',name,*args,image,*extra]); names.append(name)
@@ -43,11 +44,14 @@ def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
     try:
         command(['docker','network','create','--internal',network])
         # The gateway must start even before either upstream resolves.
+        stage = 'gateway-start'
         gateway=launch('gateway',['--network',network,'--network-alias','gateway','--mount',
             'type=bind,src='+str(ROOT/'nginx.conf')+',dst=/etc/nginx/conf.d/default.conf,readonly'],nginx_image)
+        stage = 'gateway-without-upstream'
         script='import http.client,time; time.sleep(2); c=http.client.HTTPConnection("gateway",81,timeout=4); c.request("GET","/health/ready"); r=c.getresponse(); raise SystemExit(0 if r.status==503 else 1)'
         command(['docker','run','--rm','--network',network,'--entrypoint','python3',observer_image,'-c',script])
         for kind in ['mock','actual-off','actual-on']:
+            stage = kind + '-start'
             target_args=['--network',network,'--network-alias','botapi']
             if kind=='mock':
                 target=launch(kind,target_args+['--entrypoint','python3','--mount',
@@ -57,7 +61,9 @@ def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
                     '-e','TELEGRAM_LOCAL=true','-e','TELEGRAM_STAT='+('true' if kind.endswith('on') else 'false')],botapi_image)
             observer=launch(kind+'-observer',['--network','container:'+target,'--read-only','--user','101:101',
                 '--cap-drop','ALL','--security-opt','no-new-privileges','-e','TELEGRAM_STAT='+('false' if kind.endswith('off') else 'true')],observer_image)
+            stage = kind + '-health'
             wait(observer,'/health/live'); wait(observer,'/health/ready')
+            stage = kind + '-status-and-routes'
             document=wait(observer,'/status')
             status=json.loads(document[1])
             if status['queue']['sampled']['coverage']!='sampled': raise ValueError('coverage_failure')
@@ -69,6 +75,7 @@ def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
             script='import socket; s=socket.socket(); s.settimeout(1); rc=s.connect_ex(("botapi",8082)); raise SystemExit(0 if rc else 1)'
             command(['docker','run','--rm','--network',network,'--entrypoint','python3',observer_image,'-c',script])
             if kind == 'mock':
+                stage = 'mock-ownership'
                 # Recreate the pair with a simulated inherited runtime snapshot.
                 from datetime import datetime, timezone
                 observed = datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
@@ -91,6 +98,7 @@ def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
                     ' assert result["reason"]=="ownership_required"\n request.assert_not_called()\n')
                 command(['docker','exec','-i',observer,'python3','-'],input=script.encode())
             if kind.startswith('actual'):
+                stage = kind + '-healthcheck-and-privacy'
                 output=command(['docker','exec',target,'/usr/local/bin/botapi-healthcheck'],combined=True)
                 if output: raise ValueError('health_diagnostics_failure')
                 # Intentionally invalid synthetic credential, no real authorization.
@@ -101,6 +109,7 @@ def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
                 if kind.endswith('off'):
                     script='import socket; s=socket.socket(); s.settimeout(1); raise SystemExit(0 if s.connect_ex(("127.0.0.1",8082)) else 1)'
                     command(['docker','exec',observer,'python3','-c',script])
+            stage = kind + '-shutdown-and-logs'
             command(['docker','stop','--time','2',target])
             wait(observer,'/health/live',503)
             for name in [target,observer,gateway]:
@@ -108,6 +117,9 @@ def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
                 if MARKER.encode() in output: raise ValueError('log_privacy_failure')
             command(['docker','rm','-f',observer,target]); names.remove(observer); names.remove(target)
         return dict(mock='PASS', actual_pair='PASS', production='NOTRUN', kuma='NOTRUN')
+    except Exception:
+        # Only fixed internal stage names leave the harness; never print subprocess output.
+        raise RuntimeError(stage) from None
     finally:
         # Names are random and created by this invocation; no host data is mounted.
         for name in reversed(names):
@@ -121,5 +133,5 @@ if __name__=='__main__':
     parser.add_argument('--nginx-image',default='nginx:alpine')
     args=parser.parse_args()
     try: print(json.dumps(smoke(args.botapi_image,args.observer_image,args.nginx_image)))
-    except Exception:
-        print('observability_candidate_gate_failed',file=sys.stderr); raise SystemExit(1)
+    except RuntimeError as error:
+        print('observability_candidate_gate_failed: ' + str(error),file=sys.stderr); raise SystemExit(1)
