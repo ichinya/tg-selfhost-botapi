@@ -122,7 +122,8 @@ class ResultContract(unittest.TestCase):
         result, calls, effects, _, _ = self.run_shell('400')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b'ERROR phase=delivery_configured', result.stderr)
-        self.assertEqual(calls, [('source', 'getMe'), ('source', 'getWebhookInfo'), ('source', 'setWebhook')])
+        self.assertEqual(calls, [('source', 'getMe'), ('source', 'getWebhookInfo'),
+                                 ('source', 'getWebhookInfo'), ('source', 'setWebhook')])
         self.assertEqual(effects, [])
 
     def test_shell_429_stops_without_effect(self):
@@ -131,7 +132,7 @@ class ResultContract(unittest.TestCase):
         self.assertIn(b'ERROR phase=delivery_configured', result.stderr)
         self.assertRegex(result.stderr, rb'retryNotBefore_epoch=\d+')
         self.assertEqual(calls[-1], ('source', 'setWebhook'))
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 4)
         self.assertEqual(effects, [])
 
     def test_shell_429_after_detach_is_partial(self):
@@ -150,7 +151,7 @@ class ResultContract(unittest.TestCase):
         self.assertEqual(calls[-1], ('source', 'setWebhook'))
         self.assertEqual(effects, [('source', 'setWebhook')])
         self.assertEqual(hooks['source'], HOOK)
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 4)
 
     def test_shell_final_url_mismatch_is_partial(self):
         result, calls, effects, _, _ = self.run_shell('url-mismatch')

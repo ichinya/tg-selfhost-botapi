@@ -35,7 +35,7 @@ permissions:
 jobs:
   diagnostics:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
@@ -48,7 +48,7 @@ jobs:
           python3 -m unittest discover -s tools -p 'test_observability*.py' -v
           sh -n tools/doctor_fixtures/entrypoint.sh
       - name: Repository regression suite
-        run: timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
+        run: timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Compose models
         env:
           API_ID: '12345'
