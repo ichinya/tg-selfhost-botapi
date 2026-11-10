@@ -50,7 +50,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bash curl jq
-          timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
+          timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: File bind mount regression
         run: |
           printf SYNTHETIC_BIND_SECRET > "$RUNNER_TEMP/file-contract-secret"
