@@ -3,3 +3,7 @@
 !docker-entrypoint.sh
 !patches/
 !patches/webhook-user-agent.patch
+!tools/
+tools/*
+!tools/capture_apk_metadata.sh
+!tools/capture_link_metadata.py

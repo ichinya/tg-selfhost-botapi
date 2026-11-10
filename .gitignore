@@ -6,3 +6,7 @@
 __pycache__/
 /_site/
 /.jekyll-cache/
+
+/.env.build
+
+/.build-inputs.json

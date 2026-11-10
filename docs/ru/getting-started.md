@@ -7,6 +7,7 @@ translation: /docs/en/getting-started.html
 
 ## Требования
 
+- Для локальной компиляции: Python 3.11+, Git и Docker Buildx.
 - Docker с Compose v2.
 - Для doctor: Python 3.11+ на host (только stdlib). Полная runtime-проверка требует
   локального Linux Engine с доступом к bridge; pure-проверки работают и на Windows.
@@ -14,7 +15,7 @@ translation: /docs/en/getting-started.html
 - Для Bash-мигратора: Bash, curl, jq и GNU coreutils на POSIX-хосте
   (`mktemp`, `date`, `stat`, `mkdir`, `mv`, `chmod`, `rm`, `rmdir`, `cat`). Приватной
   диагностике нужны POSIX-права только для владельца; runtime-проверка в Windows
-  отложена до Linux CI. Python и Node нужны только для тестов.
+  отложена до Linux CI. Node нужен для тестов; Python также разрешает inputs сборки.
 
 API ID/hash приложения и токен бота от BotFather — разные учётные данные.
 
@@ -37,7 +38,8 @@ cp .env.example .env
 До первой публикации в GHCR используйте локальную сборку:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Когда готовый образ опубликован:

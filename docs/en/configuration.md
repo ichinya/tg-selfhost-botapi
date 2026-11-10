@@ -146,3 +146,14 @@ The deadline applies to each request; the token-free probe is capped at 10
 seconds. Process settings take precedence over the trusted environment file;
 only an unset setting uses its default. Unlike the endpoint settings, an
 explicitly empty timeout is invalid. These settings are not passed to containers.
+
+## Local build inputs
+
+Local compilation needs Python 3.11+, Git and Docker Buildx. Resolve with
+`python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build`
+immediately before each new build. Pass both `--env-file .env --env-file .env.build`
+with the build override, including repeated `--env-file` options in doctor commands.
+The generated file holds only public inputs; runtime credentials stay in `.env`.
+Compose config/doctor work without generated inputs; a real build requires pinned
+source/base and refresh arguments. A stale file is never regenerated implicitly.
+Published-image pull/up do not use the build override or generated build file.

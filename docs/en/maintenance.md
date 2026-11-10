@@ -7,20 +7,29 @@ translation: /docs/ru/maintenance.html
 
 ## Image pipeline
 
+The build-input resolver uses a UTC-day apk refresh window and the generation in
+`tools/apk_policy.json`. Increase that generation in a commit for an urgent
+refresh within the same day; do not decrease it. This is a build identity, not
+a package snapshot or proof of reproducibility. The window changes at 00:00 UTC
+and is captured once; crossing midnight during compilation never rewrites inputs.
+
 The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
 
 The build key covers the resolved revisions/digests and the recipe, entrypoint,
-patch and image tests. If the corresponding published build exists, compilation
-is skipped. If registry inspection cannot confirm it, the pipeline rebuilds.
+patch, dependency policy, capture/validation tools and image tests. An existing
+build is pulled by digest and qualified again before reuse. An ambiguous registry
+response stops the run; only confirmed absence selects a new compilation.
 
 For a new build it:
 
 1. Checks that the User-Agent patch applies to the selected official revision.
 2. Compiles the entire server.
 3. Runs `--version`, checks the header string in the binary and validates entrypoint syntax.
-4. Publishes `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and promotes `latest`.
+4. Checks package/compile evidence and the warm-cache gate, saves artifacts,
+   then publishes and verifies a unique candidate digest before assigning
+   `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and promoting `latest`.
 
 Failed checks leave the previously published `latest` in place. Pull requests do
 not publish. A binary string check is not a live webhook-delivery test.
@@ -45,10 +54,11 @@ docker compose logs --tail=100 botapi
 For a locally built installation, use the build override consistently:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml stop botapi
+python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml stop botapi
 # Back up ./data and private configuration before replacing the binary.
-docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml build botapi
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
 ```
 
 Preserve `./data`, ownership `101:101`, the API endpoint and local-mode settings.
@@ -135,7 +145,7 @@ Select the same ordered Compose inputs used for deployment:
 
 ```sh
 python3 tools/doctor.py -f docker-compose.yml -f docker-compose.build.yml \
-  --env-file /private/installation.env --project-directory /private/stack \
+  --env-file /private/installation.env --env-file /private/stack/.env.build --project-directory /private/stack \
   -p installation --scenario official-to-self \
   --migration-input /private/decisions.json --format json
 ```
@@ -208,4 +218,91 @@ probe without a surviving lock does not block; authenticated unfinished attempts
 
 ### APK refresh identity
 
-The build inputs use a UTC calendar-day refresh window and a generation from `tools/apk_policy.json`. Increase generation in a commit for an emergency refresh within the same day. The scheduled check runs at 23:37 UTC; a delayed or failed run delays the refresh. This policy includes ordinary package updates, not only security fixes. Matching build keys do not guarantee reproducible bytes: package repositories can change within a window. The resolver freezes one inputs snapshot per invocation; a new window changes the key even when source and base digest do not change. This identity alone does not refresh Docker layers; that requires the installation stages to consume it.
+The build inputs use a UTC calendar-day refresh window and a generation from `tools/apk_policy.json`. Increase generation in a commit for an emergency refresh within the same day. The scheduled check runs at 23:37 UTC; a delayed or failed run delays the refresh. This policy includes ordinary package updates, not only security fixes. Matching build keys do not guarantee reproducible bytes: package repositories can change within a window. The resolver freezes one inputs snapshot per invocation; a new window changes the key even when source and base digest do not change. Both dependency stages consume this ID before installation.
+
+### APK installation stages
+
+Both independent targets `build-deps` and `runtime-deps` require `APK_REFRESH_ID`
+before their installation RUN. Each upgrades all installed packages, then installs
+the dependencies from the stable Alpine 3.22 branch with signatures enabled.
+`apk --no-cache` does not disable Docker layer caching: the refresh argument
+invalidates both installation layers. Raw installed database, world, repositories,
+apk version, architecture, Alpine release and refresh ID are retained under
+`/usr/share/tg-selfhost-botapi/build/` and `runtime/` in the final image.
+
+
+### Binary and dependency evidence
+
+Build evidence retains the actual source/submodule revisions, compiler/CMake/linker
+versions and Release configuration, the final target link command and map,
+pre-strip and installed post-strip SHA256, ELF NEEDED entries, and the hashes and
+package ownership of static inputs and resolved dynamic libraries. Builder-only
+Python/binutils are absent from runtime. Extract and validate without credentials:
+`python3 tools/image_metadata.py --image IMAGE --inputs inputs.json --output receipt.json`.
+Missing evidence, a different binary, refresh mismatch or unowned linked archives
+reject qualification. The external receipt binds inventories to the image config;
+the internal compile record does not include its own hash or a registry digest.
+
+
+### Candidate qualification and reuse
+
+CI resolves one frozen JSON snapshot. Registry authentication/network errors stop
+the run; only confirmed manifest absence permits compilation. Reuse pulls by digest
+and repeats metadata validation and smoke (`--version`, header string, entrypoint
+syntax). PRs compile locally without registry writes. Unit, Compose, metadata,
+smoke and the explicit cache regression must PASS before publication. Existing
+build tags cannot be replaced by different content. A unique candidate is pushed
+without recompilation, its registry config is checked, and artifacts are uploaded
+before digest-based latest promotion and readback. Default-branch drift and newer
+latest refresh identities reject stale reruns. Crossing UTC midnight preserves the
+frozen inputs. Evidence artifacts retain for 30 days; in-image evidence lasts as
+long as the image digest. Missing legacy evidence requires a new window/generation.
+
+
+### Prepare every local rebuild
+
+Generate `.env.build` and `.build-inputs.json` with the resolver immediately before
+each local build; pass both env files as shown above. The file is not refreshed by
+`up --build`. For an urgent update increase `generation` in `tools/apk_policy.json`,
+commit it and resolve again. Config/doctor do not trigger network resolution.
+
+
+### Signed warm-cache regression
+
+CI explicitly runs `tools/check_apk_refresh.py` against the frozen inputs; unit
+discovery never invokes Docker. The restored runner uses an isolated Dockerfile
+copy (documented fallback) with unchanged production upgrade/add/capture RUNs,
+preinstalling a signed synthetic v1 package before refresh. Repository URL,
+source/base and context bytes remain fixed. A/A proves both cached installations;
+after serving v2 the old-ID control stays v1 and the new generation upgrades both
+branches. Dynamic and rebuilt static consumers must return v2. Separate negative
+variants remove refresh from each installation and must expose stale evidence.
+The scoped builder uses 2 CPUs/3 GiB and removes only its own resources. No cache
+purge/cache bypass is used. Saved logs, inventory versions, hashes and receipts
+are synthetic regression evidence; they establish no particular CVE/VPS status.
+
+
+### Reproducibility and scanner triage
+
+Mutable stable repositories can change during the same UTC window. The build key
+identifies selected inputs and refresh policy; the registry digest identifies the
+actual image. Matching keys do not promise bit-for-bit reproducibility. A failed
+or delayed schedule delays updates, so the policy does not guarantee a fix within
+24 hours. Gateway `nginx:alpine` has an independent dependency policy; this work
+does not certify the entire stack or change state compatibility.
+
+Investigate each scanner finding against the exact digest, package name/version/
+Alpine revision/architecture, advisory and backport status, actual static/dynamic
+linkage, scanner version and database timestamp. Record affected, fixed,
+not-applicable or UNKNOWN with supporting evidence. A runtime package scan alone
+cannot dismiss a statically linked vulnerability. A confirmed applicable finding
+requires update/rebuild and all gates, or an explicitly justified exception;
+unreviewed findings remain unresolved and block promotion. Scanner status is
+NOTRUN unless a scan was performed; absent output is never a clean scan. No
+universal scanner is introduced by #23.
+
+For missing legacy evidence or a build-tag collision, increase generation and
+resolve a new snapshot. Do not overwrite the existing build tag. An UNKNOWN latest
+readback requires registry inspection; no automatic rollback is claimed. Registry
+publication, synthetic regression, actual-image smoke and production are separate
+outcomes. Dependency refresh does not require bot migration or token-bearing calls.

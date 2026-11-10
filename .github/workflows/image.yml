@@ -23,26 +23,35 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: actions/setup-node@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - name: Install migration test prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bash curl jq
-      - name: Test build input handling
-        timeout-minutes: 4
+      - uses: docker/setup-buildx-action@v4
+      - name: Test tracked checkout
         run: timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
+      - name: Check monotonic apk policy
+        run: python3 tools/apk_candidate.py policy
+      - name: Resolve one build snapshot
+        id: inputs
+        run: |
+          mkdir -p evidence
+          python3 tools/image_inputs.py --json-out evidence/inputs.json --build-env-out .env.build >> "$GITHUB_OUTPUT"
       - name: Check Compose
         env:
           API_ID: '12345'
           API_HASH: test-placeholder
         run: |
           docker compose config --quiet
-          docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          docker compose --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          python3 -c 'import json; from pathlib import Path; i=json.loads(Path("evidence/inputs.json").read_text()); Path("evidence/gates.json").write_text(json.dumps({"build_key":i["build_key"],"unit":"PASS","compose":"PASS"}))'
+      - name: Warm-cache apk regression
+        run: python3 tools/check_apk_refresh.py --inputs evidence/inputs.json --output evidence/apk-refresh.json
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
@@ -50,27 +59,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Resolve immutable upstream inputs
-        id: inputs
-        run: python3 tools/image_inputs.py >> "$GITHUB_OUTPUT"
-      - name: Check previously published build
-        id: existing
-        env:
-          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          image="ghcr.io/${REPOSITORY,,}"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT" > /dev/null 2>registry-error.txt; then
-            echo 'exists=true' >> "$GITHUB_OUTPUT"
-          else
-            # A missing/private package also fails inspection on the first build.
-            # Never treat an unconfirmed registry response as a successful build.
-            cat registry-error.txt >&2
-            echo 'exists=false' >> "$GITHUB_OUTPUT"
-          fi
+      - name: Pin existing build or select fresh candidate
+        id: candidate
+        run: python3 tools/apk_candidate.py prepare
       - name: Build candidate (patch must apply)
-        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
+        if: steps.candidate.outputs.mode == 'build'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -84,24 +77,39 @@ jobs:
             BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
             ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
             BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
+            APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
+            APK_POLICY_VERSION=${{ steps.inputs.outputs.policy_version }}
+            APK_REFRESH_WINDOW=${{ steps.inputs.outputs.apk_refresh_window }}
+            APK_REFRESH_GENERATION=${{ steps.inputs.outputs.generation }}
             BUILD_JOBS=2
-      - name: Smoke-test built binary
-        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
-        run: |
-          docker run --rm botapi-candidate:check --version
-          docker run --rm --entrypoint sh botapi-candidate:check -ec \
-            'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
-      - name: Publish tested build then promote latest
+      - name: Validate actual metadata and repeat smoke
+        run: python3 tools/apk_candidate.py qualify
+      - name: Save qualification before registry writes
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Publish unique candidate and verify registry config
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        env:
-          IMAGE: ${{ steps.existing.outputs.image }}
-          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
-          EXISTS: ${{ steps.existing.outputs.exists }}
-        run: |
-          if [ "$EXISTS" != true ]; then
-            docker tag botapi-candidate:check "$IMAGE:build-$BUILD_FINGERPRINT"
-            docker push "$IMAGE:build-$BUILD_FINGERPRINT"
-          fi
-          # Existing immutable builds have already passed the same checks.
-          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:build-$BUILD_FINGERPRINT"
-          echo "Published $IMAGE:build-$BUILD_FINGERPRINT" >> "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/apk_candidate.py publish-candidate
+      - name: Save digest receipt before promotion
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-digest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/receipt.json
+          retention-days: 30
+          if-no-files-found: error
+      - name: Assign immutable build tag and promote verified digest
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        run: python3 tools/apk_candidate.py promote
+      - name: Save results and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-final-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn

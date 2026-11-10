@@ -7,6 +7,7 @@ translation: /docs/ru/getting-started.html
 
 ## Requirements
 
+- For local compilation: Python 3.11+, Git and Docker Buildx.
 - Docker with Compose v2.
 - For doctor: host Python 3.11+ (stdlib only). Full runtime evidence requires a
   local Linux engine with bridge access; pure checks also work on Windows.
@@ -14,7 +15,7 @@ translation: /docs/ru/getting-started.html
 - For the Bash migration helper: Bash, curl, jq and GNU coreutils on a POSIX host
   (`mktemp`, `date`, `stat`, `mkdir`, `mv`, `chmod`, `rm`, `rmdir`, `cat`). Private
   diagnostics require owner-only POSIX permissions; Windows runtime validation is
-  deferred to Linux CI. Python and Node are needed only for tests.
+  deferred to Linux CI. Node is needed for tests; Python is also required for local build inputs.
 
 The application API ID/hash identify your Telegram application. They are different
 from a bot token issued by BotFather.
@@ -38,7 +39,8 @@ If remote clients, including a webhook receiver, must reach the Bot API, set
 Before the first GHCR publication, build locally:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Once a published image is available:

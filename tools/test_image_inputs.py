@@ -1,4 +1,8 @@
 from datetime import datetime, timezone, timedelta
+import io
+import json
+import tempfile
+from contextlib import redirect_stdout
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -6,10 +10,47 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from image_inputs import build_key, digest, revision, resolve, validate_policy, check_generation
+from image_inputs import build_key, digest, revision, resolve, validate_policy, check_generation, main
 
 
 class BuildInputsTest(unittest.TestCase):
+    def test_compose_optional_public_inputs(self):
+        root = Path(__file__).resolve().parents[1]
+        override = (root / 'docker-compose.build.yml').read_text()
+        for key in ('APK_REFRESH_ID', 'BOT_API_REVISION', 'ALPINE_IMAGE', 'BUILD_FINGERPRINT', 'BUILD_PLATFORM'):
+            self.assertIn('${' + key + ':-', override)
+        self.assertNotIn('DEPENDENCY_EPOCH', override)
+        self.assertNotIn('alpine:3.22', override)
+        self.assertNotIn('APK_REFRESH_ID', (root / 'docker-compose.yml').read_text())
+        self.assertIn('/.env.build', (root / '.gitignore').read_text())
+
+    def test_cli_outputs_share_one_snapshot_and_overwrite(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output, env = Path(folder) / 'inputs.json', Path(folder) / 'build.env'
+            env.write_text('OLD_SECRET=must-disappear')
+            stdout = io.StringIO()
+            with patch.object(sys, 'argv', ['image_inputs.py', '--json-out', str(output), '--build-env-out', str(env)]), patch('image_inputs.revision', return_value='a' * 40) as source, patch('image_inputs.digest', return_value='sha256:' + 'b' * 64) as base, redirect_stdout(stdout):
+                main()
+            snapshot = json.loads(output.read_text())
+            self.assertEqual(dict(line.split('=', 1) for line in stdout.getvalue().splitlines()), {k: str(v) for k, v in snapshot.items()})
+            values = dict(line.split('=', 1) for line in env.read_text().splitlines())
+            mapping = {'APK_REFRESH_ID':'apk_refresh_id', 'BUILD_FINGERPRINT':'build_key',
+                       'BOT_API_REVISION':'bot_api_revision', 'ALPINE_IMAGE':'alpine_image',
+                       'APK_POLICY_VERSION':'policy_version', 'APK_REFRESH_WINDOW':'apk_refresh_window',
+                       'APK_REFRESH_GENERATION':'generation', 'BUILD_PLATFORM':'platform'}
+            self.assertEqual(values, {key: str(snapshot[value]) for key, value in mapping.items()})
+            source.assert_called_once()
+            base.assert_called_once()
+
+    def test_cli_failure_emits_no_snapshot(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / 'inputs.json'
+            stdout = io.StringIO()
+            with patch.object(sys, 'argv', ['image_inputs.py', '--json-out', str(output)]), patch('image_inputs.revision', side_effect=TimeoutError), redirect_stdout(stdout), self.assertRaises(TimeoutError):
+                main()
+            self.assertEqual(stdout.getvalue(), '')
+            self.assertFalse(output.exists())
+
     @patch("image_inputs.digest", return_value="sha256:" + "a" * 64)
     @patch("image_inputs.revision", return_value="b" * 40)
     def test_refresh_identity_and_clock(self, revision_mock, digest_mock):

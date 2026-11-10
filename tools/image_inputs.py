@@ -3,6 +3,8 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 import re
 import subprocess
@@ -14,6 +16,23 @@ RECIPE = (
     "tools/apk_policy.json", "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
     "tools/test_webhook_user_agent.py",
     ".github/workflows/image.yml",
+    "tools/capture_apk_metadata.sh",
+    "tools/test_apk_docker_contract.py",
+    "tools/capture_link_metadata.py",
+    "tools/image_metadata.py",
+    "tools/image_receipt.py",
+    "tools/test_image_metadata.py",
+    "tools/apk_candidate.py",
+    "tools/test_apk_candidate.py",
+    "tools/check_apk_refresh.py",
+    "tools/test_apk_refresh.py",
+    "tools/apk_refresh_fixture/fixture.c",
+    "tools/apk_refresh_fixture/consumer.c",
+    "tools/apk_refresh_fixture/APKBUILD.in",
+    "tools/apk_refresh_fixture/package.sh",
+    "tools/apk_refresh_fixture/SHA256SUMS",
+    "tools/apk_refresh_fixture/LICENSE",
+    "tools/apk_refresh_fixture/README.md",
 )
 
 
@@ -83,12 +102,45 @@ def resolve(clock=None, policy=None, platform="linux/amd64"):
     return inputs
 
 
-if __name__ == "__main__":
+def atomic_write(path, content):
+    destination = Path(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n",
+                                         dir=destination.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+        os.replace(temporary, destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--json-out")
+    parser.add_argument("--build-env-out")
     args = parser.parse_args()
+    if args.json_out and args.build_env_out and Path(args.json_out).resolve() == Path(args.build_env_out).resolve():
+        parser.error("JSON and build env must use different paths")
     inputs = resolve()
     if args.json_out:
-        Path(args.json_out).write_text(json.dumps(inputs, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        atomic_write(args.json_out, json.dumps(inputs, sort_keys=True, indent=2) + "\n")
+    if args.build_env_out:
+        public = {
+            "BOT_API_REVISION": inputs["bot_api_revision"],
+            "ALPINE_IMAGE": inputs["alpine_image"],
+            "BUILD_FINGERPRINT": inputs["build_key"],
+            "APK_REFRESH_ID": inputs["apk_refresh_id"],
+            "APK_POLICY_VERSION": inputs["policy_version"],
+            "APK_REFRESH_WINDOW": inputs["apk_refresh_window"],
+            "APK_REFRESH_GENERATION": inputs["generation"],
+            "BUILD_PLATFORM": inputs["platform"],
+        }
+        atomic_write(args.build_env_out, "".join(f"{key}={value}\n" for key, value in public.items()))
     for key, value in inputs.items():
         print(f"{key}={value}")
+
+
+if __name__ == "__main__":
+    main()

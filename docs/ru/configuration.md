@@ -150,3 +150,15 @@ nginx или запрос `setWebhook` этот исходящий заголо�
 файлом окружения; значение по умолчанию используется только для незаданной
 переменной. В отличие от адресов, явно пустой таймаут недопустим. Настройки
 не передаются в контейнеры.
+
+## Входы локальной сборки
+
+Для локальной компиляции нужны Python 3.11+, Git и Docker Buildx. Непосредственно
+перед каждой новой сборкой выполните
+`python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build`.
+Передавайте оба `--env-file .env --env-file .env.build` с build override, в том числе
+повторяемые `--env-file` в командах doctor. Generated-файл содержит только public
+inputs; runtime credentials остаются в `.env`. Compose config/doctor работают без
+generated inputs, но реальная сборка требует pinned source/base и refresh. Старый
+файл не обновляется автоматически. Pull/up опубликованного образа не используют
+build override и generated build env.
