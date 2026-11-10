@@ -49,6 +49,23 @@ class RefreshTests(unittest.TestCase):
             self.assertNotIn('$APK_REFRESH_ID', section)
             self.assertIn('apk upgrade --no-cache', section)
 
+    def test_container_builder_never_uses_host_gateway(self):
+        import ast
+        source = (refresh.ROOT / 'tools/check_apk_refresh.py').read_text()
+        constants = [node.value for node in ast.walk(ast.parse(source))
+                     if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+        self.assertIn('docker-container', constants)
+        self.assertFalse(any(value.endswith(':host-gateway') or value.endswith('=host-gateway')
+                             for value in constants))
+
+    def test_builder_gateway_uses_inspected_container_network(self):
+        with patch.object(refresh, 'command', return_value='{"bridge": {"Gateway": "172.17.0.1"}}') as command:
+            self.assertEqual(refresh.builder_gateway('test'), '172.17.0.1')
+            self.assertEqual(command.call_args.args[0][-1], 'buildx_buildkit_test0')
+        for networks in ('{}', '{"a": {"Gateway": "172.17.0.1"}, "b": {"Gateway": "172.18.0.1"}}'):
+            with patch.object(refresh, 'command', return_value=networks), self.assertRaises(ValueError):
+                refresh.builder_gateway('test')
+
     def test_import_has_no_docker_side_effects(self):
         import importlib
         with patch('subprocess.run') as command:

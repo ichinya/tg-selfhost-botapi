@@ -38,6 +38,19 @@ class DockerContractTests(unittest.TestCase):
         self.assertIn('FROM build-deps AS source', dockerfile)
         self.assertIn('FROM runtime-deps AS runtime', dockerfile)
 
+    def test_capture_stages_declare_refresh_before_run(self):
+        import re
+        dockerfile = (ROOT / 'Dockerfile').read_text()
+        stages = re.split(r'(?im)^FROM\s+', dockerfile)[1:]
+        captures = 0
+        for stage in stages:
+            instructions = re.split(r'(?im)^(?=RUN\s)', stage)
+            for index, instruction in enumerate(instructions):
+                if re.search(r'(?m)^RUN\s', instruction) and re.search(r'(?:sh|python3) /tmp/capture_\w+\.(?:sh|py)', instruction):
+                    captures += 1
+                    self.assertRegex(''.join(instructions[:index]), r'(?m)^ARG APK_REFRESH_ID(?:=.+)?\s*$')
+        self.assertEqual(captures, 3)
+
     def test_capture_keeps_base_packages_and_no_script_in_runtime(self):
         script = (ROOT / 'tools/capture_apk_metadata.sh').read_text()
         for value in ('/lib/apk/db/installed', '/etc/apk/repositories', 'apk --print-arch', 'apk --version'):

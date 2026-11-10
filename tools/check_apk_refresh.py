@@ -2,6 +2,7 @@
 import argparse
 import functools
 import hashlib
+import ipaddress
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -104,6 +105,19 @@ def command(args, log=None, timeout=900):
     return result.stdout
 
 
+def builder_gateway(namespace):
+    networks = json.loads(command(['docker', 'inspect', '--format',
+                                   '{{json .NetworkSettings.Networks}}',
+                                   'buildx_buildkit_' + namespace + '0']))
+    gateways = {settings.get('Gateway') for settings in networks.values() if settings.get('Gateway')}
+    if len(gateways) != 1:
+        raise ValueError('Builder network gateway is ambiguous or missing')
+    gateway = gateways.pop()
+    if ipaddress.ip_address(gateway).version != 4:
+        raise ValueError('Builder network gateway is not IPv4')
+    return gateway
+
+
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, *_args):
         pass
@@ -167,6 +181,7 @@ def integration(inputs, output):
             command(['docker', 'buildx', 'create', '--name', namespace, '--driver', 'docker-container',
                      '--driver-opt', 'memory=3g', '--driver-opt', 'cpu-period=100000', '--driver-opt', 'cpu-quota=200000',
                      '--buildkitd-config', str(config), '--bootstrap'], output.parent / 'fixture-builder.log')
+            host_mapping = 'host.docker.internal:' + builder_gateway(namespace)
             previous_cache = {}
             next_identity = {**identity, 'generation': identity['generation'] + 1}
             next_identity['apk_refresh_id'] = f"v{identity['policy_version']}-{identity['apk_refresh_window']}-g{next_identity['generation']}"
@@ -187,7 +202,7 @@ def integration(inputs, output):
                     images.append(tag)
                     cache = temp / (phase + '-' + target + '-cache')
                     args = ['docker', 'buildx', 'build', '--builder', namespace, '--progress', 'plain', '--load',
-                            '--platform', inputs['platform'], '--add-host', 'host.docker.internal:host-gateway',
+                            '--platform', inputs['platform'], '--add-host', host_mapping,
                             '--target', target, '--tag', tag, '--cache-to', 'type=local,dest=' + str(cache) + ',mode=max',
                             '--build-arg', 'ALPINE_IMAGE=' + inputs['alpine_image'],
                             '--build-arg', 'BOT_API_REVISION=' + inputs['bot_api_revision'], '--build-arg', 'APK_REFRESH_ID=' + refresh]
@@ -239,7 +254,7 @@ def integration(inputs, output):
                     # A sees v1; B sees v2 at the same URL. Without refresh it must stay v1.
                     shutil.copytree(packaging / ('repo-v1' if phase == 'A' else 'repo-v2'), served / 'current', dirs_exist_ok=True)
                     log = command(['docker', 'buildx', 'build', '--builder', namespace, '--progress', 'plain', '--load',
-                        '--platform', inputs['platform'], '--add-host', 'host.docker.internal:host-gateway',
+                        '--platform', inputs['platform'], '--add-host', host_mapping,
                         '--target', stage, '--tag', tag, '--build-arg', 'ALPINE_IMAGE=' + inputs['alpine_image'],
                         '--build-arg', 'APK_REFRESH_ID=' + refresh, str(broken_context)],
                         output.parent / ('negative-' + stage + '-' + phase + '.log'), timeout=1200)

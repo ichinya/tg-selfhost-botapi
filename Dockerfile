@@ -34,6 +34,7 @@ ARG BUILD_JOBS=1
 ARG ALPINE_IMAGE
 ARG BOT_API_REVISION
 ARG BUILD_FINGERPRINT
+ARG APK_REFRESH_ID
 ARG TARGETPLATFORM
 RUN --mount=type=bind,source=tools/capture_link_metadata.py,target=/tmp/capture_link_metadata.py \
     : "${BUILD_FINGERPRINT:?Run tools/image_inputs.py to resolve build inputs}" \

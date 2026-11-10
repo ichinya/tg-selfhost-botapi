@@ -18,10 +18,6 @@ class InventoryTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 parse_installed(text)
 
-
-if __name__ == '__main__':
-    unittest.main()
-
 class ReceiptTests(unittest.TestCase):
     def setUp(self):
         import tempfile
@@ -158,3 +154,7 @@ class ReceiptTests(unittest.TestCase):
         from image_metadata import library_capture_name
         (self.root / 'runtime-libraries' / library_capture_name('/lib/test.so')).write_bytes(b'changed')
         with self.assertRaises(ValueError): self.check_receipt()
+
+
+if __name__ == '__main__':
+    unittest.main()
