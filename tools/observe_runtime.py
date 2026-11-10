@@ -76,11 +76,11 @@ def collect(compose, service='botapi', runner=run):
     if not uid or not gid: raise ValueError('identity_unavailable')
     disks = []
     for role, path in zip(['work', 'temp'], paths):
-        fields = runner(exec_command(cid, 'stat', '-f', '-c', '%i %a %S', '--', path, user=uid[1] + ':' + gid[1])).split()
-        if len(fields) != 3 or not re.fullmatch(r'[0-9a-fA-F]+', fields[0]) or not all(v.isdecimal() for v in fields[1:]):
+        fields = runner(exec_command(cid, 'stat', '-f', '-c', '%i %a %S %d', '--', path, user=uid[1] + ':' + gid[1])).split()
+        if len(fields) != 4 or not re.fullmatch(r'[0-9a-fA-F]+', fields[0]) or not all(v.isdecimal() for v in fields[1:]):
             raise ValueError('invalid_filesystem')
         disks.append(dict(role=role, filesystem='fs-' + hashlib.sha256(fields[0].encode()).hexdigest()[:16],
-                          available_bytes=schema.count(int(fields[1]) * int(fields[2])), available_inodes=None))
+                          available_bytes=schema.count(int(fields[1]) * int(fields[2])), available_inodes=schema.count(int(fields[3]))))
     version = runner(exec_command(cid, 'telegram-bot-api', '--version', user=uid[1] + ':' + gid[1]))
     match = re.fullmatch(r'(?:(?:Telegram )?Bot API(?: server)?\s+)?([0-9]+\.[0-9]+(?:\.[0-9]+)?)(?:\s+\(.*\))?', version)
     digests = [d.rsplit('@', 1)[-1] for d in image.get('RepoDigests') or [] if isinstance(d, str)]

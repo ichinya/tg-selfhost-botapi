@@ -177,7 +177,8 @@ dossier mounts. Пустые каталоги работают без bot creden
 `http://127.0.0.1:18081`; проксируются только три точных пути, GET/HEAD, без query,
 body и Authorization. API listener 18080 закрывает эти пути. Отложенный Docker DNS
 позволяет nginx стартовать без target; management upstream errors дают фиксированный
-503. Порты API 8082/8090 зарезервированы. Custom API port требует nginx override и
+503. Management 4xx от nginx могут содержать стандартные HTML-страницы ошибок.
+Порты API 8082/8090 зарезервированы. Custom API port требует nginx override и
 doctor. Raw stats остаётся на loopback. Доступ к observer 8090 доверен только сети
 Compose; публиковать его как monitoring ingress нельзя.
 

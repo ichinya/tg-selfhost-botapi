@@ -10,6 +10,7 @@ from . import probes, schema, stats
 
 class Collector:
     def __init__(self, host='127.0.0.1', port=8081, stats_enabled=False):
+        self.started_at = schema.utcnow()
         self.host, self.port = probes.target(host, port)
         self.stats_enabled = stats_enabled
         self.lock = threading.Lock()

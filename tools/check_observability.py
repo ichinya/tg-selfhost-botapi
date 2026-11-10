@@ -68,6 +68,28 @@ def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
             # A sibling must never reach raw stats on the owner's bridge address.
             script='import socket; s=socket.socket(); s.settimeout(1); rc=s.connect_ex(("botapi",8082)); raise SystemExit(0 if rc else 1)'
             command(['docker','run','--rm','--network',network,'--entrypoint','python3',observer_image,'-c',script])
+            if kind == 'mock':
+                # Recreate the pair with a simulated inherited runtime snapshot.
+                from datetime import datetime, timezone
+                observed = datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+                command(['docker','rm','-f',observer,target]); names.remove(observer); names.remove(target)
+                time.sleep(2)
+                target=launch('mock-recreated',target_args+['--entrypoint','python3','--mount',
+                    'type=bind,src='+str(ROOT/'tools/observability_mock_target.py')+',dst=/mock.py,readonly'],observer_image,['/mock.py'])
+                observer=launch('mock-recreated-observer',['--network','container:'+target,'--read-only','--user','101:101',
+                    '--cap-drop','ALL','--security-opt','no-new-privileges','-e','TELEGRAM_STAT=true'],observer_image)
+                wait(observer,'/health/ready')
+                script = ('from unittest.mock import patch\nfrom observability.server import Collector\n'
+                    'from observability.webhook import collect_webhooks\n'
+                    'r=dict(schema_version=1,enabled=True,instance="a"*64,allow_unobserved_migration=True,'
+                    'bots=[dict(alias="test",credential_file="test.json")])\n'
+                    'image=dict(state="ready",instance="a"*64,observed_at='+repr(observed)+')\n'
+                    'with patch("observability.runtime.read_runtime",return_value=(None,image)), '
+                    'patch("observability.webhook.read_json",return_value=r), '
+                    'patch("observability.probes.request") as request:\n'
+                    ' result=collect_webhooks(Collector(),"registry.json")\n'
+                    ' assert result["reason"]=="ownership_required"\n request.assert_not_called()\n')
+                command(['docker','exec','-i',observer,'python3','-'],input=script.encode())
             if kind.startswith('actual'):
                 output=command(['docker','exec',target,'/usr/local/bin/botapi-healthcheck'],combined=True)
                 if output: raise ValueError('health_diagnostics_failure')

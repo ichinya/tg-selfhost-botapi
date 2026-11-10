@@ -48,7 +48,8 @@ def project(alias, payload):
 def allowed(registry, collector):
     from .runtime import read_runtime
     _, image = read_runtime(os.getenv('OBSERVER_RUNTIME_DIR') or None)
-    if image['state'] != 'ready' or image['instance'] != registry['instance']: return False
+    if (image['state'] != 'ready' or image['instance'] != registry['instance']
+            or not image['observed_at'] or image['observed_at'] <= collector.started_at): return False
     migration = read_migrations(os.getenv('OBSERVER_MIGRATION_DIR') or None)
     return registry['enabled'] and permits_polling(migration, registry['allow_unobserved_migration'])
 

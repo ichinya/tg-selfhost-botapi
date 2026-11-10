@@ -2,10 +2,31 @@ import unittest
 from unittest.mock import patch
 from observability.server import Collector
 from observability import schema
-from observability.webhook import project, category
+from observability.webhook import project, category, allowed, collect_webhooks
 
 
 class WebhookTests(unittest.TestCase):
+    def test_runtime_snapshot_must_postdate_collector(self):
+        with patch('observability.schema.utcnow', return_value='2026-01-01T00:00:10Z'):
+            collector = Collector()
+        registry = dict(schema_version=1, enabled=True, instance='a'*64, allow_unobserved_migration=True,
+                        bots=[dict(alias='test', credential_file='test.json')])
+        image = dict(state='ready', instance='a'*64, observed_at='2026-01-01T00:00:09Z')
+        with patch('observability.runtime.read_runtime', return_value=(None, image)), \
+             patch('observability.webhook.read_migrations', return_value={}), \
+             patch('observability.webhook.permits_polling', return_value=True), \
+             patch('observability.webhook.read_json', return_value=registry), \
+             patch('observability.probes.request') as request:
+            self.assertFalse(allowed(registry, collector))
+            self.assertEqual(collect_webhooks(collector, 'registry.json')['reason'], 'ownership_required')
+            request.assert_not_called()
+            image['observed_at'] = '2026-01-01T00:00:10Z'
+            self.assertFalse(allowed(registry, collector))
+            image['observed_at'] = '2026-01-01T00:00:11Z'
+            self.assertTrue(allowed(registry, collector))
+            image['instance'] = 'b'*64
+            self.assertFalse(allowed(registry, collector))
+
     def test_failure_clears_registered_queue(self):
         collector = Collector()
         result = {'bots': [{'pending_update_count': 3}]}

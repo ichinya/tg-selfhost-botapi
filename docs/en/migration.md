@@ -405,7 +405,8 @@ helpers, completed transfer, authorization or delivery.
 
 Before any migration, disable the observer registry worker and wait for in-flight
 requests to finish. A snapshot is not a lock and browser state is unobserved.
-The Bash helper can emit a sanitized final projection without changing its workflow:
+Run the Bash helper from the checkout root containing `migrate_off_to_self.sh`.
+It can emit a sanitized final projection without changing its workflow:
 set process environment `MIGRATION_STATUS_DIR="$PWD/.observability/migration"` and
 `MIGRATION_STATUS_ALIAS=public_label` (not in the helper .env). Prepare that owned
 non-symlink directory as 0755; output is atomic 0644 `status.json`, with no private

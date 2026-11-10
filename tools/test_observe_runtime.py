@@ -27,7 +27,7 @@ class RuntimeProducerTests(unittest.TestCase):
             if args[-1] == '/proc/1/cmdline': return 'telegram-bot-api\x00--dir=/state\x00--temp-dir=/tmp\x00'
             if args[-1] == '/proc/1/status': return 'Uid:\t101\t101\t101\t101\nGid:\t101\t101\t101\t101'
             if '--version' in args: return run([sys.executable, '-c', "import sys; print('9.2', file=sys.stderr)"])
-            if 'stat' in args: return 'abcdef 10 4096'
+            if 'stat' in args: return 'abcdef 10 4096 123'
             raise ValueError('SECRET')
         return dispatch, calls
 
@@ -37,6 +37,7 @@ class RuntimeProducerTests(unittest.TestCase):
         self.assertEqual(result['image']['binary_version'], '9.2')
         self.assertIsNone(result['image']['registry_digest'])
         self.assertEqual(result['storage']['filesystems'][0]['available_bytes'], 40960)
+        self.assertEqual(result['storage']['filesystems'][0]['available_inodes'], 123)
         self.assertEqual(result['storage']['filesystems'][0]['filesystem'], result['storage']['filesystems'][1]['filesystem'])
         self.assertNotIn('TOKEN', repr(result))
         self.assertFalse(any('setWebhook' in str(a) for a in calls))

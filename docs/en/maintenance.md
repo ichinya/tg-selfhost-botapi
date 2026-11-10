@@ -288,6 +288,7 @@ finish, and pause before migration. It is not a cross-host lock. Recreate change
 the instance; old confirmation stops working. Refresh host metadata, reconcile
 migration, then explicitly update instance and enable. Replace private files
 atomically for rotation; mount directories so rename is visible.
+After observer restart, the worker stays closed until the first later runtime snapshot.
 
 The worker polls only getWebhookInfo, every 60 seconds, at most four concurrently,
 with a 2-second request deadline and no immediate retries (including 429). Public

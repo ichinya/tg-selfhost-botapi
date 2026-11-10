@@ -285,6 +285,7 @@ finished операции. Без producer `allow_unobserved_migration=true` —
 ownership opt-in; перед каждым переносом нужна пауза. Отключите `enabled`, подождите
 минимум 60 секунд завершения текущих bounded requests и сделайте паузу до миграции.
 Это не cross-host lock. Recreate меняет instance и отменяет прежнее подтверждение.
+После перезапуска observer worker закрыт до первого более позднего runtime snapshot.
 Обновите host metadata, сопоставьте миграцию, затем явно обновите instance и enabled.
 Для rotation заменяйте приватные файлы атомарно; directory mounts видят rename.
 
