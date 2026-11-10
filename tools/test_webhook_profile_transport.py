@@ -30,13 +30,15 @@ class ProfileTransportTests(unittest.TestCase):
                         WEBHOOK_MAX_CONNECTIONS="7", WEBHOOK_CERTIFICATE_MODE="none", NO_PROXY="127.0.0.1", no_proxy="127.0.0.1")
 
     def run_surface(self, api, export=False, **env):
-        script = ROOT / "migrate_off_to_self.sh"
+        run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=self.private))
+        script = run_dir / "migrate_off_to_self.sh"
+        shutil.copyfile(ROOT / "migrate_off_to_self.sh", script)
         if export:
             result = subprocess.run(["node", "tools/webhook_profile_ui_harness.cjs", "--export"], cwd=ROOT,
                                     text=True, capture_output=True, check=True, timeout=10)
             self.assertNotIn(TOKEN, result.stdout)
             self.assertNotIn(SECRET, result.stdout)
-            script = self.private / "export.sh"
+            script = run_dir / "export.sh"
             script.write_text(result.stdout)
         config = {**self.env, "OFFICIAL_BOT_URL": api.base + "/source", "SELF_BOT_URL": api.base + "/target", **env}
         return subprocess.run(["bash", "-x", str(script)], cwd=ROOT,
@@ -67,6 +69,7 @@ class ProfileTransportTests(unittest.TestCase):
                     bindir.mkdir(exist_ok=True)
                     wrapper = bindir / "curl"
                     audit = self.private / "argv"
+                    audit.unlink(missing_ok=True)
                     wrapper.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$WP_CURL_AUDIT"\nexec "' + shutil.which("curl") + '" "$@"\n')
                     wrapper.chmod(0o700)
                     api = self.with_api()

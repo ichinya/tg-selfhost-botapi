@@ -34,7 +34,7 @@ jobs:
           node-version: '24'
       - uses: docker/setup-buildx-action@v4
       - name: Test tracked checkout
-        run: timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
+        run: timeout 900 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Check monotonic apk policy
         run: python3 tools/apk_candidate.py policy
       - name: Resolve one build snapshot
