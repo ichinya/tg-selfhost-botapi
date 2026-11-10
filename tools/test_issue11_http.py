@@ -707,7 +707,12 @@ exec "{actual}" "$@"
             self.assert_restart_blocked()
         finally:
             self.mock.release.set()
-            proc.communicate(timeout=5)
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.communicate()
+                raise
 
     def test_interruptions_keep_intent_without_retry(self):
         for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
