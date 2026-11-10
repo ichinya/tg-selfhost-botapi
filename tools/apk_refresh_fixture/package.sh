@@ -12,9 +12,9 @@ for version in 1 2; do
     sed "s/@VERSION@/$version/g" /work/source/APKBUILD.in > APKBUILD
     abuild -F checksum
     abuild -F -r -P /work/packages
-    mkdir -p /work/repo-v$version
-    cp /work/packages/issue23/x86_64/issue23-fixture-$version-r0.apk /work/repo-v$version/
-    apk index -o /work/repo-v$version/APKINDEX.tar.gz /work/repo-v$version/*.apk
-    abuild-sign -k /work/issue23.rsa /work/repo-v$version/APKINDEX.tar.gz
+    mkdir -p /work/repo-v$version/x86_64
+    cp /work/packages/issue23/x86_64/issue23-fixture-$version-r0.apk /work/repo-v$version/x86_64/
+    apk index -o /work/repo-v$version/x86_64/APKINDEX.tar.gz /work/repo-v$version/x86_64/*.apk
+    abuild-sign -k /work/issue23.rsa /work/repo-v$version/x86_64/APKINDEX.tar.gz
 done
 chmod -R a+rwX /work

@@ -14,6 +14,14 @@ class CandidateTests(unittest.TestCase):
         with patch.object(candidate, 'run', side_effect=subprocess.CalledProcessError(1, 'inspect', stderr='manifest unknown')):
             self.assertIsNone(candidate.registry_digest('repo:build-key'))
 
+    def test_ghcr_missing_tag_and_error_exclusions(self):
+        for message in ('ERROR: ghcr.io/ichinya/tg-selfhost-botapi:no-such-tag: not found', 'manifest unknown', 'manifest_unknown'):
+            with self.subTest(message=message), patch.object(candidate, 'run', side_effect=subprocess.CalledProcessError(1, 'inspect', stderr=message)):
+                self.assertIsNone(candidate.registry_digest('repo:build-key'))
+        for error in ('unauthorized', 'denied', 'timeout', 'forbidden'):
+            with self.subTest(error=error), patch.object(candidate, 'run', side_effect=subprocess.CalledProcessError(1, 'inspect', stderr='not found: ' + error)):
+                with self.assertRaises(RuntimeError): candidate.registry_digest('repo:build-key')
+
     def test_prepare_reuse_pins_digest(self):
         with patch.object(candidate, 'registry_digest', return_value='sha256:' + 'a' * 64), patch.object(candidate, 'run') as run:
             result = candidate.prepare({'build_key': 'key', 'platform': 'linux/amd64'}, 'repo', False)

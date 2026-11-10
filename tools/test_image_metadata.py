@@ -90,6 +90,22 @@ class ReceiptTests(unittest.TestCase):
         with patch('image_metadata.docker', return_value=json.dumps([self.inspect])), patch('image_metadata.extract_image'):
             return receipt('candidate', self.inputs, self.root)
 
+    def test_archive_link_input_and_map(self):
+        import json
+        stage = self.root / 'build'
+        archive = '/usr/lib/libdl.a'
+        (stage / 'static-archives.txt').write_text(json.dumps([{'path': archive, 'sha256': 'a' * 64, 'owner': 'git-1-r0'}]))
+        (stage / 'link-map.txt').write_text(archive + '(object.o)')
+        for command in ('cc -ldl -o telegram-bot-api', 'cc ' + archive + ' -o telegram-bot-api'):
+            with self.subTest(command=command):
+                (stage / 'link-commands.txt').write_text(command)
+                self.write_compile_record()
+                self.assertEqual(self.check_receipt()['static_ownership'][0]['path'], archive)
+        (stage / 'link-commands.txt').write_text('cc -lother -o telegram-bot-api')
+        self.write_compile_record()
+        with self.assertRaisesRegex(ValueError, 'Archive is not tied'):
+            self.check_receipt()
+
     def test_negative_evidence(self):
         self.assertEqual('/lib/archive.a', self.check_receipt()['static_ownership'][0]['path'])
         for label in ('io.tg-selfhost.build-key', 'io.tg-selfhost.apk-refresh-id', 'io.tg-selfhost.apk-refresh-window', 'io.tg-selfhost.apk-refresh-generation'):

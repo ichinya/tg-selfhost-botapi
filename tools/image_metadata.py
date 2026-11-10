@@ -1,5 +1,6 @@
 """Validate captured Alpine package inventories without executing the image."""
 import re
+import shlex
 import argparse
 import hashlib
 import json
@@ -175,11 +176,16 @@ def receipt(image, inputs, directory, mode='build', candidate_digest=None):
                 raise ValueError('invalid source library linkage')
         elif archive['owner'] not in package_owners:
             raise ValueError('static archive owner is absent from build inventory')
-        if archive['path'] not in links or archive['path'] not in link_map:
-            # Build-tree archives may appear relative to the final command/map cwd.
-            relative = archive['path'].removeprefix('/usr/src/telegram-bot-api/build/')
-            if relative not in links or relative not in link_map:
-                raise ValueError('Archive is not tied to the final target command and map')
+        # The map identifies the archive selected by the linker, including when
+        # -l selects a static archive because no shared library is available.
+        relative = archive['path'].removeprefix('/usr/src/telegram-bot-api/build/')
+        name = Path(archive['path']).name
+        library = '-l' + name[3:-2] if name.startswith('lib') else None
+        tokens = [token for line in links.splitlines() if not line.startswith('### ')
+                  for token in shlex.split(line)]
+        if (relative not in link_map and archive['path'] not in link_map) or not (
+                relative in links or archive['path'] in links or library in tokens):
+            raise ValueError('Archive is not tied to the final target command and map')
     linkage = {}
     for family, prefixes in {'zlib': ('libz.',), 'OpenSSL': ('libssl.', 'libcrypto.'),
                              'libstdc++': ('libstdc++.',)}.items():

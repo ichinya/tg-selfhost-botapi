@@ -4,6 +4,14 @@ import check_apk_refresh as refresh
 
 
 class RefreshTests(unittest.TestCase):
+    def test_fixture_repository_layout(self):
+        script = (refresh.FIXTURE / 'package.sh').read_text()
+        repo = '/work/repo-v$version/x86_64'
+        self.assertIn('mkdir -p ' + repo, script)
+        self.assertIn(' -o ' + repo + '/APKINDEX.tar.gz ' + repo + '/*.apk', script)
+        self.assertIn('abuild-sign -k /work/issue23.rsa ' + repo + '/APKINDEX.tar.gz', script)
+        self.assertIn('issue23-fixture-$version-r0.apk ' + repo + '/', script)
+
     def test_fixture_hashes(self):
         self.assertEqual(len(refresh.verify_fixture()), 5)
 

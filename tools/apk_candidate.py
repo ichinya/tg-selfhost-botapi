@@ -25,7 +25,7 @@ def registry_digest(image):
         value = json.loads(run('docker', 'buildx', 'imagetools', 'inspect', image, '--format', '{{json .Manifest}}'))['digest']
     except subprocess.CalledProcessError as error:
         message = (error.stderr or '').lower()
-        if ('manifest unknown' in message or 'manifest_unknown' in message) and not any(x in message for x in ('unauthorized', 'denied', 'timeout', 'forbidden')):
+        if any(x in message for x in ('manifest unknown', 'manifest_unknown', 'not found')) and not any(x in message for x in ('unauthorized', 'denied', 'timeout', 'forbidden')):
             return None
         raise RuntimeError('Registry state UNKNOWN; promotion stopped') from error
     if not re.fullmatch('sha256:[0-9a-f]{64}', value):
