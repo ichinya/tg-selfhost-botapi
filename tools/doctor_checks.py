@@ -114,7 +114,7 @@ def settings_checks(env, prefix="target", explicit=False, defaults_known=True):
         findings.append(check(prefix + "." + name.lower(), "pass" if valid else "fail", "configured" if valid else "invalid_boolean", "Entrypoint boolean syntax check."))
     port = env.get("TELEGRAM_HTTP_PORT", "8081")
     findings.append(check(prefix + ".http_port", "pass" if valid_port(port) else "fail", "configured" if valid_port(port) else "invalid_port", "HTTP port must be between 1 and 65535."))
-    if port in {'8082', '8090'}:
+    if valid_port(port) and int(port) in {8082, 8090}:
         findings.append(check(prefix + ".stat_port", "fail", "port_conflict", "Statistics and API listeners conflict."))
     return findings
 
@@ -379,7 +379,10 @@ def nginx_route_contract(tree, api_port):
             for path in exact:
                 if locations[path] != [('limit_except', ['GET'], [('deny', ['all'], [])]), ('proxy_pass', ['$observer_upstream$uri'], [])]: return False
             required = [('proxy_pass_request_body', ['off'], []), ('proxy_set_header', ['Authorization', ''], []),
-                        ('proxy_set_header', ['Content-Length', ''], []), ('access_log', ['off'], [])]
+                        ('proxy_set_header', ['Content-Length', ''], []), ('proxy_set_header', ['Cookie', ''], []),
+                        ('proxy_set_header', ['Host', 'localhost'], []), ('proxy_intercept_errors', ['on'], []),
+                        ('error_page', ['502', '504', '=503', '@unavailable'], []),
+                        ('proxy_connect_timeout', ['1s'], []), ('proxy_read_timeout', ['3s'], []), ('access_log', ['off'], [])]
             if any(node not in nodes for node in required): return False
             for condition in ['($args)', '($http_content_length)', '($http_transfer_encoding)']:
                 if ('if', [condition], [('return', ['400'], [])]) not in nodes: return False

@@ -27,7 +27,10 @@ class ExposureTests(unittest.TestCase):
         self.assertTrue(nginx_route_contract(nginx_config(config), '8081'))
         for before, after in [('http://botapi:8090', 'http://botapi:8082'), ('listen 81', 'listen 80'),
                               ('$observer_upstream$uri', '$observer_upstream$request_uri'),
-                              ('location = /status', 'location /extra'), ('Authorization ""', 'Authorization $http_authorization')]:
+                              ('location = /status', 'location /extra'), ('Authorization ""', 'Authorization $http_authorization'),
+                              ('proxy_set_header Cookie "";', ''), ('proxy_set_header Host localhost;', ''),
+                              ('proxy_intercept_errors on;', ''), ('error_page 502 504 =503 @unavailable;', ''),
+                              ('proxy_connect_timeout 1s;', ''), ('proxy_read_timeout 3s;', '')]:
             self.assertFalse(nginx_route_contract(nginx_config(config.replace(before, after)), '8081'))
 
     def test_observer_namespace_and_mount_isolation(self):

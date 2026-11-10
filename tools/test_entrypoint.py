@@ -75,7 +75,7 @@ class EntrypointTest(unittest.TestCase):
         result = self.run_script()
         self.assertEqual(result.returncode, 0)
         self.assertIn('--http-stat-ip-address=127.0.0.1', json.loads(result.stdout)['args'])
-        for port in ['8082', '8090', '65536', 'invalid']:
+        for port in ['8082', '8090', '08082', '08090', '65536', 'invalid']:
             self.env['TELEGRAM_HTTP_PORT'] = port
             self.assertNotEqual(self.run_script().returncode, 0)
 

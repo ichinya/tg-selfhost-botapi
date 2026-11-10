@@ -1,12 +1,22 @@
 import json
 import unittest
-from observe_runtime import collect
+import sys
+from observe_runtime import collect, exec_command, run
 
 
 class RuntimeProducerTests(unittest.TestCase):
+    def test_stderr_version_and_bounded_output(self):
+        self.assertEqual(run([sys.executable, '-c', "import sys; print('9.2', file=sys.stderr)"]), '9.2')
+        with self.assertRaises(ValueError):
+            run([sys.executable, '-c', "import sys; sys.stderr.write('x' * 70000)"])
+
+    def test_exec_timeout_uses_portable_options(self):
+        self.assertEqual(exec_command('container', 'true'),
+                         ['docker', 'exec', 'container', 'timeout', '-s', 'TERM', '5', 'true'])
+
     def runner(self, race=False):
         calls = []
-        def run(args):
+        def dispatch(args):
             calls.append(args)
             if 'ps' in args: return 'a' * 64
             if args[:2] == ['docker', 'inspect']:
@@ -16,14 +26,15 @@ class RuntimeProducerTests(unittest.TestCase):
                 return json.dumps(dict(Id='sha256:'+'b'*64, Config=dict(Labels={'org.opencontainers.image.source':'https://github.com/ichinya/tg-selfhost-botapi', 'evil':'TOKEN'}), Os='linux', Architecture='amd64', RepoDigests=[]))
             if args[-1] == '/proc/1/cmdline': return 'telegram-bot-api\x00--dir=/state\x00--temp-dir=/tmp\x00'
             if args[-1] == '/proc/1/status': return 'Uid:\t101\t101\t101\t101\nGid:\t101\t101\t101\t101'
-            if '--version' in args: return '9.2'
+            if '--version' in args: return run([sys.executable, '-c', "import sys; print('9.2', file=sys.stderr)"])
             if 'stat' in args: return 'abcdef 10 4096'
             raise ValueError('SECRET')
-        return run, calls
+        return dispatch, calls
 
     def test_actual_identity_fs_no_digest_and_no_private_values(self):
         runner, calls = self.runner()
         result = collect(['docker','compose'], runner=runner)
+        self.assertEqual(result['image']['binary_version'], '9.2')
         self.assertIsNone(result['image']['registry_digest'])
         self.assertEqual(result['storage']['filesystems'][0]['available_bytes'], 40960)
         self.assertEqual(result['storage']['filesystems'][0]['filesystem'], result['storage']['filesystems'][1]['filesystem'])

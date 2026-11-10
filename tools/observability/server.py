@@ -69,7 +69,7 @@ class Collector:
                     age = max(0, int((dt.datetime.now(dt.timezone.utc) - schema.timestamp(when)).total_seconds()))
                     result[key]['age_seconds'] = age
                     if age > ttl: result[key].update(state='stale', reason='stale')
-            if result['webhook']['state'] in {'stale', 'disabled', 'not_observed', 'unknown'}:
+            if result['webhook']['state'] in {'stale', 'disabled', 'not_observed', 'unknown', 'unavailable'}:
                 result['queue']['registered'] = schema.empty_status()['queue']['registered']
             for bot in result['webhook']['bots']:
                 if bot['observed_at']:
@@ -124,7 +124,9 @@ class Collector:
                     self.status['queue']['registered'] = dict(coverage='registered', observed_clients=len(result['bots']),
                         known_pending_clients=len(values), pending_lower_bound=sum(values) if values else None)
             except Exception:
-                with self.lock: self.status['webhook'] = schema.observation('webhook', 'unavailable', 'invalid', bots=[])
+                with self.lock:
+                    self.status['webhook'] = schema.observation('webhook', 'unavailable', 'invalid', bots=[])
+                    self.status['queue']['registered'] = schema.empty_status()['queue']['registered']
             self.stop.wait(60)
 
 

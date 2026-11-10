@@ -15,9 +15,9 @@ from observability.runtime import RUNTIME
 
 
 def run(argv):
-    """Bound time and stdout; never return stderr or exception text."""
+    """Bound time and combined output; never return exception text."""
     output = bytearray()
-    with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
+    with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
         def read():
             while True:
                 part = process.stdout.read(4096)
@@ -48,7 +48,7 @@ def safe_value(value, pattern):
 
 def exec_command(cid, *args, user=None):
     return ['docker', 'exec', *(['--user', user] if user else []), cid,
-            'timeout', '-s', 'TERM', '-k', '1', '5', *args]
+            'timeout', '-s', 'TERM', '5', *args]
 
 
 def collect(compose, service='botapi', runner=run):

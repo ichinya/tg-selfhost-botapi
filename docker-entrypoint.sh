@@ -28,7 +28,7 @@ load_secret TELEGRAM_API_ID
 load_secret TELEGRAM_API_HASH
 
 case "${TELEGRAM_HTTP_PORT:-8081}" in
-    ''|*[!0-9]*|8082|8090) echo 'Invalid or conflicting HTTP port' >&2; exit 1 ;;
+    ''|0*|*[!0-9]*|8082|8090) echo 'Invalid or conflicting HTTP port' >&2; exit 1 ;;
 esac
 [ "${TELEGRAM_HTTP_PORT:-8081}" -ge 1 ] && [ "${TELEGRAM_HTTP_PORT:-8081}" -le 65535 ] || {
     echo 'Invalid HTTP port' >&2; exit 1;
