@@ -18,7 +18,9 @@ and tools for planning a move between Bot API servers.
 
 [Open the browser migration tool](tg_selfhost_botapi_migrator.html).
 Its existing URL is unchanged. Review the [migration guide](docs/en/migration.md)
-before using it with a real bot.
+before using it with a real bot. Pages provides the entry screen; execution
+uses the same-origin loopback helper. Сама Pages-страница миграцию не выполняет:
+запустите локальный helper по инструкции EN/RU.
 
 ## Project
 

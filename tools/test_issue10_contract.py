@@ -12,14 +12,11 @@ def published_blocks(language):
 
 
 class ContractTests(unittest.TestCase):
-    def test_both_locales_publish_the_same_two_executable_examples(self):
-        english, russian = published_blocks('en'), published_blocks('ru')
-        self.assertEqual(set(english), {'environment', 'positional'})
-        self.assertEqual(english, russian)
-        for block in english.values():
-            self.assertIn('http://127.0.0.1:18080', block)
-            self.assertIn('https://example.com/telegram/webhook', block)
-            self.assertIn('"$BOT_TOKEN"', block)
+    def test_both_locales_document_explicit_plan_and_status(self):
+        for language in ('en', 'ru'):
+            text = (ROOT / 'docs' / language / 'migration.md').read_text(encoding='utf-8')
+            for command in ('plan', 'status', 'apply', 'resume', 'export'):
+                self.assertIn('migration_cli.py ' + command, text)
 
     def test_external_internal_and_entrypoint_ports_agree(self):
         compose = (ROOT / 'docker-compose.yml').read_text(encoding='utf-8')
@@ -33,8 +30,7 @@ class ContractTests(unittest.TestCase):
     def test_existing_standalone_migrator_url_is_kept(self):
         page = ROOT / 'tg_selfhost_botapi_migrator.html'
         html = page.read_text(encoding='utf-8')
-        self.assertEqual(html.count('<script>'), 1)
-        self.assertNotRegex(html, r'<script[^>]+src=')
+        self.assertIn('assets/js/migration-client.mjs', html)
         for language in ('en', 'ru'):
             doc = (ROOT / 'docs' / language / 'migration.md').read_text(encoding='utf-8')
             self.assertIn('../../tg_selfhost_botapi_migrator.html', doc)

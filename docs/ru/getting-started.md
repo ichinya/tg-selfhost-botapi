@@ -30,16 +30,43 @@ base и используйте `up -d --build`. Downloads-образ собир�
 В `DOWNLOADS_IMAGE` задавайте candidate, прошедший file gate. API — порт 18080;
 downloads HTTP — loopback 18082 за TLS frontend из примера.
 
+## Локальный UI миграции
+
+Нужны Linux/WSL, Python 3.11+ и приватное состояние на Linux ФС. Создайте
+helper JSON с правами 0600 вне checkout:
+
+```json
+{"state_dir":"/home/operator/.local/state/tg-selfhost-botapi/migrations","allowed_endpoints":["https://api.telegram.org","http://bot-api.internal:8081"],"evidence_file":"/home/operator/private/deployment.json","trust_file":"/home/operator/private/providers.json","fixture":false}
+```
+
+Отдельно подготовьте свежее deployment evidence и независимые trusted provider
+keys; без них реальные внешние checkpoints блокируются. Запустите явно:
+
+```sh
+python3 tools/migration_helper.py --config "$HELPER_CONFIG" --bootstrap-file "$PAIRING_FILE" --port 8765
+```
+
+Выберите новый `PAIRING_FILE` в принадлежащем оператору каталоге с правами 0700
+вне checkout, журнала и mounts Bot API. Helper создаст файл с правами 0600 и
+откажется перезаписывать существующий. Прочитайте код приватно из файла и введите
+его на `http://127.0.0.1:8765/`; в стартовые логи код не выводится.
+Код действует пять минут, сессия — один час. Для новой сессии перезапустите helper
+с новым файлом кода.
+UI/API работают с одного origin. Pages только объясняет запуск. Удалённый хост:
+`ssh -N -L 8765:127.0.0.1:8765 operator@HOST`, затем тот же локальный URL.
+
 ## Требования
 
 - Docker с Compose v2.
 - Для doctor: Python 3.11+ на host (только stdlib). Полная runtime-проверка требует
   локального Linux Engine с доступом к bridge; pure-проверки работают и на Windows.
 - API ID и API hash приложения Telegram с [my.telegram.org](https://my.telegram.org).
-- Для Bash-мигратора: Bash, curl, jq и GNU coreutils на POSIX-хосте
-  (`mktemp`, `date`, `stat`, `mkdir`, `mv`, `chmod`, `rm`, `rmdir`, `cat`). Приватной
-  диагностике нужны POSIX-права только для владельца; runtime-проверка в Windows
-  отложена до Linux CI. Python и Node нужны только для тестов.
+- Для миграции: Linux/WSL, Python 3.11+; совместимому Bash-адаптеру также нужны
+  curl, jq и GNU coreutils на POSIX-хосте (`mktemp`, `date`, `stat`, `mkdir`,
+  `mv`, `chmod`, `rm`, `rmdir`, `cat`) для сохранённого standalone-варианта.
+  Приватной диагностике нужны POSIX-права только для владельца; runtime-проверка
+  в Windows отложена до Linux CI.
+- Node 24 нужен для разработки/UI-приёмки, а не для работы helper.
 
 API ID/hash приложения и токен бота от BotFather — разные учётные данные.
 

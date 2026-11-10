@@ -25,7 +25,7 @@ See [installation](docs/en/getting-started.md) for networking and verification.
 - Official server source; independent Docker entrypoint.
 - `User-Agent: WebhookDelivery/1.0` on outgoing webhooks.
 - Checked image builds and nightly upstream checks.
-- Bash migration helper and browser-based migration planner.
+- One Python migration executor with a Bash adapter and local helper UI.
 
 The API gateway binds to localhost and rejects the old `/file` interface with 404.
 For downloads use explicit split storage with a scoped reader or the per-bot

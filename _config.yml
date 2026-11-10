@@ -39,6 +39,11 @@ exclude:
   - media
   - secrets
   - files
+
+  - .migration-state
+  - .migration-private
+  - migration-helper.env
+  - binding.key
 navigation:
   en:
     - title: Overview

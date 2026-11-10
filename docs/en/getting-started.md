@@ -5,6 +5,8 @@ translation: /docs/ru/getting-started.html
 
 # Getting started
 
+## File downloads
+
 File downloads require the explicit split-storage override and a scoped reader:
 see [configuration](configuration.md) and the
 [runnable examples](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
@@ -30,16 +32,43 @@ the base file and use `up -d --build`. Build the downloads image separately with
 `DOWNLOADS_IMAGE` only to a candidate qualified by the file gate. API port is
 18080; downloads HTTP port is loopback 18082 behind the supplied TLS frontend.
 
+## Local migration UI
+
+Use Linux/WSL, Python 3.11+ and a private Linux state directory. Create a
+mode-0600 helper JSON file outside the checkout:
+
+```json
+{"state_dir":"/home/operator/.local/state/tg-selfhost-botapi/migrations","allowed_endpoints":["https://api.telegram.org","http://bot-api.internal:8081"],"evidence_file":"/home/operator/private/deployment.json","trust_file":"/home/operator/private/providers.json","fixture":false}
+```
+
+Supply fresh deployment evidence and independent trusted provider keys.
+Without them real external checkpoints stay blocked. Start explicitly:
+
+```sh
+python3 tools/migration_helper.py --config "$HELPER_CONFIG" --bootstrap-file "$PAIRING_FILE" --port 8765
+```
+
+Select a new `PAIRING_FILE` in an operator-owned mode-0700 directory outside the
+checkout, journal and Bot API mounts. The helper creates it with mode 0600 and
+refuses to overwrite existing files. Read the code privately from that file and
+enter it at `http://127.0.0.1:8765/`; it is never printed in startup logs.
+Pairing expires after five minutes; authenticated sessions expire after one hour.
+Restart the helper with a fresh pairing file to establish a new session.
+UI/API share this origin. Pages only explains this workflow. For a remote host:
+`ssh -N -L 8765:127.0.0.1:8765 operator@HOST`, then the exact same local URL.
+
 ## Requirements
 
 - Docker with Compose v2.
 - For doctor: host Python 3.11+ (stdlib only). Full runtime evidence requires a
   local Linux engine with bridge access; pure checks also work on Windows.
 - A Telegram application API ID and hash from [my.telegram.org](https://my.telegram.org).
-- For the Bash migration helper: Bash, curl, jq and GNU coreutils on a POSIX host
-  (`mktemp`, `date`, `stat`, `mkdir`, `mv`, `chmod`, `rm`, `rmdir`, `cat`). Private
-  diagnostics require owner-only POSIX permissions; Windows runtime validation is
-  deferred to Linux CI. Python and Node are needed only for tests.
+- For migration: Linux/WSL, Python 3.11+; the Bash compatibility adapter also
+  needs curl, jq and GNU coreutils on a POSIX host (`mktemp`, `date`, `stat`,
+  `mkdir`, `mv`, `chmod`, `rm`, `rmdir`, `cat`) for the retained standalone
+  helper path. Private diagnostics require owner-only POSIX permissions; Windows
+  runtime validation is deferred to Linux CI.
+- Node 24 is required for development/UI acceptance, not for operating the helper.
 
 The application API ID/hash identify your Telegram application. They are different
 from a bot token issued by BotFather.

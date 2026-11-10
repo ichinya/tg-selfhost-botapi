@@ -5,6 +5,74 @@ translation: /docs/ru/migration.html
 
 # Migration
 
+The retained HTML URL now loads a single ES module and uses the local helper.
+It makes no direct Bot API or arbitrary webhook HEAD requests. Browser refresh
+restores only the saved ID/digest and reads status. Form changes create a new
+draft; old asynchronous responses cannot replace it. A lost apply response means
+the UI does not know the outcome: read the same operation's durable status.
+
+## Executor contract
+
+The version 2 migration contract uses an immutable operation ID and digest,
+keyed endpoint/token/profile commitments and a single target-only drop step.
+Version 1 plans are rejected. Runtime secrets and URLs are supplied separately;
+they are not part of the public plan. A confirmed step is historical evidence,
+while a lost response remains UNKNOWN until permitted reconciliation proves it.
+
+The shared registry describes Cloud → Local (delete without drop, logOut,
+authorize, configure), Local → Local (delete, close, external state transfer,
+authorize, configure), Local → Cloud (delete, logOut, cooldown, authorize,
+configure) and Webhook only (configure). Each dependency must be confirmed.
+Local → Cloud requires acknowledgement of weaker queue continuity. Full typed
+profiles and explicit `url_only`/polling scope are bound to the sealed plan.
+
+The executor reserves an operation before source observations. It never calls
+the target with a bot token before a confirmed detach and, for Local → Local,
+a verified transfer receipt. Transfer is external: retain the source backup;
+bind matching manifest commitments, close attempt, deployments, UID/GID/layout
+and absence of writers. Without a trusted provider the checkpoint stays BLOCKED.
+`close` 429 is WAITING with `not_before`; it is not an automatic retry loop.
+Cloud cooldown is an explicit input requiring evidence, not a guessed hostname.
+After detach a target failure is PARTIAL. Readiness, migration, webhook settings
+and delivery have separate outcomes; delivery starts as NOTRUN. A full preserve
+profile without verifiable original private settings fails closed before detach.
+
+`status` is offline. `status --refresh` and `resume` reconcile only observations
+permitted by the current phase. UNKNOWN logOut/close never triggers bot-bearing
+probes on either side. UNKNOWN drop or hidden secret/certificate configuration
+requires independent evidence. Real checkpoints/effects/delivery require receipts
+signed by an explicitly configured, independent audit provider; JSON fields or
+an operator checkbox alone are insufficient. The first release supplies the HMAC
+provider boundary, not a platform-specific audit collector. Fixture trust is
+restricted to fixture operations. Historical confirmed receipts survive drift.
+
+## Common CLI and export
+
+Run Python 3.11+ on Linux/WSL. Supply `BOT_TOKEN` or `BOT_TOKEN_FILE`, explicit
+`OLD_BOT_URL`, `SELF_BOT_URL`, `MIGRATION_ACTION` and private deployment evidence.
+The new interface never infers polling/preserve from an empty webhook.
+CLI flags override process environment, which overrides an explicit `--env-file`.
+Env files are parsed as data with an allowlist; shell expansion is rejected.
+The Bash filename remains compatible and forwards subcommands to the same CLI.
+On `--option` calls positional token/target/webhook arguments are rejected
+without echoing values.
+Use process environment or an explicitly selected private input file.
+Legacy invocation prints a sealed plan and requires a separate apply with its
+digest. It never performs the old independent curl sequence.
+
+```sh
+python3 tools/migration_cli.py plan --operation move-01 --action polling
+python3 tools/migration_cli.py status --operation move-01
+python3 tools/migration_cli.py apply --operation move-01 --confirm-digest PLAN_DIGEST --quiescence-file "$QUIESCENCE_FILE"
+python3 tools/migration_cli.py resume --operation move-01 --endpoint-change-file "$ENDPOINT_RECEIPT" --application-start-file "$START_RECEIPT"
+python3 tools/migration_cli.py export --operation move-01
+```
+
+Exit codes: 0 handled (inspect payload outcome), 1 proven step failure,
+2 UNKNOWN/BLOCKED/checkpoint required, 3 WAITING, 4 invalid input/state.
+Export preserves ID/digest and references `MIGRATION_STATE_DIR`; it cannot create
+a second authority. Keep profile/certificate inputs in a private `--profile-file`.
+
 The root helper limits each request with `MIGRATION_CONNECT_TIMEOUT` and
 `MIGRATION_REQUEST_DEADLINE`; see [configuration](configuration.md) for defaults,
 limits and precedence. The token-free probe has a maximum deadline of 10 seconds.
@@ -21,14 +89,9 @@ change its webhook. Know the old endpoint before starting. Do not use cloud
 `getMe` as a neutral discovery request: token-bearing calls can affect sessions.
 
 Stop the application or background worker that keeps calling the old API.
-Include pollers, scheduled jobs, retries and supervisors. A webhook receiver is a
-different process: stopping an API client does not freeze the queue or stop Bot
-API webhook delivery. Keep the receiver available while draining existing work.
 Prepare the new service without authorizing this bot, back up state and record
 the webhook profile. `getWebhookInfo` does not return the previous
 `secret_token`; keep it in your own configuration.
-
-A local Bot API running with `--local` accepts HTTP or HTTPS webhook URLs; the official cloud Bot API requires HTTPS.
 
 ## Choose a scenario
 
@@ -53,53 +116,18 @@ immediate return to the cloud is subject to Telegram's ten-minute restriction.
 5. Set the complete webhook profile on the target, or explicitly choose polling.
 6. Check actual webhook configuration, delivery errors and a test update before restarting normal traffic.
 
-The helper checks the target's root without a token, with a deadline and without
-following redirects. A characteristic 404 response does not authenticate the
-host. Confirm source, target, webhook and drop policy before allowing token calls.
-Source detach and `logOut` must succeed before the first target `getMe`. An HTTP/API
-failure, malformed response or unknown mutation outcome stops the sequence;
-do not probe both sides or automatically retry a lost `logOut` response.
-
 ### Local → local with state transfer
 
-The upstream per-bot procedure is `deleteWebhook` without an intentional drop,
-then a successful `close` on the old server, then moving the bot's subdirectory
-(located using its user ID) into the compatible target's working directory.
-Stop old API clients first. A failed `close`, including 429/`retry_after`, or an
-unknown response blocks the transfer and any target login. Do not blindly retry.
-Directory names can contain a token: do not paste them into public logs.
+The official procedure for moving a bot’s state is `deleteWebhook`, then `close` on
+the old server, followed by moving the bot's state subdirectory (identified by its
+user ID) to the new server's working directory. Resume requests on the new server
+after the transfer. Handle a `retry_after` response from `close` before proceeding.
 
-There is an important storage boundary in the
-[pinned ClientManager.cpp](https://github.com/tdlib/telegram-bot-api/blob/e3e9dd8e5b3d7ab8537cd5a10dc31d5ffa8f82d1/telegram-bot-api/ClientManager.cpp):
-`tqueue.binlog` and `webhooks_db.binlog` live in the shared working directory,
-outside per-bot directories. Moving one bot directory does not prove preservation
-of its accumulated local queue. On a shared server, drain or explicitly account
-for backlog before moving that bot. Merging shared binlogs into a running target
-with other bots is not supported. `drop_pending_updates=false` is not a transfer
-or preservation guarantee. A simpler source `logOut` and fresh target login is
-possible when the loss of local backlog is acceptable.
+Use a consistent backup, preserve ownership and paths, and prevent simultaneous
+use of the same state. `drop_pending_updates=false` alone does not transfer state
+or guarantee continuity.
 
-For a **dedicated installation**, a separate cold-transfer procedure is:
-
-1. Reserve a maintenance window. Stop all API clients, retries and supervisors;
-   save the full webhook profile and a consistent [backup](maintenance.md).
-2. Detach the source webhook without intentionally dropping updates and obtain a
-   successful `close`. Stop on any failure or unknown result.
-3. Stop all source writers and Bot API containers before copying the working
-   directory. Keep `restart: always` and external automation from starting the
-   old service again. Stopping a shared container affects every bot on it.
-4. Transfer the entire consistent working directory, including shared stores,
-   only to an empty compatible target. Preserve ownership and permissions; check
-   versions, mount paths and the application's handling of absolute media paths.
-   Never copy a live database or overwrite another installation's shared binlogs.
-5. Independently verify the transfer and that no old writers remain. Only then
-   start the target and make its first token-bearing request (`getMe`).
-6. Restore the required webhook profile or explicitly configure polling. Verify
-   the actual configuration and a test update before resuming normal traffic.
-
-The browser provides separate manual stages for this scenario. It neither copies
-state nor offers a copy-all script that logs in to the target across that boundary.
-Mocks do not prove that Telegram updates survive a real transfer.
+The shared `tqueue.binlog` and `webhooks_db.binlog` are outside per-bot directories. Moving one bot directory does not prove its local queue is preserved. Drain or explicitly account for backlog; merging shared binlogs into a running target with other bots is unsupported. `drop_pending_updates=false` is not a preservation guarantee.
 
 ### Local → cloud
 
@@ -115,6 +143,66 @@ the general moving rules, not a separate verbatim upstream local-to-cloud guide.
 The cloud's ten-minute return restriction after cloud `logOut` and the local
 `close` 429 window are different constraints. The browser supplies a manual plan
 for this direction; it does not execute it.
+
+## Adapter compatibility
+
+Use `bash tools/migration_executor.sh plan/apply/status/resume/reconcile/export ...` with the
+same flags as Python. There are no curl/jq requirements for migration itself.
+The repository `.env` and `.env.example` are Compose configuration only.
+Migration inputs belong in process environment or a separate private file
+selected with `--env-file`; the executor path never reads `.env` automatically.
+Environment values take precedence. An empty webhook requires an explicit action
+even in legacy mode. Use `BOT_TOKEN` or `BOT_TOKEN_FILE`; positional credentials
+are rejected on `--option` invocations. The separate root `migrate_off_to_self.sh` retains the
+[standalone helper](#bash-helper) contract. The two runtimes have separate state and locks. Legacy mode prints the plan and
+returns code 2 for separate digest confirmation; it does not auto-apply.
+
+## Browser workflow
+
+[The retained migrator URL](../../tg_selfhost_botapi_migrator.html) is an entry
+screen on Pages. [Start the helper](getting-started.md#local-migration-ui), connect
+with the private pairing-file code, choose direction/action/mode and submit Plan. Review the
+ID/digest, profile scope, drop policy and ordered steps. Real plan preparation can
+seal a reviewable plan without source observations; apply needs fresh signed
+quiescence. Re-enter the reviewed digest and submit the required provider receipts.
+After a timeout, use Status for the same operation before Resume. Refresh is an
+explicit online action; browser refresh automatically reads only saved status.
+
+The helper supports one operator on one host. UI, CLI and export share the same
+private authority. Multiple independent state roots are outside this guarantee.
+Native Windows/state on Windows-mounted WSL drives are unsupported. Managed
+Docker diagnostics are explicit write probes. Unmanaged deployment evidence is
+an operator-supplied attestation with TTL, not automatic verification.
+
+For real `webhook_only` operations against the official cloud, required local deployment evidence is unavailable; execution therefore fails closed. Cloud readiness applies only to `local_to_cloud`.
+
+## Evidence and limits
+
+Local → Cloud uses token-free official-cloud readiness instead of local image/
+mount evidence. Supply known `--cloud-not-before` and `--queue-limitation-ack`;
+the signed quiescence receipt must also attest `cloud_not_before`,
+`cloud_availability_verified: true` and `queue_limitation_ack: true`. Unknown
+cooldown blocks authorization. Ten minutes passing does not prove a lost detach.
+
+Typed `full` profiles support URL, secret_token, certificate_pem, allowed_updates,
+max_connections and ip_address. Keep them in private JSON. Configuration success
+and observable fields do not prove delivery or future secret/certificate state.
+Full preserve without independent original-profile verification remains BLOCKED;
+explicit full set is supported. URL-only requires acknowledgement. Source delete
+always uses drop=false; explicit target drop has one durable attempt and cannot
+be inferred from pending_update_count after a lost response. No exactly-once or
+uninterrupted queue guarantee is claimed across the remote API boundary.
+
+To preserve source polling, explicitly select action `preserve` with the private
+profile `{"mode":"polling"}` (the UI has a matching scope option). After detach,
+the executor deletes any old target webhook and requires an empty URL readback.
+Webhook-only preserve is a verified no-op; combining it with drop is rejected
+before API calls. The acceptance matrix includes all twelve direction/action
+combinations plus four preserved-polling variants against loopback HTTP mocks.
+
+See [recovery](maintenance.md#recovering-the-migration-journal),
+[private configuration](configuration.md#private-migration-authority) and the
+[offline fixture walkthrough](maintenance.md#isolated-mock-walkthrough).
 
 ## Bash helper
 
@@ -133,6 +221,7 @@ Arguments are `BOT_TOKEN`, `SELF_BOT_URL`, then `WEBHOOK_URL`:
 
 <!-- issue10-example:environment -->
 ```sh
+export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 SELF_BOT_URL="http://127.0.0.1:18080" \
@@ -146,6 +235,7 @@ argument 2: that argument is the Bot API endpoint.
 
 <!-- issue10-example:positional -->
 ```sh
+export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
@@ -174,8 +264,8 @@ unset BOT_TOKEN
   resume after an ambiguous `logOut` result. Do not blindly rerun after a lost response.
 - An empty webhook argument reuses the old webhook when present. It does not
   explicitly request polling.
-- The helper does not transfer `secret_token`, certificates or the full delivery
-  profile. Restore required parameters deliberately.
+- The helper and browser resolve the complete desired profile before source mutations.
+  Supply the previous secret and public certificate explicitly; WebhookInfo does not expose them.
 - Tokens can appear in process arguments and external logs. The helper sanitizes
   its own console and diagnostic artifacts; crash leftovers remain private raw.
 
@@ -304,10 +394,8 @@ current state before trying another plan. Review generated commands before use.
 
 ## Polling, webhook profile and files
 
-The independent fixes in [#5](https://github.com/ichinya/tg-selfhost-botapi/issues/5),
-[#7](https://github.com/ichinya/tg-selfhost-botapi/issues/7) and
-[#9](https://github.com/ichinya/tg-selfhost-botapi/issues/9) are not integrated in
-this candidate. Their unfinished modules are not dependencies of these helpers.
+Webhook profile #7 is integrated. State transfer #5 and action semantics #9 remain
+independent; their unfinished modules are not runtime dependencies.
 Empty webhook input retains legacy inheritance; it is not a polling action.
 For explicit polling, after completing the server transition, manually delete
 the **target** webhook and verify that `result.url` is a string equal to `""`:
@@ -325,8 +413,8 @@ curl -q -fsS --connect-timeout 5 --max-time 30 \
 
 Stop if either check fails. Start your own polling client only after verification;
 the examples do not consume updates. URL readback does not prove webhook delivery.
-Restore `secret_token`, certificate, `allowed_updates`, `max_connections` and other
-required settings from your saved profile. Secrets and the uploaded certificate
+Supply `secret_token`, certificate, `allowed_updates`, `max_connections` and other
+required settings to the migration inputs from your saved profile. Secrets and the uploaded certificate
 cannot be reconstructed from `getWebhookInfo`.
 
 In local mode an absolute `getFile.file_path` names a path on the server/container.
@@ -408,3 +496,39 @@ is BLOCKED/1; malformed or unreadable input exits 2. Reports retain pending acti
 Doctor does not run migration, helpers, bot methods, cloud probes, journals or
 locks. READY means readiness to begin the prepared procedure; it does not certify
 helpers, completed transfer, authorization or delivery.
+
+## Complete webhook profile inputs
+
+Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON array of strings), `WEBHOOK_MAX_CONNECTIONS` and `WEBHOOK_TARGET_LOCAL=true|false`. Unknown secret/IP and unavailable custom certificates stop preflight. `fixed` is an alias for pinned canonical IPv4. Source `ip_address` does not reveal pinning intent. Explicit inputs override source; omitted optional updates become the documented `[]` default. `[]` excludes chat_member, message_reaction and message_reaction_count; it is not every update type. Null or invalid values fail. Per-bot max_connections is 1–100; up to 100000 requires explicit local-mode capability (`TELEGRAM_LOCAL`/`--local`), independently of server `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. A self-host URL does not establish this capability.
+
+Use `WEBHOOK_SECRET_TOKEN` or `WEBHOOK_SECRET_TOKEN_FILE`, exactly one for provided mode; none asserts an intentionally unprotected webhook. Secret files allow one final LF/CRLF; inline secrets are never trimmed. Use `WEBHOOK_CERTIFICATE_FILE` for a public PEM, never a private key. Protected files (including `BOT_TOKEN_FILE`) must be outside checkout/webroot, with operator-only access. Values from the process override trusted `ENV_FILE` (default: helper directory `.env`), including explicitly empty values; value/file pairs are selected at one tier. Positional URLs remain highest priority. Polling has no webhook profile.
+
+Full profile transport is enabled: urlencoded without a certificate, entirely multipart with a certificate. Secret/scalar files are private snapshots; no token/secret/URL is placed in curl argv or raw diagnostics. The helper disables tracing, uses curl -q without redirects, guards HTTP/ok/result and never retries a mutation. Public PEM requires Bash 4+, jq, curl, realpath and openssl X.509 validation; no private key is accepted. Temporary files use umask 077 and are removed on exit/signals.
+
+The standalone browser now has explicit secret/none, JSON updates, connections/local capability, DNS/fixed IPv4 and public certificate File controls. An incomplete profile blocks mutations. Files are captured before logout; uploads use FormData without a manually assigned boundary. Form changes invalidate snapshots and never clear UNKNOWN/completion locks. Local-to-local/cloud transitions remain separate manual stages.
+
+Export/clipboard now contain a standalone Bash runtime and environment references only. Supply the profile, token and URLs again through trusted runtime inputs; the export does not contain browser values, private paths or certificate bytes. Source state is read fresh at execution. Manual transitions retain the STOP barrier and use a separate `MIGRATION_MODE=target-stage` helper invocation after lifecycle/state acceptance. UNKNOWN/completed migrations expose only reconciliation guidance.
+
+Postflight performs two target reads separated by two seconds within a ten-second observation deadline. It compares exact URL, update sets, connections, certificate presence and fixed IP. DNS IP is observational. Pending trend and historical/new delivery/synchronization errors are reported separately using counters only. An empty queue does not prove delivery. Secret and certificate bytes cannot be verified by WebhookInfo. New errors, missing counters or mismatched readable settings stop acceptance; mutations are never retried.
+
+### Protected profile and recovery
+
+The two existing quick examples explicitly choose none: use that only when the receiver has no previous secret. For a protected receiver, prepare operator-only files outside checkout/webroot and use this placeholder example instead:
+
+```sh
+export BOT_TOKEN_FILE=/secure/bot-token
+export SELF_BOT_URL=http://127.0.0.1:18080
+export WEBHOOK_URL=https://example.com/telegram/webhook
+export WEBHOOK_SECRET_MODE=provided
+export WEBHOOK_SECRET_TOKEN_FILE=/secure/previous-webhook-secret
+export WEBHOOK_IP_MODE=dns
+export WEBHOOK_ALLOWED_UPDATES='["message","callback_query"]'
+export WEBHOOK_MAX_CONNECTIONS=40
+export WEBHOOK_CERTIFICATE_MODE=provided
+export WEBHOOK_CERTIFICATE_FILE=/secure/public-certificate.pem
+bash ./migrate_off_to_self.sh
+```
+
+The browser uses password/File controls and never persists private inputs in storage. Its certificate preflight checks X.509 structure only, not cryptographic validity; target API acceptance validates the certificate. The helper also checks X.509 with openssl. Exports require these private inputs again at runtime and contain no browser token, secret, URL, certificate bytes or actual private filename. The manual plan has an unconditional STOP/exit before a separately saved target-stage script; it never performs state transfer. For target-stage supply explicit saved URL, updates, connections and certificate mode. After source logOut, never diagnose by logging into the old source; reconcile on target. Before confirmed logOut, do not authorize both endpoints. UNKNOWN may mean the mutation applied: no blind retry, rollback or polling fallback.
+
+Exit 0 means API acceptance and readable profile readback. Secret/certificate bytes cannot be readback-verified. Queue growth is an observation, not a count-equality or loss assertion; historical errors are distinguished from new delivery/synchronization errors. A zero queue does not prove delivery. Delivery stays unverified without a new, correlated receiver receipt. The 10-second/two-sample observation is shorter than the recommended 30-second maximum; it is not an SLA. Keep debug/VLOG disabled; logger/image qualification and real test-bot delivery are separate external gates. See maintenance for receiver, pinned-source and CI instructions.

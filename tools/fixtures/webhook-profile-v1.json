@@ -1,0 +1,519 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "source-default",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": true,
+      "missing": [],
+      "invalid": []
+    },
+    {
+      "id": "unknown-secret",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [
+        "secret_mode"
+      ],
+      "invalid": []
+    },
+    {
+      "id": "provided-secret",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "provided",
+            "value": "Synthetic_secret_7"
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": true,
+      "missing": [],
+      "invalid": []
+    },
+    {
+      "id": "unknown-ip",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [
+        "ip_mode"
+      ],
+      "invalid": []
+    },
+    {
+      "id": "source-certificate-needs-file",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": true,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [
+        "certificate_mode"
+      ],
+      "invalid": []
+    },
+    {
+      "id": "null-updates",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40,
+          "allowed_updates": null
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "allowed_updates"
+      ]
+    },
+    {
+      "id": "empty-string-updates",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          },
+          "allowed_updates": ""
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "allowed_updates"
+      ]
+    },
+    {
+      "id": "non-string-update",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          },
+          "allowed_updates": [
+            12
+          ]
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "allowed_updates"
+      ]
+    },
+    {
+      "id": "reordered-duplicates",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          },
+          "allowed_updates": [
+            "message",
+            "callback_query",
+            "message"
+          ]
+        }
+      },
+      "complete": true,
+      "missing": [],
+      "invalid": []
+    },
+    {
+      "id": "missing-connections",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [
+        "max_connections"
+      ],
+      "invalid": []
+    },
+    {
+      "id": "null-connections",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": null
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "max_connections"
+      ]
+    },
+    {
+      "id": "fractional-connections",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          },
+          "max_connections": 1.5
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "max_connections"
+      ]
+    },
+    {
+      "id": "local-capability",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          },
+          "max_connections": 100000
+        },
+        "target_local": true
+      },
+      "complete": true,
+      "missing": [],
+      "invalid": []
+    },
+    {
+      "id": "cloud-capability",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          },
+          "max_connections": 100000
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "max_connections"
+      ]
+    },
+    {
+      "id": "null-certificate-flag",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": null,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [
+        "certificate_mode"
+      ],
+      "invalid": []
+    },
+    {
+      "id": "missing-certificate-flag",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [
+        "certificate_mode"
+      ],
+      "invalid": []
+    },
+    {
+      "id": "explicit-none-change",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": true,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          },
+          "certificate": {
+            "mode": "none"
+          }
+        }
+      },
+      "complete": true,
+      "missing": [],
+      "invalid": []
+    },
+    {
+      "id": "secret-none-conflict",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none",
+            "value": "PLACEHOLDER"
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "secret_token"
+      ]
+    },
+    {
+      "id": "secret-empty-provided",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "provided",
+            "value": ""
+          },
+          "ip": {
+            "mode": "dns"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "secret_token"
+      ]
+    },
+    {
+      "id": "certificate-private-key",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns"
+          },
+          "certificate": {
+            "mode": "provided",
+            "value": "-----BEGIN PRIVATE KEY-----\nPLACEHOLDER\n-----END PRIVATE KEY-----"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "certificate"
+      ]
+    },
+    {
+      "id": "dns-address-conflict",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "dns",
+            "address": "127.0.0.1"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "ip_address"
+      ]
+    },
+    {
+      "id": "fixed-leading-zero",
+      "input": {
+        "source": {
+          "url": "https://example.invalid/hook",
+          "has_custom_certificate": false,
+          "max_connections": 40
+        },
+        "desired": {
+          "secret": {
+            "mode": "none"
+          },
+          "ip": {
+            "mode": "fixed",
+            "address": "127.00.0.1"
+          }
+        }
+      },
+      "complete": false,
+      "missing": [],
+      "invalid": [
+        "ip_address"
+      ]
+    }
+  ]
+}

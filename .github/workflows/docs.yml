@@ -20,6 +20,7 @@ on:
       - '.env.example'
       - 'docker-entrypoint.sh'
       - 'nginx.conf'
+      - 'tools/test_docs_privacy.py'
       - 'tools/test_issue11_docs.py'
       - '.github/workflows/docs.yml'
   push:
@@ -39,6 +40,7 @@ on:
       - '.env.example'
       - 'docker-entrypoint.sh'
       - 'nginx.conf'
+      - 'tools/test_docs_privacy.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
