@@ -206,7 +206,7 @@ def compose_manifest(project, nginx, python, config):
     return {"services": {
         "botapi": {"image": python, "command": ["python", "/mock.py"], "labels": labels,
                    "ports": [], "volumes": [f"{(ROOT / 'tools/gateway_upload_mock.py').as_posix()}:/mock.py:ro"]},
-        "gateway": {"image": nginx, "labels": labels, "ports": ["127.0.0.1::80"],
+        "gateway": {"image": nginx, "labels": labels, "ports": ["127.0.0.1::80"], "cap_add": ["SYS_PTRACE"],
                     "volumes": [f"{Path(config).as_posix()}:/etc/nginx/conf.d/default.conf:ro", "staging:/var/cache/nginx/client_temp"]}},
         "volumes": {"staging": {"labels": labels}}, "networks": {"default": {"labels": labels}}}
 
@@ -243,6 +243,7 @@ class Runner:
                                                          "digests": meta.get("RepoDigests", []),
                                                          "architecture": meta.get("Architecture")}
         self.config.write_bytes((ROOT / "nginx.conf").read_bytes())
+        self.report["fixture_cap_add"] = ["SYS_PTRACE"]
         self.manifest.write_text(json.dumps(compose_manifest(self.project, images["nginx"], images["python"], self.config)), encoding="utf-8")
         self.compose("config", "--quiet")
         self.compose("up", "-d")
@@ -334,6 +335,8 @@ class Runner:
         if row["status"] == "PASS":
             try:
                 row["staging_after"] = self.await_clean({"free": 0})
+            except NotRun as exc:
+                row.update(status="NOTRUN", reason=f"post-scenario staging cleanup: {exc}")
             except Exception as exc:
                 row.update(status="FAIL", reason=f"post-scenario staging cleanup: {exc}")
         row["elapsed"] = time.monotonic() - started
@@ -413,21 +416,23 @@ class Runner:
 find /var/cache/nginx/client_temp -type f -exec stat -c 'file:%i:%s:%b' {} \;
 for p in /proc/[0-9]*; do
   for f in "$p"/fd/*; do
-    target=$(readlink "$f" 2>/dev/null) || continue
+    target=$(readlink "$f" 2>/dev/null) || { echo fdskip; continue; }
     case "$target" in /var/cache/nginx/client_temp/*)
-      stat -L -c 'fd:%i:%s:%b' "$f" 2>/dev/null || true;;
+      stat -L -c 'fd:%i:%s:%b' "$f" 2>/dev/null || echo fdskip;;
     esac
   done
 done
 '''
         output = self.compose(*(["run", "--rm", "--no-deps", "gateway"] if stopped else ["exec", "-T", "gateway"]), "sh", "-c", script)
-        inodes, files, descriptors, free = {}, 0, 0, None
+        inodes, files, descriptors, skipped, free = {}, 0, 0, 0, None
         for line in output.splitlines():
             if line.startswith(("file:", "fd:")):
                 kind, inode, size, blocks = line.split(":")
                 inodes[inode] = {"bytes": int(size), "blocks": int(blocks) * 512}
                 files += kind == "file"
                 descriptors += kind == "fd"
+            elif line == "fdskip":
+                skipped += 1
             elif len(line.split()) >= 6 and line.split()[0] != "Filesystem":
                 try:
                     free = int(line.split()[3]) * 1024
@@ -435,7 +440,7 @@ done
                     pass
         if free is None:
             raise RuntimeError("missing df evidence")
-        return {"free": free, "files": files, "fds": descriptors,
+        return {"free": free, "files": files, "fds": descriptors, "fds_skipped": skipped,
                 "bytes": sum(item["bytes"] for item in inodes.values()),
                 "blocks": sum(item["blocks"] for item in inodes.values())}
 
@@ -443,11 +448,31 @@ done
         deadline = time.monotonic() + 15
         while True:
             after = self.snapshot()
+            if after["fds_skipped"]:
+                raise NotRun(f"worker fd observation unavailable: {after}")
             if after["files"] == after["fds"] == after["blocks"] == 0 and after["free"] >= before["free"] - 1024 * 1024:
                 return after
             if time.monotonic() >= deadline:
                 raise AssertionError({"before": before, "after": after, "reason": "staging not reclaimed"})
             time.sleep(0.25)
+
+    def fd_observation_probe(self):
+        script = r'''pidfile=$(mktemp)
+chmod 666 "$pidfile"
+trap '[ -s "$pidfile" ] && kill "$(cat "$pidfile")" 2>/dev/null; kill "$launcher" 2>/dev/null; wait "$launcher" 2>/dev/null; rm -f "$pidfile"' EXIT
+su -s /bin/sh nginx -c 'echo $$ > "$1"; exec sleep 30' sh "$pidfile" &
+launcher=$!
+i=0
+while [ ! -s "$pidfile" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+[ -s "$pidfile" ] || exit 1
+pid=$(cat "$pidfile")
+readlink "/proc/$pid/fd/0" 2>/dev/null >/dev/null
+'''
+        try:
+            self.compose("exec", "-T", "gateway", "sh", "-c", script)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            raise NotRun("worker fd observation unavailable") from exc
+        return {"worker_fd_observation": "available"}
 
     def worker_probe(self):
         output = self.compose("exec", "-T", "gateway", "sh", "-c",
@@ -601,7 +626,17 @@ def staging(runner, name, kind, chunked=False):
         call = AsyncCall(lambda: request("127.0.0.1", runner.port, Body(runner.directory / "source.bin", 8 * 1024 * 1024),
                                          name, chunked=chunked, pause=8, pause_after=2 * 1024 * 1024))
         try:
-            during = wait_for(lambda: (s if (s := runner.snapshot())["bytes"] >= 1024 * 1024 else None), timeout=6)
+            last = None
+            def observe_growth():
+                nonlocal last
+                last = runner.snapshot()
+                return last if last["bytes"] >= 1024 * 1024 else None
+            try:
+                during = wait_for(observe_growth, timeout=6)
+            except AssertionError as exc:
+                if last and last["fds_skipped"]:
+                    raise NotRun(f"worker fd observation unavailable: {last}") from exc
+                raise
             assert during["blocks"] > 0 and name not in runner.receipts(), during
             if kind == "crash":
                 command(["docker", "kill", "--signal", "KILL", runner.gateway])
@@ -675,7 +710,9 @@ def storage_cases():
 
 def run_storage(runner):
     def disk():
+        probe = runner.fd_observation_probe()
         snapshot = runner.snapshot()
+        snapshot.update(probe)
         if snapshot["free"] < 256 * 1024 * 1024 or shutil.disk_usage(runner.directory).free < 256 * 1024 * 1024:
             raise NotRun("storage requires 256 MiB free on host and volume backing")
         return snapshot

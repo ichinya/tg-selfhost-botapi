@@ -129,7 +129,36 @@ class GatewayTests(unittest.TestCase):
         runner = gateway.Runner(None, report, ".")
         sample = "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/test 10000 10 9990 1% /var/cache/nginx/client_temp\nfile:123:100:8\nfd:123:100:8\nfd:124:200:16"
         with patch.object(runner, "compose", return_value=sample):
-            self.assertEqual(runner.snapshot(), {"free": 9990 * 1024, "files": 1, "fds": 2, "bytes": 300, "blocks": 24 * 512})
+            self.assertEqual(runner.snapshot(), {"free": 9990 * 1024, "files": 1, "fds": 2, "fds_skipped": 0, "bytes": 300, "blocks": 24 * 512})
+
+    def test_snapshot_counts_skipped_descriptors(self):
+        runner = gateway.Runner(None, {"project": "issue4-test"}, ".")
+        with patch.object(runner, "compose", return_value="/dev/test 100 10 90 10% /temp\nfdskip\nfdskip"):
+            self.assertEqual(runner.snapshot()["fds_skipped"], 2)
+
+    def test_await_clean_rejects_unobservable_descriptors(self):
+        runner = gateway.Runner(None, {"project": "issue4-test"}, ".")
+        with patch.object(runner, "snapshot", return_value={"free": 100, "files": 0, "fds": 0, "blocks": 0, "fds_skipped": 1}):
+            with self.assertRaises(gateway.NotRun):
+                runner.await_clean({"free": 0})
+
+    def test_await_clean_requires_all_empty_and_observable(self):
+        runner = gateway.Runner(None, {"project": "issue4-test"}, ".")
+        clean = {"free": 100, "files": 0, "fds": 0, "blocks": 0, "fds_skipped": 0}
+        for key in ("files", "fds", "blocks"):
+            with self.subTest(key=key), patch.object(runner, "snapshot", side_effect=[dict(clean, **{key: 1}), clean]), patch.object(gateway.time, "sleep"):
+                self.assertEqual(runner.await_clean({"free": 0}), clean)
+
+    def test_worker_fd_probe_reports_unavailable(self):
+        runner = gateway.Runner(None, {"project": "issue4-test"}, ".")
+        with patch.object(runner, "compose", side_effect=RuntimeError("denied")):
+            with self.assertRaisesRegex(gateway.NotRun, "worker fd observation unavailable"):
+                runner.fd_observation_probe()
+
+    def test_manifest_grants_observation_only_to_gateway(self):
+        services = gateway.compose_manifest("issue4-test", "nginx", "python", "/tmp/config")["services"]
+        self.assertEqual(services["gateway"]["cap_add"], ["SYS_PTRACE"])
+        self.assertNotIn("cap_add", services["botapi"])
 
     def test_async_error_and_capacity_notrun(self):
         def fail():
