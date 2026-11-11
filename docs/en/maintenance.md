@@ -3,6 +3,8 @@ title: Maintenance
 translation: /docs/ru/maintenance.html
 ---
 
+# Maintenance
+
 ## Gateway upload storage and changes
 
 The project-scoped `gateway_client_temp` volume stores buffered request bodies;
@@ -34,7 +36,36 @@ disk space and inodes. nginx uses `error_log crit`, so ordinary error diagnostic
 are suppressed; filter any diagnostic output before sharing it.
 
 
-# Maintenance
+## Synthetic gateway upload acceptance
+
+Run from the repository root with Python 3.11+, Docker Compose, Linux containers,
+registry access and writable temporary storage. No Telegram credentials are used.
+
+```sh
+python3 tools/check_gateway_uploads.py --profile quick --revision candidate --report /tmp/issue4-quick.json
+python3 tools/check_gateway_uploads.py --profile full --revision candidate --report /tmp/issue4-full.json
+python3 tools/check_gateway_uploads.py --profile slow --revision candidate --report /tmp/issue4-slow.json
+python3 tools/check_gateway_uploads.py --profile storage --revision candidate --report /tmp/issue4-storage.json
+timeout 2700 python3 tools/check_gateway_uploads.py --profile all --revision candidate --report /tmp/issue4-all.json
+```
+
+Replace `candidate` with the tested commit SHA. `quick` (`fast` alias) covers
+2/4 MiB uploads and scaled 8 MiB boundaries; it does not prove the real 2048 MiB
+limit. `full` transfers real 2048 MiB ±1-byte bodies in both framings and a
+2000 MiB file. Reserve at least 10 GiB free on input and Docker filesystems;
+sequential scenarios may write much more in total. `slow` tests actual pauses
+over 60 seconds and separate 2-second timeout controls. `storage` checks worker
+access, linked/open spool files, block reclamation, disconnect/crash recovery
+and ENOSPC on a tiny disposable filesystem. `all` requires every profile.
+
+Use WSL/Linux or CI for complete POSIX regression discovery. Keep the unit and
+45-minute integration budgets separate. Reports are synthetic and apply to the
+recorded revision, image IDs/digests and config hashes; keep them outside webroot.
+NOTRUN, failed scenarios and cleanup failure leave acceptance open. For missing
+local prerequisites record `verification deferred to CI/gates`. The mock verifies
+gateway transport; real Bot API, Telegram and VPS acceptance remain separate.
+See [contributor instructions](../../CONTRIBUTING.md) for clean candidate export,
+scoped unit tests, image overrides and emergency cleanup ownership.
 
 ## Migration acceptance
 

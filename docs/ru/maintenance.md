@@ -3,6 +3,8 @@ title: Обслуживание
 translation: /docs/en/maintenance.html
 ---
 
+# Обслуживание
+
 ## Хранение загрузок gateway и применение изменений
 
 Project-scoped volume `gateway_client_temp` содержит буферизованные тела запросов,
@@ -34,7 +36,36 @@ HTTP 413 может указывать на лимит тела или ingress, 
 перед передачей фильтруйте диагностические данные.
 
 
-# Обслуживание
+## Синтетическая приёмка загрузок gateway
+
+Запускайте из корня репозитория с Python 3.11+, Docker Compose, Linux containers,
+доступом к registry и writable temp. Credentials Telegram не используются.
+
+```sh
+python3 tools/check_gateway_uploads.py --profile quick --revision candidate --report /tmp/issue4-quick.json
+python3 tools/check_gateway_uploads.py --profile full --revision candidate --report /tmp/issue4-full.json
+python3 tools/check_gateway_uploads.py --profile slow --revision candidate --report /tmp/issue4-slow.json
+python3 tools/check_gateway_uploads.py --profile storage --revision candidate --report /tmp/issue4-storage.json
+timeout 2700 python3 tools/check_gateway_uploads.py --profile all --revision candidate --report /tmp/issue4-all.json
+```
+
+Замените `candidate` на SHA проверяемого коммита. `quick` (alias `fast`) проверяет
+файлы 2/4 MiB и малые границы 8 MiB; реальный предел 2048 MiB этим не доказан.
+`full` передаёт настоящие тела 2048 MiB ±1 байт обоими способами framing и файл
+2000 MiB. Резервируйте минимум 10 GiB на файловых системах входов и Docker;
+суммарная запись последовательных сценариев может быть намного больше. `slow`
+проверяет реальные паузы больше 60 секунд и отдельные controls 2 секунды.
+`storage` — права worker, linked/open spool, возврат блоков, disconnect/crash
+recovery и ENOSPC на маленькой одноразовой файловой системе. `all` требует все профили.
+
+Для полного POSIX discovery используйте WSL/Linux или CI. Бюджеты unit и integration
+45 минут независимы. Синтетические отчёты относятся только к записанным revision,
+image IDs/digests и hashes конфигурации; храните их вне webroot. NOTRUN, отказ
+сценария или очистки оставляют приёмку открытой. При отсутствии локальных условий
+отмечайте `verification deferred to CI/gates`. Mock проверяет transport gateway;
+приёмка реальных Bot API, Telegram и VPS остаётся отдельной.
+Экспорт чистого candidate, scoped unit tests, image overrides и границы аварийной
+очистки описаны в [инструкции участника](../../CONTRIBUTING.md).
 
 ## Приёмка миграции
 
