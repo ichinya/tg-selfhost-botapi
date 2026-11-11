@@ -1,0 +1,158 @@
+name: Gateway upload acceptance
+
+on:
+  pull_request:
+    paths: &upload-paths
+      - 'nginx.conf'
+      - 'docker-compose*.yml'
+      - 'tools/*gateway_upload*'
+      - 'tools/doctor*'
+      - 'tools/test_doctor*.py'
+      - 'tools/check_doctor.py'
+      - 'docs/**'
+      - 'CONTRIBUTING.md'
+      - '.github/workflows/gateway-upload-acceptance.yml'
+  push:
+    branches: [main]
+    paths: *upload-paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-upload-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Export exact committed candidate
+        run: |
+          mkdir -p "$RUNNER_TEMP/issue4-candidate"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/issue4-candidate"
+      - name: Full regression discovery on clean candidate
+        working-directory: ${{ runner.temp }}/issue4-candidate
+        run: timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
+      - name: Compose models
+        working-directory: ${{ runner.temp }}/issue4-candidate
+        env:
+          API_ID: '12345'
+          API_HASH: test-placeholder
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+
+  transport:
+    needs: offline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    env:
+      UPLOAD_PROJECT: issue4-${{ github.run_id }}-${{ github.run_attempt }}
+      UPLOAD_REPORT: ${{ runner.temp }}/issue4-report.json
+    steps:
+      - uses: actions/checkout@v7
+      - name: Export candidate and initialize unrun report
+        run: |
+          mkdir -p "$RUNNER_TEMP/issue4-candidate"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/issue4-candidate"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path(os.environ['UPLOAD_REPORT']).write_text(json.dumps({
+              'status': 'NOTRUN', 'cleanup': 'NOTRUN', 'scenarios': [],
+              'revision': '${{ github.sha }}', 'project': os.environ['UPLOAD_PROJECT']
+          }))
+          PY
+      - name: Isolated doctor synthetic runtime
+        timeout-minutes: 12
+        working-directory: ${{ runner.temp }}/issue4-candidate
+        run: timeout 660 python3 tools/check_doctor.py
+      - name: Complete transport matrix (real pauses and full sizes)
+        timeout-minutes: 47
+        working-directory: ${{ runner.temp }}/issue4-candidate
+        run: |
+          timeout --signal=TERM --kill-after=30 2700 python3 tools/check_gateway_uploads.py \
+            --profile all --revision '${{ github.sha }}' \
+            --project "$UPLOAD_PROJECT" --report "$UPLOAD_REPORT"
+      - name: Always clean exact owner label and validate report
+        if: always()
+        timeout-minutes: 3
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          from pathlib import Path
+          project = os.environ['UPLOAD_PROJECT']
+          path = Path(os.environ['UPLOAD_REPORT'])
+          errors = []
+          try:
+              report = json.loads(path.read_text())
+          except (OSError, ValueError):
+              report = {'status': 'FAIL', 'cleanup': 'NOTRUN', 'scenarios': [], 'error': 'missing/invalid report'}
+          owner = 'label=io.tg-selfhost.gateway-acceptance=' + project
+          for listing, removal in ((['ps', '-aq'], ['rm', '-f']),
+                                   (['network', 'ls', '-q'], ['network', 'rm']),
+                                   (['volume', 'ls', '-q'], ['volume', 'rm'])):
+              try:
+                  result = subprocess.run(['docker', *listing, '--filter', owner],
+                                          check=True, capture_output=True, text=True, timeout=20)
+                  ids = result.stdout.split()
+                  if ids:
+                      subprocess.run(['docker', *removal, *ids], check=True,
+                                     capture_output=True, text=True, timeout=30)
+              except Exception as exc:
+                  errors.append(str(exc))
+          report['external_cleanup'] = {'status': 'FAIL' if errors else 'PASS', 'errors': errors}
+          scenarios = report.get('scenarios', [])
+          expected = report.get('expected', [])
+          sys.path.insert(0, os.environ['RUNNER_TEMP'] + '/issue4-candidate/tools')
+          try:
+              from check_gateway_uploads import inventory
+              required = inventory('all')
+          except ImportError:
+              required = []
+          names = [row['name'] for row in scenarios]
+          valid = (not errors and report.get('status') == 'PASS' and report.get('cleanup') == 'PASS'
+                   and required and expected == required and len(names) == len(set(names)) and set(names) == set(expected)
+                   and all(row.get('status') == 'PASS' for row in scenarios))
+          if not valid:
+              report['status'] = 'FAIL' if errors or report.get('status') == 'PASS' else report.get('status', 'FAIL')
+          path.write_text(json.dumps(report, indent=2))
+          if not valid:
+              raise SystemExit('Acceptance incomplete/failed; inspect synthetic report')
+          PY
+      - name: Retain synthetic acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-upload-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.UPLOAD_REPORT }}
+          if-no-files-found: error
+          retention-days: 7
+
+  documentation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Export clean documentation candidate
+        run: |
+          mkdir -p .gateway-candidate/logs/migration
+          git archive HEAD | tar -x -C .gateway-candidate
+          printf 'synthetic exclusion sentinel\n' > .gateway-candidate/logs/migration/issue4-sentinel.txt
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: .gateway-candidate
+          destination: .gateway-site
+      - name: Verify links, exclusions and original migrator URL
+        working-directory: .gateway-candidate
+        run: |
+          test ! -e "$GITHUB_WORKSPACE/.gateway-site/logs"
+          timeout 60 python3 tools/check_docs.py "$GITHUB_WORKSPACE/.gateway-site"
+          timeout 30 python3 -m unittest discover -s tools -p 'test_issue11_docs.py' -v
