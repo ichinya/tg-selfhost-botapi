@@ -450,7 +450,7 @@ function resolveWebhookProfile(input) {
     // A generated local migration is deliberately a checklist, never copy-all code.
     function manualPlan(cfg) {
       if (cfg.mode === 'self-to-self') return [
-        '# Этап 1 — только исходный сервер $OFFICIAL_BOT_URL',
+        '# Этап 1 — только исходный сервер',
         '# Остановите API-клиентов/pollers/retries, сохраните профиль и согласованную резервную копию.',
         '# На source: deleteWebhook без намеренного сброса, затем close; требуются HTTP success, ok=true, result=true.',
         '# Ошибка, 429/retry_after или UNKNOWN: СТОП, target не вызывайте.',
