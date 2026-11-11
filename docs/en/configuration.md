@@ -5,6 +5,23 @@ translation: /docs/ru/configuration.html
 
 # Configuration
 
+## Docker Compose file secrets
+
+Compose 2.24.4 or newer supports the optional secrets overlay. Store API ID and
+hash in separate host files outside the checkout, readable by the container
+entrypoint and restricted to their owner (0400 or 0600). Local Compose file
+secrets are bind mounts and retain host filesystem permissions; they are not an
+encrypted secret store. Set `TELEGRAM_API_ID_SECRET_PATH` and
+`TELEGRAM_API_HASH_SECRET_PATH` to those paths, then run:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
+```
+
+For a local build insert `-f docker-compose.build.yml` before the secrets file.
+The overlay removes inline credentials from the effective container environment.
+The existing environment-only configuration remains available.
+
 ## Doctor configuration checks
 
 Doctor delegates interpolation and merging to `docker compose config --format json`.

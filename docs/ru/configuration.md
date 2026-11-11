@@ -5,6 +5,23 @@ translation: /docs/en/configuration.html
 
 # Настройки
 
+## Файловые секреты Docker Compose
+
+Для дополнительного secrets overlay нужен Compose версии 2.24.4 или новее.
+Храните API ID и hash в отдельных файлах вне репозитория, доступных entrypoint
+контейнера, с правами только владельца (0400 или 0600). Локальные файловые
+secrets Compose являются bind mount и сохраняют права файлов хоста; это не
+зашифрованное хранилище. Укажите пути в `TELEGRAM_API_ID_SECRET_PATH` и
+`TELEGRAM_API_HASH_SECRET_PATH`, затем выполните:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
+```
+
+Для локальной сборки добавьте `-f docker-compose.build.yml` перед secrets-файлом.
+Overlay удаляет значения credentials из итогового окружения контейнера.
+Прежняя конфигурация через переменные окружения сохраняется.
+
 ## Проверка конфигурации doctor
 
 Doctor передаёт подстановку переменных и объединение файлов команде

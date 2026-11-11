@@ -15,7 +15,10 @@ load_secret() {
         exit 1
     fi
     if [ -n "$secret_file" ]; then
-        secret_value="$(cat "$secret_file")"
+        if ! secret_value="$(cat "$secret_file" 2>/dev/null)"; then
+            echo "Cannot read $secret_name file" >&2
+            exit 1
+        fi
     fi
     if [ -z "$secret_value" ]; then
         echo "$secret_name is required" >&2
