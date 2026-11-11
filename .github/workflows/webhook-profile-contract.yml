@@ -27,7 +27,7 @@ jobs:
         env:
           PYTHONPATH: .:tools
         run: |
-          timeout 420 python -m unittest tools.test_webhook_profile_contract tools.test_webhook_profile_ui tools.test_webhook_profile_transport tools.test_webhook_profile_receiver -v
+          timeout 420 python -m unittest tools.test_webhook_profile_contract tools.test_webhook_profile_ui tools.test_webhook_profile_transport tools.test_webhook_profile_receiver tools.test_issue8_shell_safety -v
           timeout 180 python -m unittest tools.test_issue10_config tools.test_issue10_contract tools.test_issue10_examples tools.test_issue10_html tools.test_issue10_platform tools.test_webhook_user_agent -v
   pinned-sender:
     runs-on: ubuntu-latest

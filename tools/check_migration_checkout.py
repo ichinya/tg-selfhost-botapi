@@ -10,6 +10,10 @@ REQUIRED = ['tools/migration_executor.sh','tools/migration_executor.html','migra
             'tools/check_docs.py','tools/check_migration_safety.py','tools/check_migration_volumes.py',
             'tools/migrator_request_mock.py', 'tools/migrator_ui_harness.js', 'tools/html_migrator_mock.js',
             'tools/test_html_migrator.cjs', 'tools/test_html_migrator.py', 'tools/test_migrator_ui.py',
+            'tools/issue8_shell_harness.cjs', 'tools/fixtures/issue8-shell-cases.json',
+            'tools/issue10_ui_harness.cjs', 'tools/webhook_profile_http_mock.py',
+            'tools/webhook_profile_runtime.sh', 'tools/webhook_profile_resolver.js',
+            'tools/migration_diagnostics_main.sh', 'tools/embed_webhook_profile.cjs',
             '.github/workflows/html-migrator.yml', '.github/workflows/migration-safety.yml',
             'tools/fixtures/migration/docker-compose.volumes.yml','tools/fixtures/migration/fake-bot-api.sh',
             'tools/fixtures/migration-executor-cases.json','.github/workflows/migration-executor.yml']

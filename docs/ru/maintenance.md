@@ -329,3 +329,21 @@ target_fingerprint, token_fingerprint, observed_at. Quiescence также тре
 no_writers=true, endpoint/start — endpoint_fingerprint. Provider проверяет
 внешние факты до подписи. По умолчанию доверенных providers нет; fixture
 providers не могут подтверждать реальные операции.
+
+## Проверка регрессий shell-экспорта
+
+Матрица issue #8 запускается в Linux/WSL от обычного пользователя с Bash 4+,
+Python 3.11+, Node 24+, jq, curl и openssl:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_checkout.py
+python3 tools/check_migration_safety.py --require-posix
+```
+
+Suite использует синтетические `.invalid` значения, curl без сети и отдельный
+HTTP-сервер на loopback. Снимки остаются в приватных временных каталогах.
+Обязательный gate отклоняет skips и отсутствие runtime. Пропуски на Windows и
+локальные NOTRUN означают verification deferred to CI/gates. После merge
+отдельно проверьте прежний URL мигратора и совпадение байтов опубликованного
+файла; проверки ветки не подтверждают деплой или доставку реальному боту.

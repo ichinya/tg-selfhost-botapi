@@ -518,4 +518,9 @@ The standalone export runs in Bash 4+ on Linux or WSL. Browser values are exclud
 
 Source webhook URLs containing control characters are rejected before any migration mutation.
 
+The shell safety regression suite captures curl arguments with NUL framing and
+checks private scalar files separately from shell quoting. Real curl decoding is
+also checked against a loopback HTTP peer; a successful mock alone does not prove
+webhook delivery.
+
 CLI export requires the existing private state and validates the plan digest locally; it creates and imports no authority.

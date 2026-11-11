@@ -330,3 +330,21 @@ target_fingerprint, token_fingerprint and observed_at. Quiescence additionally
 requires no_writers=true; endpoint/start require endpoint_fingerprint. Provider
 implementations must verify the external facts before signing. No provider is
 trusted by default, and fixture providers cannot attest real operations.
+
+## Shell export regression gate
+
+Run the issue #8 matrix on Linux/WSL as a non-root user with Bash 4+, Python
+3.11+, Node 24+, jq, curl and openssl:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_checkout.py
+python3 tools/check_migration_safety.py --require-posix
+```
+
+The suite uses synthetic `.invalid` inputs, an offline curl executable and a
+separate loopback HTTP peer. Captures remain in private temporary directories.
+The required gate fails on skips or missing runtimes. Windows skips and local
+NOTRUN results mean verification deferred to CI/gates. After merge, check the
+published root migrator URL and its byte equality separately; branch tests do
+not establish deployment or real-bot delivery.

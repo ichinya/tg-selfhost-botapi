@@ -31,6 +31,18 @@ the harness watchdogs. On a tree containing unrelated untracked tests, run only
 `test_issue10_*.py`, `test_issue6_results.py` and the tracked regression tests; use full discovery in a clean
 candidate or CI.
 
+Issue #8 has a separate shell/export matrix, admitted by the no-skip Linux gate:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_safety.py --require-posix
+```
+
+Use a non-root Linux/WSL process with Bash 4+, Node 24+, Python 3.11+, jq, curl
+and openssl. The suite checks exact NUL-framed argv, private file bytes, marker
+sensitivity, exported/manual modes and real loopback decoding. It never contacts
+Telegram. Windows runtime skips mean verification deferred to CI/gates.
+
 Issue #11 additionally requires GNU coreutils (`mktemp`, `date`, `stat`, `mkdir`,
 `mv`, `chmod`, `rm`, `rmdir`, `cat`) and a non-root POSIX runner for permission
 checks. In a dirty checkout, run only the owned suites:

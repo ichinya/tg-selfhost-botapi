@@ -26,6 +26,14 @@ class ExportTests(unittest.TestCase):
             with self.subTest(digest=digest), self.assertRaisesRegex(ValueError, '^invalid plan digest$'):
                 export_operation({'plan':plan,'digest':digest})
 
+    def test_invalid_operation_identifiers_never_create_commands(self):
+        plan=build_plan(operation_id='op',bot_id='123',source='https://api.telegram.org',target='https://target.example',
+                        token='123:secret_canary',profile={'mode':'polling'},action='polling',drop=False,key=b'x'*32)
+        for operation in ('', 'op\nnext', '$(touch marker)', '`touch marker`', 'op\x00tail', 'λ'):
+            invalid={**plan, 'operation_id':operation}
+            with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, '^invalid identifier$'):
+                export_operation({'plan':invalid,'digest':plan_digest(invalid)})
+
     @unittest.skipUnless(os.name == 'posix' and shutil.which('bash'), 'Requires POSIX Bash')
     def test_export_preserves_state_directory_as_one_argument(self):
         plan=build_plan(operation_id='op',bot_id='123',source='https://api.telegram.org',target='https://target.example',
@@ -38,8 +46,11 @@ class ExportTests(unittest.TestCase):
             mock.chmod(0o700)
             state="space ' \" $(touch marker) \x60touch marker\x60 Unicode-λ\nend"
             env={**os.environ, 'PATH':tmp+os.pathsep+os.environ['PATH'], 'CAPTURE':str(capture), 'MIGRATION_STATE_DIR':state}
-            for command in result['commands']:
+            for verb, command in zip(('status','apply','resume'), result['commands']):
                 subprocess.run(['bash','-c',command],cwd=tmp,env=env,check=True)
                 args=capture.read_bytes().split(b'\0')[:-1]
-                self.assertEqual(args[args.index(b'--state-dir')+1], state.encode())
+                expected=['tools/migration_cli.py', verb, '--operation', 'op', '--state-dir', state]
+                if verb == 'apply':
+                    expected += ['--confirm-digest', plan_digest(plan)]
+                self.assertEqual(args, [arg.encode() for arg in expected])
                 self.assertFalse((Path(tmp)/'marker').exists())
