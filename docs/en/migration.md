@@ -207,8 +207,8 @@ precedence over process environment, then file values, then defaults. Within a
 source, `SELF_BOT_URL` and `WEBHOOK_URL` take precedence over legacy
 `TELEGRAM_BOT_URL` and `WEB_HOOK`; process aliases override file values.
 Empty webhook values retain the legacy fallback described below. For example,
-from another directory use `ENV_FILE="/path/to/settings.env" bash
-/path/to/migrate_off_to_self.sh "$BOT_TOKEN"`.
+from another directory use `ENV_FILE="/path/to/settings.env" BOT_TOKEN="$BOT_TOKEN" bash
+/path/to/migrate_off_to_self.sh`.
 
 Arguments are `BOT_TOKEN`, `SELF_BOT_URL`, then `WEBHOOK_URL`:
 
@@ -219,20 +219,19 @@ set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 SELF_BOT_URL="http://127.0.0.1:18080" \
 WEBHOOK_URL="https://example.com/telegram/webhook" \
-  bash ./migrate_off_to_self.sh "$BOT_TOKEN"
+  BOT_TOKEN="$BOT_TOKEN" bash ./migrate_off_to_self.sh
 unset BOT_TOKEN
 ```
 
-Alternatively pass all three positional arguments. Do not put the webhook URL in
-argument 2: that argument is the Bot API endpoint.
+The equivalent environment form keeps the token out of the argument list.
 
 <!-- issue10-example:positional -->
 ```sh
 export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
-bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
-  "http://127.0.0.1:18080" "https://example.com/telegram/webhook"
+BOT_TOKEN="$BOT_TOKEN" SELF_BOT_URL="http://127.0.0.1:18080" WEBHOOK_URL="https://example.com/telegram/webhook" \
+  bash ./migrate_off_to_self.sh
 unset BOT_TOKEN
 ```
 
@@ -243,7 +242,7 @@ consumer. From another working directory, use an absolute helper path:
 ```sh
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 ENV_FILE="/path/to/settings.env" \
-  bash /path/to/migrate_off_to_self.sh "$BOT_TOKEN"
+  BOT_TOKEN="$BOT_TOKEN" bash /path/to/migrate_off_to_self.sh
 unset BOT_TOKEN
 ```
 
@@ -363,8 +362,7 @@ it compares bot IDs and the final URL. It is a separate process with no shared
 lock or durable state with the page. Reconcile PARTIAL or UNKNOWN before any
 repeat; a cooldown never restarts the plan automatically.
 
-The generated Bash plan prompts separately for the webhook URL; it does not
-copy the URL from the form into the script. Leave it empty to inherit the source URL.
+The generated plan does not copy browser inputs. Provide runtime inputs through the environment or protected files; an empty webhook input inherits the source URL. Save the plan and run `bash ./migration-plan.sh` in a separate Bash 4+ process on Linux or WSL. PowerShell, cmd, arbitrary sh and sourcing are not supported.
 
 [Open the migrator](../../tg_selfhost_botapi_migrator.html). The page is a static
 client, not a server-side migration executor. It uses requests from your browser;
@@ -393,16 +391,7 @@ Empty webhook input retains legacy inheritance; it is not a polling action.
 For explicit polling, after completing the server transition, manually delete
 the **target** webhook and verify that `result.url` is a string equal to `""`:
 
-```sh
-# BOT_TOKEN and SELF_BOT_URL refer to the chosen target, after migration.
-set -euo pipefail
-curl -q -fsS --connect-timeout 5 --max-time 30 -X POST \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/deleteWebhook" \
-  --data-urlencode 'drop_pending_updates=false' | jq -e '.ok == true and .result == true'
-curl -q -fsS --connect-timeout 5 --max-time 30 \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/getWebhookInfo" | \
-  jq -e '.ok == true and (.result.url | type == "string") and .result.url == ""'
-```
+Use the common CLI with the explicit `polling` action and protected runtime inputs; inspect its receipt and target readback.
 
 Stop if either check fails. Start your own polling client only after verification;
 the examples do not consume updates. URL readback does not prove webhook delivery.

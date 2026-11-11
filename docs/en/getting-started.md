@@ -126,3 +126,5 @@ exposes state through an alias, file server, or gateway mount is BLOCKED. See
 scope, [configuration](configuration.md) for Compose/storage inputs, and
 [migration](migration.md) for the private input contract. READY is a snapshot of
 preconditions; it does not authorize a bot or perform a transfer.
+
+The standalone exported plan requires Bash 4+ on Linux/WSL; run the saved file with `bash ./migration-plan.sh`. It is not a PowerShell or cmd script.

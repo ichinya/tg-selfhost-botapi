@@ -54,6 +54,9 @@ class DiagnosticPublicationTest(unittest.TestCase):
                 path.write_text("<!doctype html><html></html>", encoding="utf-8")
             (site / "tg_selfhost_botapi_migrator.html").write_bytes(
                 (ROOT / "tg_selfhost_botapi_migrator.html").read_bytes())
+            asset = site / 'assets/js/migration-client.mjs'
+            asset.parent.mkdir(parents=True, exist_ok=True)
+            asset.write_bytes((ROOT / 'assets/js/migration-client.mjs').read_bytes())
             command = [sys.executable, str(ROOT / "tools/check_docs.py"), str(site)]
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
             sentinel = site / "logs/migration/issue11-sentinel.txt"

@@ -207,8 +207,8 @@ Webhook-only preserve — проверяемый no-op; сочетание с dr
 умолчанию. В одном источнике `SELF_BOT_URL` и `WEBHOOK_URL` имеют приоритет над
 старыми именами `TELEGRAM_BOT_URL` и `WEB_HOOK`; старое имя в окружении сильнее
 значения из файла. Пустой webhook сохраняет прежнюю логику выбора, описанную
-ниже. Из другого каталога можно вызвать `ENV_FILE="/path/to/settings.env" bash
-/path/to/migrate_off_to_self.sh "$BOT_TOKEN"`.
+ниже. Из другого каталога можно вызвать `ENV_FILE="/path/to/settings.env" BOT_TOKEN="$BOT_TOKEN" bash
+/path/to/migrate_off_to_self.sh`.
 
 Порядок аргументов: `BOT_TOKEN`, `SELF_BOT_URL`, затем `WEBHOOK_URL`:
 
@@ -219,20 +219,19 @@ set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 SELF_BOT_URL="http://127.0.0.1:18080" \
 WEBHOOK_URL="https://example.com/telegram/webhook" \
-  bash ./migrate_off_to_self.sh "$BOT_TOKEN"
+  BOT_TOKEN="$BOT_TOKEN" bash ./migrate_off_to_self.sh
 unset BOT_TOKEN
 ```
 
-Можно передать все три аргумента позиционно. Webhook нельзя ставить вторым
-аргументом: это место адреса Bot API.
+Эквивалентный вариант с окружением не передаёт токен в списке аргументов.
 
 <!-- issue10-example:positional -->
 ```sh
 export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
-bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
-  "http://127.0.0.1:18080" "https://example.com/telegram/webhook"
+BOT_TOKEN="$BOT_TOKEN" SELF_BOT_URL="http://127.0.0.1:18080" WEBHOOK_URL="https://example.com/telegram/webhook" \
+  bash ./migrate_off_to_self.sh
 unset BOT_TOKEN
 ```
 
@@ -243,7 +242,7 @@ unset BOT_TOKEN
 ```sh
 read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
 ENV_FILE="/path/to/settings.env" \
-  bash /path/to/migrate_off_to_self.sh "$BOT_TOKEN"
+  BOT_TOKEN="$BOT_TOKEN" bash /path/to/migrate_off_to_self.sh
 unset BOT_TOKEN
 ```
 
@@ -365,8 +364,7 @@ webhook-only допустима на подтверждённом target; пре
 долговременного состояния со страницей. Перед повтором PARTIAL или UNKNOWN
 требует сверки; истечение ожидания не перезапускает план автоматически.
 
-Сгенерированный Bash-план отдельно запрашивает URL webhook и не копирует его из
-формы в скрипт. Пустой ввод означает наследование URL исходного сервера.
+Сгенерированный план не копирует данные браузера. Задайте входные данные через окружение или защищённые файлы; пустой webhook наследует URL исходного сервера. Сохраните план и запустите `bash ./migration-plan.sh` отдельным процессом Bash 4+ в Linux или WSL. PowerShell, cmd, произвольный sh и sourcing не поддерживаются.
 
 [Открыть мигратор](../../tg_selfhost_botapi_migrator.html). Это статическая страница,
 а не серверный исполнитель миграции. Запросы идут из вашего браузера; API должен
@@ -395,16 +393,7 @@ CORS-ошибка может скрыть ответ уже выполненно
 завершения перехода между серверами вручную удалите webhook на **target** и
 проверьте, что `result.url` — строка, равная `""`:
 
-```sh
-# BOT_TOKEN и SELF_BOT_URL относятся к выбранному target после миграции.
-set -euo pipefail
-curl -q -fsS --connect-timeout 5 --max-time 30 -X POST \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/deleteWebhook" \
-  --data-urlencode 'drop_pending_updates=false' | jq -e '.ok == true and .result == true'
-curl -q -fsS --connect-timeout 5 --max-time 30 \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/getWebhookInfo" | \
-  jq -e '.ok == true and (.result.url | type == "string") and .result.url == ""'
-```
+Используйте общий CLI с явным действием `polling` и защищёнными входными данными; проверьте receipt и ответ target.
 
 При ошибке любой проверки остановитесь. Собственный polling-клиент запускайте
 после сверки; примеры не потребляют обновления. URL readback не доказывает доставку
