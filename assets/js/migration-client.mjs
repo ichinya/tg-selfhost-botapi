@@ -93,6 +93,7 @@ export function createClient({fetcher = globalThis.fetch, storage, render = () =
 
 export async function boot(document, location, dependencies = {}) {
   const $ = id => document.getElementById(id);
+  if (!$('runtime-form')) return;
   let draftChanged = true, busy = false;
   const client = createClient({...dependencies, storage: dependencies.storage ?? globalThis.sessionStorage,
     render: state => { $('result').textContent = JSON.stringify(state, null, 2); }});
