@@ -330,7 +330,7 @@ issue. Retention — до осознанного ручного удаления
 Журнал использует atomic rename, без гарантии fsync durability. Для issue #2
 нужен явный адаптер этой схемы; журналы разных executor не взаимозаменяемы.
 Контракт относится только к `migrate_off_to_self.sh`: browser execution,
-generated Bash и private-input HTTP runbook имеют отдельные контракты.
+generated Bash и raw-curl private-input HTTP runbook имеют отдельные контракты.
 Ручные curl-примеры не создают досье и не реализуют guard.
 Обновлённый helper берите из актуального checkout репозитория. Он работает на
 хосте, исключён из server image и Pages; повторное развёртывание сервера не требуется.

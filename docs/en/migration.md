@@ -331,7 +331,7 @@ issues. Retention lasts until deliberate manual removal after reconciliation.
 The journal uses atomic rename, not an fsync durability guarantee. Issue #2 needs
 an explicit adapter for this schema; other executors' journals are not interchangeable.
 This contract applies only to `migrate_off_to_self.sh`: browser execution,
-generated Bash and the private-input HTTP runbook below retain their separate contracts.
+generated Bash and the raw-curl private-input HTTP runbook below retain their separate contracts.
 The manual curl examples create no dossier and do not implement the guard.
 Obtain the updated helper from an up-to-date repository checkout. It runs on the
 host, is excluded from the server image and Pages, and requires no server redeploy.
