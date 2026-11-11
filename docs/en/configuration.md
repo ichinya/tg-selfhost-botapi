@@ -50,7 +50,7 @@ are required; doctor does not create roots, change ownership or change modes.
 
 Doctor blocks any override which aliases the private state root or mounts its
 backing into an HTTP component, including read-only mounts. The shipped nginx
-configuration proxies requests and its logging redaction map is supported.
+configuration proxies requests and its fixed logging maps are supported.
 Doctor does not repair nginx or Compose.
 Isolation checks parse supported nginx blocks/includes and compare mount backings.
 Dynamic handlers, unresolved includes and unverified media symlinks remain UNKNOWN.
@@ -175,10 +175,9 @@ A remote authenticated file handler is tracked in
 - The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`
   only if remote clients, such as a webhook receiver, must reach it; protect external
   access with HTTPS and appropriate network controls.
-- Access logs redact bot tokens and omit query strings. nginx error logs use the
-  `crit` threshold to suppress request-bearing errors; warning and error diagnostics
-  are not logged. Critical messages can still contain secrets: filter logs before
-  exporting them and do not share unredacted diagnostics.
+- Access logs contain fixed method/route labels and numeric status/bytes/timing.
+  Request-bearing error logs are discarded through `/dev/null`; detailed nginx
+  request errors are unavailable. External proxy logs need a separate policy.
 
 [Getting started](getting-started.md) · [Maintenance](maintenance.md)
 
@@ -188,7 +187,7 @@ Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`
 
 Use `WEBHOOK_SECRET_TOKEN` or `WEBHOOK_SECRET_TOKEN_FILE`, exactly one for provided mode; none asserts an intentionally unprotected webhook. Secret files allow one final LF/CRLF; inline secrets are never trimmed. Use `WEBHOOK_CERTIFICATE_FILE` for a public PEM, never a private key. Protected files (including `BOT_TOKEN_FILE`) must be outside checkout/webroot, with operator-only access. Values from the process override trusted `ENV_FILE` (default: helper directory `.env`), including explicitly empty values; value/file pairs are selected at one tier. Positional URLs remain highest priority. Polling has no webhook profile.
 
-Full profile transport is enabled: urlencoded without a certificate, entirely multipart with a certificate. Secret/scalar files are private snapshots; no token/secret/URL is placed in curl argv or raw diagnostics. The helper disables tracing, uses curl -q without redirects, guards HTTP/ok/result and never retries a mutation. Public PEM requires Bash 4+, jq, curl, realpath and openssl X.509 validation; no private key is accepted. Temporary files use umask 077 and are removed on exit/signals.
+Full profile transport is enabled: urlencoded without a certificate, entirely multipart with a certificate. Secret/scalar files are private snapshots; no token/secret/URL is placed in curl argv or shareable diagnostics. The helper disables tracing, uses curl -q without redirects, guards HTTP/ok/result and never retries a mutation. Public PEM requires Bash 4+, jq, curl, realpath and openssl X.509 validation; no private key is accepted. Temporary files use umask 077 and are removed on exit/signals.
 
 ## Host-side migration timeouts
 
@@ -199,3 +198,25 @@ The deadline applies to each request; the token-free probe is capped at 10
 seconds. Process settings take precedence over the trusted environment file;
 only an unset setting uses its default. Unlike the endpoint settings, an
 explicitly empty timeout is invalid. These settings are not passed to containers.
+
+### Gateway logs
+
+The base Compose mounts `nginx-main.conf` read-only for every profile. Access logs
+contain only fixed method/route labels, numeric status/bytes and timing. Unknown
+methods use OTHER and unknown paths use other. Request errors are discarded via
+`error_log /dev/null`, including inherited contexts. Diagnose status and timing
+counters; detailed nginx request errors are unavailable. External proxy logs need
+an independent policy. Doctor accepts only the exact fixed-label maps and treats
+custom logging as UNKNOWN.
+
+### Native Bot API diagnostics
+
+Our own build includes privacy policy `issue17-v1`: Query logs use counts, webhook
+log messages omit private state, and the log sink projects every native/TDLib event
+to a fixed severity label before file and memory storage. Detailed native log
+messages are unavailable. Supported file/memory verbosity is 0..3; higher startup
+values are rejected and runtime verbosity escalation is clamped. Crash diagnostics
+omit actor tags and debugger locals; core dumps are disabled by the entrypoint.
+This guarantee requires the qualified own image/digest, not an arbitrary upstream
+image selected by BOTAPI_IMAGE. Private webhook persistence and outgoing secret
+headers keep their original bytes. Version output remains available.

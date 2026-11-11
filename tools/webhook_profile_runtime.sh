@@ -85,19 +85,42 @@ wp_load() {
   if [[ ${BOT_TOKEN_FILE+x} ]]; then
     [[ ! ${BOT_TOKEN+x} ]] || wp_fail 'Conflicting bot token inputs'
     wp_private_file "$BOT_TOKEN_FILE" "$WP_TMP/token"
+    wp_jq -Rse 'sub("\r?\n$";"") | test("^[0-9]+:[A-Za-z0-9_-]+$") and (test("[\r\n\u0000]")|not)' "$WP_TMP/token" >/dev/null || wp_fail 'Invalid bot token'
     BOT_TOKEN=$(wp_jq -Rsrj 'sub("\r?\n$";"")' "$WP_TMP/token") || wp_fail 'Cannot read bot token'
+  fi
+  if [[ ! ${BOT_TOKEN+x} ]]; then
+    [[ -t 0 ]] || wp_fail 'Private token file or terminal required'
+    IFS= read -r -s -p 'Bot token: ' BOT_TOKEN || wp_fail 'Hidden token input unavailable'
+    printf '\n' >&2
   fi
   [[ ${BOT_TOKEN-} =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || wp_fail 'Invalid bot token'
 }
 wp_private_file() {
-  local input=$1 output=$2 resolved checkout
-  [[ -n $input && -f $input && -r $input && -s $input ]] || wp_fail 'Protected input file unavailable'
-  command -v realpath >/dev/null || wp_fail 'realpath required for protected input files'
-  resolved=$(realpath -- "$input") || wp_fail 'Cannot resolve protected input file'
-  checkout=$(realpath -- "$WP_SCRIPT_DIR") || wp_fail 'Cannot resolve helper directory'
-  case $resolved in "$checkout"|"$checkout"/*) wp_fail 'Protected inputs must be outside checkout/webroot' ;; esac
-  [[ $(wc -c < "$resolved") -le 1048576 ]] || wp_fail 'Protected input too large'
-  cat -- "$resolved" > "$output" || wp_fail 'Cannot snapshot protected input'
+  # A bounded child opens the original path, compares lstat with the opened FD,
+  # and checks both again after snapshotting. Never use realpath as the read path.
+  command -v timeout >/dev/null || wp_fail 'Protected input prerequisites unavailable'
+  timeout 5 bash -c '
+    set -euo pipefail
+    input=$1 output=$2 checkout=$3
+    [[ -n $input && ! -L $input && -f $input && -O $input && -r $input ]]
+    resolved=$(realpath -e -- "$input")
+    checkout=$(realpath -e -- "$checkout")
+    case $resolved in "$checkout"|"$checkout"/*) exit 1;; esac
+    before=$(stat -c "%d:%i:%f:%u:%h:%s:%y:%z" -- "$input")
+    mode=$(stat -c "%a" -- "$input")
+    [[ $mode == 400 || $mode == 600 ]]
+    [[ $(stat -c "%h" -- "$input") == 1 ]]
+    exec {fd}< "$input"
+    opened=/proc/$$/fd/$fd
+    [[ ! -L $input && -f $opened && -O $opened ]]
+    [[ $(stat -Lc "%d:%i:%f:%u:%h:%s:%y:%z" -- "$opened") == "$before" ]]
+    size=$(stat -Lc "%s" -- "$opened")
+    (( size > 0 && size <= 1048576 ))
+    head -c 1048577 <&$fd > "$output"
+    [[ $(wc -c < "$output") == "$size" ]]
+    [[ ! -L $input && $(stat -c "%d:%i:%f:%u:%h:%s:%y:%z" -- "$input") == "$before" ]]
+    [[ $(stat -Lc "%d:%i:%f:%u:%h:%s:%y:%z" -- "$opened") == "$before" ]]
+  ' _ "$1" "$2" "$WP_SCRIPT_DIR" 2>/dev/null || wp_fail 'Protected input rejected'
 }
 wp_snapshot_valid() {
   wp_jq -e '

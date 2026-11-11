@@ -91,6 +91,23 @@ jobs:
           docker run --rm botapi-candidate:check --version
           docker run --rm --entrypoint sh botapi-candidate:check -ec \
             'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
+      - name: Load existing immutable candidate for privacy requalification
+        if: steps.existing.outputs.exists == 'true' && github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ steps.existing.outputs.image }}
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+        run: |
+          docker pull "$IMAGE:build-$BUILD_FINGERPRINT"
+          docker tag "$IMAGE:build-$BUILD_FINGERPRINT" botapi-candidate:check
+      - name: Qualify exact native image before publish or promotion
+        env:
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+        run: python3 tools/issue17_security_gate.py --image botapi-candidate:check --expected-build-key "$BUILD_FINGERPRINT" --manifest "$RUNNER_TEMP/issue17-image.json"
+      - name: Upload sanitized image qualification
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue17-image-manifest
+          path: ${{ runner.temp }}/issue17-image.json
       - name: Publish tested build then promote latest
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
@@ -102,6 +119,6 @@ jobs:
             docker tag botapi-candidate:check "$IMAGE:build-$BUILD_FINGERPRINT"
             docker push "$IMAGE:build-$BUILD_FINGERPRINT"
           fi
-          # Existing immutable builds have already passed the same checks.
+          # Both new and reused exact images passed the current privacy gate above.
           docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:build-$BUILD_FINGERPRINT"
           echo "Published $IMAGE:build-$BUILD_FINGERPRINT" >> "$GITHUB_STEP_SUMMARY"

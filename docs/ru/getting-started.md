@@ -100,14 +100,36 @@ http://127.0.0.1:18080/bot<TOKEN>/<METHOD>
 миграции. Для бота, уже работающего через этот сервер:
 
 ```sh
-read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
-curl --connect-timeout 5 --max-time 15 \
-  "http://127.0.0.1:18080/bot$BOT_TOKEN/getMe"
-unset BOT_TOKEN
+set -euo pipefail
+export BOT_TOKEN_FILE=/secure/bot-token
+export SELF_BOT_URL=http://127.0.0.1:18080
+python3 - <<'PY'
+import json, os, re, sys, urllib.request
+sys.path.insert(0, 'tools')
+from migration_cli import private_text
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args): return None
+try:
+    token = re.sub(r'\r?\n$', '', private_text(os.environ['BOT_TOKEN_FILE']))
+    if not re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]+', token): raise ValueError()
+    client = urllib.request.build_opener(NoRedirect)
+    for method in ['getMe']:
+        url = os.environ['SELF_BOT_URL'].rstrip('/') + '/bot' + token + '/' + method
+        data = b'drop_pending_updates=false' if method == 'deleteWebhook' else None
+        with client.open(urllib.request.Request(url, data=data), timeout=15) as response:
+            result = json.load(response)
+        if result.get('ok') is not True: raise ValueError()
+        if method == 'deleteWebhook' and result.get('result') is not True: raise ValueError()
+        if method == 'getWebhookInfo' and result['result']['url'] != '': raise ValueError()
+    print('api_checks_pass; delivery_not_verified')
+except Exception:
+    raise SystemExit('request_failed; reconcile before retry') from None
+PY
 ```
 
-Примеры команд рассчитаны на Bash. Токен в URL curl может быть виден в аргументах
-процесса и access logs; выполняйте диагностику в доверенном окружении.
+Примеры используют Bash и Python с private-file input. Токен остаётся внутри
+HTTP-клиента; выводится только фиксированный результат. Используйте проверенную
+logging policy gateway и native image из раздела настроек.
 
 [Настройки](configuration.md) · [Перенос работающего бота](migration.md)
 
@@ -126,3 +148,4 @@ state через alias, файловый сервер или монтирова�
 в [настройках](configuration.md), контракт приватного входа —
 в [миграции](migration.md). READY — снимок предпосылок; он не авторизует бота
 и не выполняет перенос.
+Для файловых credentials используйте [secrets-профиль Compose](configuration.md#файловые-секреты-docker-compose), храните файлы вне checkout и применяйте secrets после build overlay.

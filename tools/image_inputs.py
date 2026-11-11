@@ -11,6 +11,10 @@ RECIPE = (
     "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
     "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
     "tools/test_webhook_user_agent.py",
+    "patches/botapi-secrets-redaction.patch",
+    "tools/fixtures/issue17_security/botapi_log_driver.cpp",
+    "tools/fixtures/issue17_security/cases.json",
+    "tools/issue17_security_gate.py", "tools/issue17_security_checks.py",
     ".github/workflows/image.yml",
 )
 

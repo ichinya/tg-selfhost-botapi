@@ -738,7 +738,7 @@ class Installation:
                 self.add(role + ".storage", "unknown", "storage_unverified", "Directory, counters or required container utilities could not be verified.")
 
     def exposure(self):
-        from doctor_checks import nginx_config, nginx_routes, overlaps, backing, environment
+        from doctor_checks import nginx_config, nginx_routes, nginx_privacy, overlaps, backing, environment
         api = self.containers.get("botapi", {})
         env = environment(api.get("Config", {}).get("Env"))
         work = (self.process or {}).get("work") or env.get("TELEGRAM_WORK_DIR", "/var/lib/telegram-bot-api")
@@ -763,7 +763,12 @@ class Installation:
                 snapshot = self.exec("gateway", "sh", "-c", "nginx -T 2>/dev/null")
                 self.nginx_snapshot = hashlib.sha256(snapshot).digest()
                 raw = snapshot.decode("utf-8")
-                roots, proxies, listens, dynamic = nginx_routes(nginx_config(raw))
+                tree=nginx_config(raw)
+                roots, proxies, listens, dynamic = nginx_routes(tree)
+                privacy=nginx_privacy(tree)
+                self.add('gateway_log_privacy','pass' if privacy else 'unknown',
+                         'fixed_log_policy' if privacy else 'log_policy_unverified',
+                         'Effective logging policy requires exact fixed labels and discarded request errors.')
                 unsafe = any(overlaps(b, s) for root in roots for b in [backing(root, mounts)] if b for s in sensitive)
                 if unsafe:
                     self.add("state_exposure", "fail", "state_root_exposed", "HTTP root/alias intersects state, temp or secret storage; read-only and loopback do not make it safe.", remediation="Isolate the HTTP component from state and serve only an authenticated media root (issues #3/#5).")

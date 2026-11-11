@@ -15,6 +15,9 @@ class BrowserProfileTests(unittest.TestCase):
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, "UI harness failed; private output omitted")
         self.assertIn("checks passed", result.stdout)
+        for name in ('webhook_profile_ui_harness.cjs','test_issue17_security_browser.cjs'):
+            result=subprocess.run([node,str(ROOT/'tools'/name)],cwd=ROOT,capture_output=True,text=True,timeout=90)
+            self.assertEqual(result.returncode,0,'standalone privacy harness failed; private output omitted')
 
 
 if __name__ == "__main__":

@@ -32,3 +32,5 @@ without exposing its state directory. See [configuration](docs/en/configuration.
 before enabling external access.
 
 [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/ichinya/tg-selfhost-botapi/issues)
+
+File secrets: [EN](docs/en/configuration.md#docker-compose-file-secrets) · [RU](docs/ru/configuration.md#файловые-секреты-docker-compose).

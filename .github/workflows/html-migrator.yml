@@ -1,9 +1,9 @@
 name: HTML migrator
 on:
   push:
-    paths: ['assets/**', 'tools/migration_*.py', 'tools/test_migration_*.py', 'tools/migrator_ui_harness.js', 'tools/migrator_request_mock.py', 'tools/test_migrator_*.py', 'tg_selfhost_botapi_migrator.html', 'tools/test_html_migrator.*', 'tools/html_migrator_mock.js', 'docs/en/migration.md', 'docs/ru/migration.md', 'CONTRIBUTING.md', '.github/workflows/html-migrator.yml', '.github/workflows/image.yml']
+    paths: ['migrate_off_to_self.sh', 'tools/webhook_profile_runtime.sh', 'tools/migration_diagnostics_main.sh', 'tools/embed_webhook_profile.cjs', 'tools/webhook_profile_resolver.js', 'tools/test_issue17_security_browser.cjs', 'assets/**', 'tools/migration_*.py', 'tools/test_migration_*.py', 'tools/migrator_ui_harness.js', 'tools/migrator_request_mock.py', 'tools/test_migrator_*.py', 'tg_selfhost_botapi_migrator.html', 'tools/test_html_migrator.*', 'tools/html_migrator_mock.js', 'docs/en/migration.md', 'docs/ru/migration.md', 'CONTRIBUTING.md', '.github/workflows/html-migrator.yml', '.github/workflows/image.yml']
   pull_request:
-    paths: ['assets/**', 'tools/migration_*.py', 'tools/test_migration_*.py', 'tools/migrator_ui_harness.js', 'tools/migrator_request_mock.py', 'tools/test_migrator_*.py', 'tg_selfhost_botapi_migrator.html', 'tools/test_html_migrator.*', 'tools/html_migrator_mock.js', 'docs/en/migration.md', 'docs/ru/migration.md', 'CONTRIBUTING.md', '.github/workflows/html-migrator.yml', '.github/workflows/image.yml']
+    paths: ['migrate_off_to_self.sh', 'tools/webhook_profile_runtime.sh', 'tools/migration_diagnostics_main.sh', 'tools/embed_webhook_profile.cjs', 'tools/webhook_profile_resolver.js', 'tools/test_issue17_security_browser.cjs', 'assets/**', 'tools/migration_*.py', 'tools/test_migration_*.py', 'tools/migrator_ui_harness.js', 'tools/migrator_request_mock.py', 'tools/test_migrator_*.py', 'tg_selfhost_botapi_migrator.html', 'tools/test_html_migrator.*', 'tools/html_migrator_mock.js', 'docs/en/migration.md', 'docs/ru/migration.md', 'CONTRIBUTING.md', '.github/workflows/html-migrator.yml', '.github/workflows/image.yml']
   workflow_dispatch:
 permissions:
   contents: read

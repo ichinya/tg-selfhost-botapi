@@ -3,6 +3,7 @@
 /.env
 /data
 /logs
+/secrets/
 **/.migration-state/
 **/.migration-private/
 **/binding.key

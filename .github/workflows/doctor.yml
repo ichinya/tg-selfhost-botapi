@@ -12,6 +12,7 @@ on:
       - 'docker-entrypoint.sh'
       - 'docker-compose*.yml'
       - 'nginx.conf'
+      - 'nginx-main.conf'
   push:
     branches: [main]
     paths:
@@ -25,6 +26,7 @@ on:
       - 'docker-entrypoint.sh'
       - 'docker-compose*.yml'
       - 'nginx.conf'
+      - 'nginx-main.conf'
   workflow_dispatch:
 permissions:
   contents: read

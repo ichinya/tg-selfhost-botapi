@@ -2,4 +2,13 @@
 !Dockerfile
 !docker-entrypoint.sh
 !patches/
+patches/*
 !patches/webhook-user-agent.patch
+!patches/botapi-secrets-redaction.patch
+!tools/
+tools/*
+!tools/fixtures/
+tools/fixtures/*
+!tools/fixtures/issue17_security/
+tools/fixtures/issue17_security/*
+!tools/fixtures/issue17_security/botapi_log_driver.cpp

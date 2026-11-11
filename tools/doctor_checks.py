@@ -283,12 +283,12 @@ def nginx_routes(tree):
         nonlocal unknown
         for name, args, children in nodes:
             if name == "map":
-                # Only the shipped URI redaction map is understood. Its entries
-                # are logging values, never nested routing directives.
-                supported = (args == ["$uri", "$uri_redacted"] and bool(children)
-                             and all(not nested and len(values) == 1
-                                     and (key == "default" or key.startswith("~"))
-                                     for key, values, nested in children))
+                # Unknown maps never constitute routing/privacy evidence.
+                supported = (args == ["$request_method", "$privacy_method"] and children == [
+                    ('default',['OTHER'],[]),('GET',['GET'],[]),('POST',['POST'],[]),
+                    ('HEAD',['HEAD'],[]),('OPTIONS',['OPTIONS'],[])]) or (
+                    args == ["$uri", "$privacy_route"] and children == [
+                    ('default',['other'],[]),('~^/bot[^/]+/',['api'],[]),('~^/file/bot[^/]+/',['file'],[])])
                 unknown |= not supported
                 continue
             if name in {"root", "alias"}:
@@ -315,6 +315,25 @@ def nginx_routes(tree):
             walk(children, in_types or name == "types")
     walk(tree)
     return roots, proxies, listens, unknown
+
+
+def nginx_privacy(tree):
+    """Recognize only the shipped policy across all effective contexts."""
+    errors=[]; accesses=[]; formats=[]; maps=[]
+    def visit(nodes):
+        for name,args,children in nodes:
+            if name=='error_log': errors.append(args)
+            if name=='access_log': accesses.append(args)
+            if name=='log_format': formats.append(args)
+            if name=='map': maps.append((name,args,children))
+            if name!='map': visit(children)
+    visit(tree)
+    root_null=any(name=='error_log' and args==['/dev/null'] for name,args,_ in tree)
+    return (root_null and bool(errors) and all(args==['/dev/null'] for args in errors)
+            and bool(accesses) and all(args==['/var/log/nginx/access.log','privacy'] for args in accesses)
+            and formats==[['privacy','$privacy_method $privacy_route $status $body_bytes_sent $request_time']]
+            and len(maps)==2 and not nginx_routes(maps)[-1]
+            and {tuple(args) for _,args,_ in maps}=={('$request_method','$privacy_method'),('$uri','$privacy_route')})
 
 
 def overlaps(a, b):

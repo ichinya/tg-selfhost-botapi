@@ -1,0 +1,54 @@
+name: Issue 17 privacy
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'patches/**'
+      - 'docker-entrypoint.sh'
+      - 'docker-compose*.yml'
+      - 'nginx*.conf'
+      - 'tools/**'
+      - 'assets/js/migration-client.mjs'
+      - 'migrate_off_to_self.sh'
+      - 'tg_selfhost_botapi_migrator.html'
+      - '.github/workflows/issue17-security.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  privacy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install POSIX prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash curl jq coreutils openssl
+          test "$(id -u)" != 0
+      - name: Clean candidate unit acceptance
+        run: python3 tools/issue17_security_gate.py --unit
+      - name: Current Compose and real HTTP logs
+        run: python3 tools/issue17_security_gate.py --runtime --manifest "$RUNNER_TEMP/issue17-current.json"
+      - name: Minimum Compose 2.24.4 acceptance
+        run: |
+          curl -fsSL --retry 2 https://github.com/docker/compose/releases/download/v2.24.4/docker-compose-linux-x86_64 -o "$RUNNER_TEMP/compose-2.24.4"
+          chmod 755 "$RUNNER_TEMP/compose-2.24.4"
+          python3 tools/issue17_security_gate.py --runtime --compose-bin "$RUNNER_TEMP/compose-2.24.4" --manifest "$RUNNER_TEMP/issue17-minimum.json"
+      - name: Upload only sanitized manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue17-sanitized-acceptance
+          path: |
+            ${{ runner.temp }}/issue17-current.json
+            ${{ runner.temp }}/issue17-minimum.json
