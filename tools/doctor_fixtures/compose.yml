@@ -18,6 +18,7 @@ services:
       - '127.0.0.1::80'
     volumes:
       - ../../nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - gateway_client_temp:/var/cache/nginx/client_temp
     depends_on:
       botapi:
         condition: service_healthy
@@ -29,3 +30,4 @@ services:
 volumes:
   state:
   audit:
+  gateway_client_temp:

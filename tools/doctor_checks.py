@@ -278,7 +278,8 @@ def nginx_routes(tree):
     safe = {"events", "worker_connections", "http", "server", "location", "upstream", "user", "worker_processes", "pid",
             "error_log", "access_log", "log_format", "default_type", "types", "sendfile", "keepalive_timeout", "tcp_nopush",
             "gzip", "index", "server_name", "proxy_http_version", "proxy_set_header", "client_max_body_size", "autoindex",
-            "resolver", "proxy_read_timeout", "proxy_connect_timeout", "proxy_send_timeout", "proxy_buffering", "charset"}
+            "resolver", "proxy_read_timeout", "proxy_connect_timeout", "proxy_send_timeout", "proxy_buffering", "charset",
+            "client_body_timeout", "client_body_temp_path", "proxy_request_buffering"}
     def walk(nodes, in_types=False):
         nonlocal unknown
         for name, args, children in nodes:

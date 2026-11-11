@@ -18,5 +18,9 @@ services:
       - "${GATEWAY_BIND:-127.0.0.1}:18080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - gateway_client_temp:/var/cache/nginx/client_temp
     depends_on:
       - botapi
+
+volumes:
+  gateway_client_temp:

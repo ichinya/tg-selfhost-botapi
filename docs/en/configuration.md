@@ -76,6 +76,7 @@ connect/read/total time and body size, no redirects, inherited proxy or retries.
 | Gateway port on the host | `18080` |
 | Internal Bot API endpoint | `http://botapi:8081` |
 | Persistent state on the host | `./data` |
+| Gateway upload spool | Project-scoped `gateway_client_temp` volume at `/var/cache/nginx/client_temp` |
 | State directory inside the container | `/var/lib/telegram-bot-api` |
 | Container user/group IDs | `101:101` |
 | Local mode | Enabled by Compose |
@@ -153,8 +154,11 @@ A remote authenticated file handler is tracked in
 ## Current limitations
 
 - nginx forwards `/file/` requests to the Bot API; it does not serve the state directory.
-- No upload-size override is configured in nginx. Large multipart requests can
-  receive HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
+- nginx limits the entire request body to `2048m` (2,147,483,648 bytes), including
+  multipart fields and all attachments; larger requests receive HTTP 413. Request
+  buffering is on and uses the separate disk-backed spool before forwarding.
+  Client body and upstream send idle timeouts are 300 seconds, upstream read is
+  600 seconds, and upstream connect is 5 seconds. These are not total deadlines.
 - The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`
   only if remote clients, such as a webhook receiver, must reach it; protect external
   access with HTTPS and appropriate network controls.
