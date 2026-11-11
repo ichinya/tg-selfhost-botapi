@@ -147,7 +147,7 @@ wp_resolve() { wp_jq '
     elif .profile.certificate_mode=="none" then
       if ($d.certificate.value // "")!="" then .invalid += ["certificate"] else . end
     elif .profile.certificate_mode=="unknown" then .missing += ["certificate_mode"] else .invalid += ["certificate_mode"] end |
-    if own(.profile;"url") and (.profile.url|type!="string") then .invalid += ["url"] else . end |
+    if own(.profile;"url") and (.profile.url | if type=="string" then (explode | all(.[]; . > 32 and . != 127) | not) else true end) then .invalid += ["url"] else . end |
     if own(.profile;"allowed_updates") and (.profile.allowed_updates|type=="array" and all(.[];type=="string")|not) then .invalid += ["allowed_updates"] else . end |
     if own(.profile;"max_connections") and (.profile.max_connections|type=="number" and .==floor and .>=1 and .<=(if $i.target_local==true then 100000 else 100 end)|not) then .invalid += ["max_connections"] else . end |
     reduce (.provenance|keys[]) as $k (.; if .provenance[$k]=="explicit" and $i.provenance[$k] then .provenance[$k]=$i.provenance[$k] else . end) |
@@ -156,9 +156,12 @@ wp_resolve() { wp_jq '
 # END RESOLVER
 wp_preflight() {
   local source=$1 secret='' cert=''
-  WP_HOOK=$(wp_jq -r '.result.url' "$source") || wp_fail 'Invalid source snapshot'
+  wp_jq -e '.result.url | type == "string" and (explode | all(.[]; . > 32 and . != 127))' "$source" >/dev/null || wp_fail 'Invalid source webhook URL'
+  WP_HOOK=$(wp_jq -rj '.result.url' "$source" && printf '.') || wp_fail 'Invalid source snapshot'
+  WP_HOOK=${WP_HOOK%.}
   [[ -z $WEBHOOK_URL ]] || WP_HOOK=$WEBHOOK_URL
   if [[ -z $WP_HOOK ]]; then WP_PROFILE='{"profile":{"url":""},"complete":true}'; return; fi
+  [[ $WP_HOOK != *[[:cntrl:]]* ]] || wp_fail 'Invalid webhook URL'
   [[ $WP_HOOK =~ ^https?://[^/@?#[:space:]]+([^[:space:]#]*)?$ ]] || wp_fail 'Invalid webhook URL'
   [[ $SELF_BOT_URL != https://api.telegram.org || $WP_HOOK == https://* ]] || wp_fail 'Cloud webhook requires HTTPS'
   if [[ ${WEBHOOK_SECRET_TOKEN_FILE+x} ]]; then
@@ -300,7 +303,7 @@ wp_main() {
     local probe_deadline=$MIGRATION_REQUEST_DEADLINE probe_connect=$MIGRATION_CONNECT_TIMEOUT
     (( probe_deadline <= 10 )) || probe_deadline=10
     (( probe_connect <= probe_deadline )) || probe_connect=$probe_deadline
-    status=$(curl -q -sS --connect-timeout "$probe_connect" --max-time "$probe_deadline" --output "$WP_TMP/probe" --write-out '%{http_code}' "$SELF_BOT_URL/" 2>/dev/null) || wp_fail 'phase=preflight outcome=UNKNOWN reason=transport_error: Token-free probe failed'
+    status=$(curl -q -sS --globoff --proto '=http,https' --connect-timeout "$probe_connect" --max-time "$probe_deadline" --output "$WP_TMP/probe" --write-out '%{http_code}' "$SELF_BOT_URL/" 2>/dev/null) || wp_fail 'phase=preflight outcome=UNKNOWN reason=transport_error: Token-free probe failed'
     [[ $status == 404 ]] && wp_jq -e '.ok==false and .error_code==404 and .description=="Not Found"' "$WP_TMP/probe" >/dev/null || wp_fail 'phase=preflight outcome=UNKNOWN reason=unexpected_response: Unexpected token-free probe'
   fi
   printf 'Probe does not authenticate the host. Stop old clients; permit token requests?\n'

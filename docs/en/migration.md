@@ -526,3 +526,5 @@ The browser uses password/File controls and never persists private inputs in sto
 Exit 0 means API acceptance and readable profile readback. Secret/certificate bytes cannot be readback-verified. Queue growth is an observation, not a count-equality or loss assertion; historical errors are distinguished from new delivery/synchronization errors. A zero queue does not prove delivery. Delivery stays unverified without a new, correlated receiver receipt. The 10-second/two-sample observation is shorter than the recommended 30-second maximum; it is not an SLA. Keep debug/VLOG disabled; logger/image qualification and real test-bot delivery are separate external gates. See maintenance for receiver, pinned-source and CI instructions.
 
 The standalone export runs in Bash 4+ on Linux or WSL. Browser values are excluded; provide the runtime inputs again. URLs containing spaces or control characters are rejected without trimming.
+
+Source webhook URLs containing control characters are rejected before any migration mutation.
