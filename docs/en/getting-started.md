@@ -57,6 +57,10 @@ cp .env.example .env
 Fill in `API_ID` and `API_HASH` in `.env`. Keep that file private.
 
 The gateway binds to `127.0.0.1` by default and does not expose the state directory.
+
+Before large uploads, provision disk space and inodes for the gateway's separate
+`gateway_client_temp` volume and Bot API storage. The nginx worker needs write
+access to the spool. See [configuration](configuration.md) for sizing.
 If remote clients, including a webhook receiver, must reach the Bot API, set
 `GATEWAY_BIND=0.0.0.0` in `.env` and provide HTTPS and network access controls.
 

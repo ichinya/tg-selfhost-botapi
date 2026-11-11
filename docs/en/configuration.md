@@ -159,6 +159,20 @@ A remote authenticated file handler is tracked in
   buffering is on and uses the separate disk-backed spool before forwarding.
   Client body and upstream send idle timeouts are 300 seconds, upstream read is
   600 seconds, and upstream connect is 5 seconds. These are not total deadlines.
+  Upstream describes local-mode uploads up to 2000 MB per file; the gateway limit
+  applies to the entire body, so several attachments share it. The 2048 MiB body
+  budget leaves 48 MiB beyond 2000 MiB for multipart overhead. Method, image,
+  client and external ingress limits still apply; this does not guarantee a
+  successful Telegram upload. The pinned upstream has its own approximately
+  500-second idle limit; nginx cannot extend it.
+
+  Buffering adds disk I/O and delays forwarding until the body is received. For
+  N concurrent uploads budget up to N × 2 GiB plus reserve for nginx alone: N=2
+  means approximately 4 GiB plus reserve. Add Bot API temp/work/cache needs on
+  the same filesystem. The volume reserves no space or quota, and Doctor's 1 GiB
+  default reserve does not qualify a large upload. Check free bytes and inodes,
+  including the Docker Desktop disk image. Spool may contain sensitive uploads;
+  restrict access. The operator controls concurrency.
 - The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`
   only if remote clients, such as a webhook receiver, must reach it; protect external
   access with HTTPS and appropriate network controls.

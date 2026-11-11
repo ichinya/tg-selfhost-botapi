@@ -3,6 +3,37 @@ title: Maintenance
 translation: /docs/ru/maintenance.html
 ---
 
+## Gateway upload storage and changes
+
+The project-scoped `gateway_client_temp` volume stores buffered request bodies;
+it is separate from Bot API state and may contain sensitive uploads. Check free
+space and inodes on each backing filesystem, including the Docker Desktop disk
+image, and verify that the nginx worker can write there. Size for concurrent
+requests as described in [configuration](configuration.md); the volume does
+not reserve capacity. Back up Bot API state independently of this spool.
+
+Validate both the Compose model and nginx configuration before applying a change.
+Adding the mount requires recreating the gateway and interrupts active uploads:
+
+```sh
+docker compose config --quiet
+docker compose run --rm --no-deps gateway nginx -t
+docker compose up -d --no-deps --force-recreate gateway
+docker compose exec gateway nginx -T
+```
+
+Inspect the loaded settings privately and check health with synthetic requests.
+For rollback, restore the matching previous nginx and Compose files, validate
+them and recreate the gateway again; preserve Bot API data. Never use `down -v`
+on the working stack. Clean only the precisely identified spool volume when no
+requests are active; do not delete live body files manually.
+
+HTTP 413 can indicate a body or ingress limit; 408 indicates client body timeout;
+504 can indicate upstream timeout. Also check client and external proxy limits,
+disk space and inodes. nginx uses `error_log crit`, so ordinary error diagnostics
+are suppressed; filter any diagnostic output before sharing it.
+
+
 # Maintenance
 
 ## Migration acceptance
