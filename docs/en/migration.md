@@ -528,3 +528,5 @@ Exit 0 means API acceptance and readable profile readback. Secret/certificate by
 The standalone export runs in Bash 4+ on Linux or WSL. Browser values are excluded; provide the runtime inputs again. URLs containing spaces or control characters are rejected without trimming.
 
 Source webhook URLs containing control characters are rejected before any migration mutation.
+
+CLI export requires the existing private state and validates the plan digest locally; it creates and imports no authority.

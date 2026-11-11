@@ -13,3 +13,10 @@ class ExportTests(unittest.TestCase):
         for secret in ('secret_canary','https://','curl','binding.key'):
             self.assertNotIn(secret,text)
         self.assertTrue(all('--operation op' in command for command in result['commands']))
+
+    def test_rejects_invalid_or_unbound_digest(self):
+        plan=build_plan(operation_id='op',bot_id='123',source='https://api.telegram.org',target='https://target.example',
+                        token='123:secret_canary',profile={'mode':'polling'},action='polling',drop=False,key=b'x'*32)
+        for digest in (None, '', '0'*64, '$(printf CANARY)', 'A'*64):
+            with self.subTest(digest=digest), self.assertRaisesRegex(ValueError, '^invalid plan digest$'):
+                export_operation({'plan':plan,'digest':digest})
