@@ -2,6 +2,9 @@
 !/.github/
 /.env
 /data
+/media
+/secrets
+/files
 /logs
 /secrets/
 **/.migration-state/

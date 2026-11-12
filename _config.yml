@@ -35,15 +35,18 @@ exclude:
   - logs
   - .site-check
   - .issue-flow
+  - examples
+  - Dockerfile.downloads
+  - docker-compose.files.yml
+  - docker-compose.downloads.yml
+  - media
+  - secrets
+  - files
+
   - .migration-state
   - .migration-private
   - migration-helper.env
   - binding.key
-  - files
-  - secrets
-  - examples
-  - Dockerfile.downloads
-  - docker-compose.downloads.yml
 navigation:
   en:
     - title: Overview

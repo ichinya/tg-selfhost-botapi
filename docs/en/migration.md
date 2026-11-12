@@ -78,6 +78,13 @@ The root helper limits each request with `MIGRATION_CONNECT_TIMEOUT` and
 `MIGRATION_REQUEST_DEADLINE`; see [configuration](configuration.md) for defaults,
 limits and precedence. The token-free probe has a maximum deadline of 10 seconds.
 
+File access is a separate boundary: API 18080, downloads 18082 behind TLS. The old
+`/file` interface returns 404. For shared-volume or remote reads enable split
+storage and follow [configuration](configuration.md#files-in-local-mode).
+Self-to-self copies require consistent state and media snapshots plus identical
+absolute mappings. Per-bot transfer must not copy shared binlogs. File preflight
+does not replace webhook-profile or delivery decisions tracked by issues #7/#9.
+
 A migration changes the Bot API endpoint used by your application and may also
 change its webhook. Know the old endpoint before starting. Do not use cloud
 `getMe` as a neutral discovery request: token-bearing calls can affect sessions.
@@ -430,10 +437,11 @@ cannot be reconstructed from `getWebhookInfo`.
 
 In local mode an absolute `getFile.file_path` names a path on the server/container.
 It requires compatible mounts and application paths; state transfer alone does
-not fix them. nginx forwards `/file/` requests to the Bot API instead of exposing
-the state directory. Do not invent `X-Telegram-Bot-Token` authorization. See
+not fix them. nginx rejects `/file` and `/file/` with 404 and has no storage mount.
+Use the scoped reader or the independent Bearer handler. `X-Telegram-Bot-Token`
+does not authorize downloads. See
 [file access](configuration.md).
-An independent downloads service's port 18081 does not replace API port 18080.
+An independent downloads service's port 18082 does not replace API port 18080.
 
 [Configuration](configuration.md) · [Maintenance](maintenance.md)
 

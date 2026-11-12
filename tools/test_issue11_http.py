@@ -185,7 +185,7 @@ class MigrationRequestTests(unittest.TestCase):
                     self.assertNotIn('DONE', result.stdout)
                     self.assertNotIn(TOKEN, result.stdout + result.stderr)
                     self.assertNotIn('\x1b', result.stderr)
-                    self.assertIn('useful diagnostic', result.stderr)
+                    self.assertNotIn('useful diagnostic', result.stderr)
                     record = self.record(method)
                     self.assertEqual(record['http_status'], code)
                     self.assertEqual(record['curl_exit_code'], 0)
@@ -208,11 +208,11 @@ class MigrationRequestTests(unittest.TestCase):
         self.assertEqual((record['http_status'], record['api_error_code']), (400, 401))
         self.assertEqual(record['outcome'], 'CONFIRMED_REJECTION')
 
-    def test_http400_identity_retains_the_regression_description(self):
+    def test_http400_identity_hides_the_rejection_description(self):
         self.mock.target, self.mock.scenario = ('source', 'getMe'), 'http400'
         result = self.run_script()
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn('useful diagnostic', result.stderr)
+        self.assertNotIn('useful diagnostic', result.stderr)
         self.assertIn('error_code=400', result.stderr)
         self.assertNotIn(TOKEN, result.stdout + result.stderr)
         receipt = self.record('getMe', 'source')
@@ -279,7 +279,7 @@ class MigrationRequestTests(unittest.TestCase):
         record = self.record('deleteWebhook')
         self.assertEqual(record['http_status'], 200)
         self.assertEqual(record['api_error_code'], 401)
-        self.assertEqual(record['description'], 'useful rejection')
+        self.assertIsNone(record['description'])
         self.assertEqual(record['outcome'], 'CONFIRMED_REJECTION')
         self.assert_stopped('deleteWebhook')
 
@@ -320,13 +320,14 @@ class MigrationRequestTests(unittest.TestCase):
         self.assertEqual(self.mock.calls, [('target', 'probe')])
         self.assertFalse(any(role == 'sink' for role, _ in self.mock.calls))
 
-    def test_consent_preview_shows_authority_and_hides_secret_path(self):
+    def test_consent_preview_hides_endpoints_and_secret_path(self):
         hook = 'https://example.invalid/' + TOKEN + '?secret=test-configuration-secret'
         result = self.run_script(confirmation='n\n', third=hook)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('Source: "' + self.mock.source_url + '"', result.stdout)
-        self.assertIn('Target: "' + self.mock.target_url + '"', result.stdout)
-        self.assertIn('Webhook: "https://example.invalid"', result.stdout)
+        for label in ("Source", "Target", "Webhook"):
+            self.assertIn(label + ": private endpoint reference", result.stdout)
+        for endpoint in (self.mock.source_url, self.mock.target_url, "https://example.invalid"):
+            self.assertNotIn(endpoint, result.stdout + result.stderr)
         for value in (TOKEN, 'test-configuration-secret', '?secret='):
             self.assertNotIn(value, result.stdout + result.stderr)
         self.assertEqual(self.mock.calls, [('target', 'probe')])
@@ -707,7 +708,12 @@ exec "{actual}" "$@"
             self.assert_restart_blocked()
         finally:
             self.mock.release.set()
-            proc.communicate(timeout=5)
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.communicate()
+                raise
 
     def test_interruptions_keep_intent_without_retry(self):
         for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
@@ -821,7 +827,7 @@ class NativeDiagnosticFilters(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         record = json.loads(result.stdout)
         self.assertEqual((record['http_status'], record['api_error_code'], record['curl_exit_code']), (400, 401, 0))
-        self.assertEqual(record['description'], 'safe reason')
+        self.assertIsNone(record['description'])
         self.assertEqual(record['retry_after'], 7)
         self.assertEqual(record['observations'], ['http_error', 'api_error'])
         self.assertEqual(record['outcome'], 'CONFIRMED_REJECTION')

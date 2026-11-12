@@ -159,17 +159,57 @@ headers or a header on `setWebhook` do not configure this outgoing header.
 
 ## Files in local mode
 
+Split storage is opt-in: add `-f docker-compose.files.yml` after the base Compose
+file. Bot API alone writes `./media` at `/var/lib/telegram-bot-api-files` via
+`TELEGRAM_FILES_DIR` / `--files-dir`. Without it the legacy combined layout stays
+private. State, absolute private temp, logs and credential files must not overlap
+media. Relative logs, noncanonical paths and symlink ancestors are rejected.
+New directories use umask `007`; the supported server identity is `101:101`.
+Existing cache permissions are never changed recursively.
+
+`--help` / `--version` remain credential-free. Explicit server CLI arguments are
+not supplemented from environment variables: split CLI requires long-form
+`--files-dir`, `--dir`, `--temp-dir`, matching any configured directory/log env
+values. Duplicate directory flags fail. Use the default entrypoint for identity
+setup; arbitrary Compose `user:` overrides are not supported.
+The short `-f` files-directory option is rejected; use validated long-form flags.
+
 `getFile` can return an absolute container-local path. A bot application needs a
 matching shared volume/path to read that file directly. Do not turn an arbitrary
 absolute path into an HTTP download URL.
 
+For direct reads use the [scoped reader example](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+Only one existing bot subtree is mounted read-only at the identical absolute
+path. The Linux/amd64 opener uses openat2 with no symlinks or mount crossings,
+rejects hardlinks and nonregular files, and streams from the checked FD. Nested
+mounts and a compromised trusted writer/host are outside this deployment contract.
+The shared stdlib getFile client (`tools/file_contract.py`) bounds upstream JSON
+to 64 KiB / 30 seconds and never follows redirects or environment proxies.
+
 The previously documented `X-Telegram-Bot-Token` download scheme is not implemented.
-A remote authenticated file handler is tracked in
-[issue #5](https://github.com/ichinya/tg-selfhost-botapi/issues/5).
+Remote downloads use the opt-in `docker-compose.downloads.yml` after base+files.
+One handler serves one bot: `POST /v1/files/download`, JSON only `file_id`, separate
+Bearer credential from `DOWNLOAD_AUTH_TOKEN_FILE`, bot token from
+`DOWNLOAD_BOT_TOKEN_FILE`. Only the configured subtree is mounted RO. Loopback
+HTTP 18082 must sit behind the TLS frontend in the
+[example](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+No registry, alias URL or client-supplied path/token is accepted. Requests and
+upstream responses are bounded; streaming uses at most 64 KiB blocks, four slots,
+30s socket timeout and a 600s total deadline (`DOWNLOAD_MAX_DURATION`). See the
+example for statuses, setup, limits and auth rotation.
+Path/URL-like `file_id` values are rejected before upstream I/O. The supplied
+remote client requires one Content-Length and fails on an incomplete response;
+discard its partial output after any nonzero exit.
 
 ## Current limitations
 
-- nginx forwards `/file/` requests to the Bot API; it does not serve the state directory.
+Doctor observes `--files-dir` from the running argv (fallback: work directory),
+compares media/private backings and checks scoped read-only consumer mounts.
+Shared filesystems contribute capacity once. It does not certify download auth
+or application mapping: those remain UNKNOWN until independently checked with
+`tools/check_file_contract.py`. A supplied JSON receipt cannot grant READY.
+
+- nginx returns 404 for `/file` and `/file/` requests; it does not serve the state directory.
 - No upload-size override is configured in nginx. Large multipart requests can
   receive HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
 - The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`

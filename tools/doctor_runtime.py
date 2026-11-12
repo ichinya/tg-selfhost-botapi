@@ -580,7 +580,9 @@ class Installation:
             if len(uid) != 4 or len(gid) != 4 or len(set(uid)) != 1 or len(set(gid)) != 1:
                 raise ValueError
             self.process = {"uid": int(uid[1]), "gid": int(gid[1]), "groups": groups, "flags": flags,
-                            "work": flags.get("dir"), "temp": flags.get("temp-dir"), "port": flags.get("http-port", "8081")}
+                            "work": flags.get("dir"), "temp": flags.get("temp-dir"),
+                            "files": flags.get("files-dir") or flags.get("dir"),
+                            "port": flags.get("http-port", "8081")}
             self.add("process", "pass", "observed_process", "Server argv and effective UID/GID/groups were observed in its namespace.")
             explicit = bool(container.get("Config", {}).get("Cmd"))
             if explicit:
@@ -675,23 +677,38 @@ class Installation:
             self.add("gateway_http", "unknown", "endpoint_mapping_unverified", "A local engine and an unambiguous published gateway binding are required; remote engines and external prefixes need independent mapping evidence.")
 
     def storage(self):
-        from doctor_checks import mount_for, capacity
+        from doctor_checks import mount_for, capacity, media_conflicts, environment
         if not self.process:
             self.add("storage", "unknown", "identity_unverified", "Storage checks need the observed server identity.")
             return
         process = self.process
+        media = process.get('files') or process.get('work')
+        mounts = self.containers['botapi'].get('Mounts', [])
+        env = environment(self.containers['botapi'].get('Config', {}).get('Env'))
+        split = bool(media and media != process.get('work'))
+        if split:
+            private = [p for p in (process.get('work'), process.get('temp'),
+                       process.get('flags', {}).get('log') or env.get('TELEGRAM_LOG_FILE'),
+                       env.get('TELEGRAM_API_ID_FILE'), env.get('TELEGRAM_API_HASH_FILE')) if p]
+            conflicts = media_conflicts(media, private, mounts)
+            self.add('media.isolation', 'fail' if conflicts else 'unknown' if conflicts is None else 'pass',
+                     'media_private_overlap' if conflicts else 'media_paths_unverified' if conflicts is None else 'media_separated',
+                     'Observed media and private paths/backings compared; this does not verify consumer mapping.')
+        elif env.get('TELEGRAM_FILES_DIR'):
+            self.add('media.configuration', 'unknown', 'files_dir_not_observed',
+                     'Declared split storage is not present in the observed process; legacy files remain private.')
         user = str(process["uid"]) + ":" + str(process["gid"])
         expected_groups = sorted(set(process["groups"]) | {process["gid"]})
         filesystems = set()
-        for role in ("work", "temp"):
-            path = process.get(role)
+        for role in (("work", "temp", "media") if split else ("work", "temp")):
+            path = media if role == 'media' else process.get(role)
             if not isinstance(path, str) or not path.startswith("/") or path != __import__("posixpath").normpath(path):
                 self.add(role + ".directory", "unknown", "directory_unverified", "An observed canonical absolute directory is required.")
                 continue
             mount = mount_for(path, self.containers["botapi"].get("Mounts", []))
-            if role == "work":
+            if role in {"work", "media"}:
                 persistent = mount and mount.get("Type") in {"bind", "volume"}
-                self.add("work.persistence", "pass" if persistent else "fail", "persistent_mount" if persistent else "nonpersistent_state", "Work state needs a persistent mount.")
+                self.add(role + ".persistence", "pass" if persistent else "fail", "persistent_mount" if persistent else "nonpersistent_state", "State and split media need persistent mounts.")
             if mount and not mount.get("RW", False):
                 self.add(role + ".mount", "fail", "read_only_mount", "The runtime directory is mounted read-only.")
             try:
@@ -743,7 +760,9 @@ class Installation:
         env = environment(api.get("Config", {}).get("Env"))
         work = (self.process or {}).get("work") or env.get("TELEGRAM_WORK_DIR", "/var/lib/telegram-bot-api")
         temp = (self.process or {}).get("temp") or env.get("TELEGRAM_TEMP_DIR", "/tmp/telegram-bot-api")
-        protected = [p for p in (work, temp, env.get("TELEGRAM_LOG_FILE"), env.get("TELEGRAM_API_ID_FILE"), env.get("TELEGRAM_API_HASH_FILE")) if p and p.startswith("/")]
+        protected = [p for p in (work, temp, (self.process or {}).get('flags', {}).get('log') or env.get("TELEGRAM_LOG_FILE"), env.get("TELEGRAM_API_ID_FILE"), env.get("TELEGRAM_API_HASH_FILE")) if p and p.startswith("/")]
+        media = (self.process or {}).get('files') or work
+        media_source = backing(media, api.get('Mounts', [])) if media and media != work else None
         sensitive = [backing(p, api.get("Mounts", [])) for p in protected]
         sensitive = [s for s in sensitive if s]
         if self.args.migration_input and os.name == "posix":
@@ -757,6 +776,14 @@ class Installation:
             if accessible:
                 self.add("state_mount_accessible", "fail", "state_mount_accessible", "An HTTP component can access a backing of state, temp or secrets, even through a read-only mount.")
             if service != "gateway":
+                for mount in mounts:
+                    source, target = mount.get('Source'), mount.get('Destination')
+                    if source and media_source and overlaps(source, media_source):
+                        broad = source == media_source or media_source.startswith(source.rstrip('/') + '/')
+                        nested = any(m.get('Destination', '').startswith((target or '').rstrip('/') + '/') for m in mounts if m is not mount)
+                        if mount.get('RW') or broad or nested:
+                            self.add('media.consumer_mount', 'fail', 'unsafe_media_mount',
+                                     'Consumer media must be one scoped read-only subtree without nested mounts.')
                 self.add("optional_http_isolation", "unknown", "state_mount_accessible" if accessible else "http_handler_unverified", "Optional HTTP handler semantics require independent isolation evidence outside v1.")
                 continue
             try:
@@ -824,7 +851,7 @@ def collect(args, runner, http, checks, images):
         installation.add("local_mode", "pass" if local else "unknown" if not installation.process else "fail", "local_mode" if local else "local_mode_unverified", "The observed local server must use local mode.")
     if args.migration_data.get("file_access") in {"local_path", "shared_volume"}:
         checks.append(check("migration.file_mapping", "unknown", "file_mapping_unverified", "Application file-path mapping requires independent observation of the consumer.",
-                            remediation="Verify the consumer path/volume mapping before starting migration."))
+                            remediation="Run tools/check_file_contract.py and verify the consumer mapping independently before migration."))
     if args.scenario == "self-to-self":
         if len(installations) == 2:
             target, source = installations

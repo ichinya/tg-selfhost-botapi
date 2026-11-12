@@ -1,5 +1,6 @@
 *
 !Dockerfile
+!Dockerfile.downloads
 !docker-entrypoint.sh
 !patches/
 patches/*
@@ -7,8 +8,16 @@ patches/*
 !patches/botapi-secrets-redaction.patch
 !tools/
 tools/*
+!tools/file_access.py
+!tools/file_contract.py
+!tools/download_server.py
 !tools/fixtures/
 tools/fixtures/*
 !tools/fixtures/issue17_security/
 tools/fixtures/issue17_security/*
 !tools/fixtures/issue17_security/botapi_log_driver.cpp
+!examples/
+examples/*
+!examples/files/
+examples/files/*
+!examples/files/local_reader.py

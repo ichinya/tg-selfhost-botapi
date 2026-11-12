@@ -27,9 +27,10 @@ See [installation](docs/en/getting-started.md) for networking and verification.
 - Checked image builds and nightly upstream checks.
 - One Python migration executor with a Bash adapter and local helper UI.
 
-The gateway binds to localhost by default and forwards file requests to the Bot API
-without exposing its state directory. See [configuration](docs/en/configuration.md)
-before enabling external access.
+The API gateway binds to localhost and rejects the old `/file` interface with 404.
+For downloads use explicit split storage with a scoped reader or the per-bot
+authenticated handler: [English](docs/en/configuration.md#files-in-local-mode) ·
+[Русский](docs/ru/configuration.md#файлы-в-local-mode).
 
 [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/ichinya/tg-selfhost-botapi/issues)
 
