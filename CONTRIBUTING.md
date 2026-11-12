@@ -186,3 +186,20 @@ Run the four explicit `tools.test_webhook_profile_*` modules listed in maintenan
 `check_issue7_sender.py --source` is a separate pinned-source gate, not unit discovery.
 Receiver/manual POST, source assertions, actual image logs/nginx pass-through and live Telegram receipts are different evidence.
 Unavailable execution: NOTRUN, verification deferred to CI/gates.
+
+## Issue #17 privacy acceptance
+
+In a shared dirty checkout run only `python3 -m unittest discover -s tools -p
+"test_issue17_security_*.py"`; do not delete or adapt other untracked tests.
+Full discovery requires a clean candidate containing the task's admitted files,
+for example a detached worktree of the committed candidate. The CI checkout is
+clean. Linux acceptance needs Python 3.11+, Node 24+, Bash, curl, jq, GNU coreutils,
+Docker and non-root private-file tests. Explicit integration commands live in
+`tools/issue17_security_gate.py`; unit discovery never starts Docker.
+
+For secrets Compose models set both `TELEGRAM_API_ID_SECRET_PATH` and
+`TELEGRAM_API_HASH_SECRET_PATH` to synthetic host files outside checkout; apply
+secrets last, after the optional build overlay. Test Compose 2.24.4 and the CI
+version. Evidence artifacts contain only status/counts, commit/revision, image
+identity/build key and tool versions. Never upload raw logs, dossiers or inputs.
+Unavailable runner/image/Pages checks are NOTRUN: verification deferred to CI/gates.

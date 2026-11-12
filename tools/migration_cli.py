@@ -5,6 +5,7 @@ import os
 import re
 import stat
 import sys
+import warnings
 from migration_contract import canonical, normalize_endpoint
 from migration_engine import Engine,Runtime,Stop
 from migration_http import Client
@@ -23,12 +24,16 @@ ENV_KEYS={'BOT_TOKEN','BOT_TOKEN_FILE','OLD_BOT_URL','SELF_BOT_URL','WEBHOOK_URL
 def private_text(path):
     if os.name!='posix':
         raise ValueError('private input requires POSIX; use Linux/WSL')
-    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
-    with os.fdopen(fd,'r',encoding='utf-8') as f:
+    signature=lambda s: (s.st_dev,s.st_ino,s.st_mode,s.st_uid,s.st_nlink,s.st_size,s.st_mtime_ns,s.st_ctime_ns)
+    before=os.lstat(path)
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC|os.O_NONBLOCK)
+    with os.fdopen(fd,'r',encoding='utf-8',newline='') as f:
         st=os.fstat(f.fileno())
-        if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.geteuid() or st.st_mode & 0o077 or st.st_nlink!=1:
+        if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.geteuid() or stat.S_IMODE(st.st_mode) not in (0o400,0o600) or st.st_nlink!=1 or signature(st) != signature(before):
             raise ValueError('private input must be owned by operator with mode 0600')
         value=f.read(262145)
+        if signature(os.fstat(f.fileno())) != signature(st) or signature(os.lstat(path)) != signature(st):
+            raise ValueError('private input changed while reading')
     if len(value)>262144:
         raise ValueError('private input too large')
     return value
@@ -124,11 +129,19 @@ def runtime(args,env,saved=None):
     if token_file and token:
         raise ValueError('select one token input')
     if token_file:
-        token=private_text(token_file).strip()
+        token=private_text(token_file)
+        token=re.sub(r'\r?\n\Z', '', token, count=1)
+        if not re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]+', token):
+            raise ValueError('invalid token input')
     if not token:
         if not sys.stdin.isatty():
             raise ValueError('BOT_TOKEN or explicit private token file required')
-        token=getpass.getpass('Bot token: ')
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', getpass.GetPassWarning)
+            try:
+                token=getpass.getpass('Bot token: ')
+            except (getpass.GetPassWarning, EOFError) as exc:
+                raise ValueError('hidden token input unavailable') from exc
     action=args.action or env.get('MIGRATION_ACTION') or (saved['plan']['action'] if saved else None)
     if not action:
         raise ValueError('explicit delivery action required')
