@@ -42,12 +42,18 @@ class AdmissionTests(unittest.TestCase):
         conf = conf.replace("~*^80:.+", f"~*^{self.public}:.+")
         conf = conf.replace("http://botapi:8081", f"http://127.0.0.1:{self.upstream.server_port}")
         conf = conf.replace("/var/cache/nginx/client_temp", self.tmp.name + "/spool")
-        conf = conf.replace("/var/log/nginx/access.log", self.tmp.name + "/access.log")
-        conf = conf.replace("/var/log/nginx/error.log", self.tmp.name + "/error.log")
         conf = conf.replace("client_body_timeout 300s;", "client_body_timeout 2s;")
         path = Path(self.tmp.name) / "nginx.conf"
-        path.write_text(f"pid {self.tmp.name}/nginx.pid;\nevents {{}}\nhttp {{\n{conf}\n}}\n")
-        subprocess.run(["nginx", "-t", "-p", self.tmp.name, "-c", str(path)], check=True, capture_output=True)
+        main = (gateway.ROOT / "nginx-main.conf").read_text(encoding="utf-8")
+        main = main.replace("user nginx;", "")
+        main = main.replace("/var/run/nginx.pid", self.tmp.name + "/nginx.pid")
+        main = main.replace("/var/log/nginx/access.log", self.tmp.name + "/access.log")
+        main = main.replace("include /etc/nginx/conf.d/*.conf;", conf)
+        self.assertIn("log_format privacy", main)
+        self.assertIn("access.log privacy;", main)
+        path.write_text(main)
+        result = subprocess.run(["nginx", "-t", "-p", self.tmp.name, "-c", str(path)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, "nginx -t: " + result.stderr[-2000:])
         self.process = subprocess.Popen(["nginx", "-p", self.tmp.name, "-c", str(path), "-g", "daemon off;"], stderr=subprocess.PIPE)
         self.addCleanup(self.stop_nginx)
         for _ in range(100):
@@ -178,6 +184,23 @@ class GatewayTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
+    def test_send_completion_recorded_when_response_arrives_during_final_throttle(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.state = State()
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with gateway.temporary_directory() as directory:
+                body = gateway.Body(Path(directory) / "source", 1)
+                result = gateway.request("127.0.0.1", server.server_port, body, "last-throttle", throttle=.2)
+                self.assertEqual(result["status"], 200)
+                self.assertEqual(result["sent"], body.size)
+                self.assertIn("send_completed", result)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_report_never_passes_missing_or_failed_cleanup(self):
         for report, expected in (({"cleanup": "PASS", "scenarios": []}, "NOTRUN"),
                                  ({"cleanup": "PASS", "scenarios": [{"status": "NOTRUN"}]}, "NOTRUN"),
@@ -188,11 +211,33 @@ class GatewayTests(unittest.TestCase):
     def test_manifest_isolated_and_loopback(self):
         manifest = gateway.compose_manifest("issue4-test", "nginx@sha256:test", "python@sha256:test", "/tmp/config")
         text = json.dumps(manifest)
+        self.assertIn(f"{(gateway.ROOT / 'nginx-main.conf').as_posix()}:/etc/nginx/nginx.conf:ro", manifest["services"]["gateway"]["volumes"])
+        doctor = (gateway.ROOT / "tools/doctor_fixtures/compose.yml").read_text()
+        self.assertIn("../../nginx-main.conf:/etc/nginx/nginx.conf:ro", doctor)
         self.assertNotIn("./data", text)
         self.assertEqual(manifest["services"]["botapi"]["ports"], [])
         for service in manifest["services"].values():
             self.assertTrue(all(port.startswith("127.0.0.1::") for port in service["ports"]))
             self.assertEqual(service["labels"][gateway.LABEL], "issue4-test")
+
+    def test_storage_replaces_only_spool_mount(self):
+        manifest = gateway.compose_manifest("issue4-test", "nginx", "python", "/tmp/config")
+        gateway.use_storage_volume(manifest, "issue4-test")
+        volumes = manifest["services"]["gateway"]["volumes"]
+        self.assertIn("/tmp/config:/etc/nginx/conf.d/default.conf:ro", volumes)
+        self.assertIn(f"{(gateway.ROOT / 'nginx-main.conf').as_posix()}:/etc/nginx/nginx.conf:ro", volumes)
+        self.assertIn("storage_checks:/var/cache/nginx/client_temp", volumes)
+        self.assertNotIn("staging:/var/cache/nginx/client_temp", volumes)
+        gateway.replace_spool_volume(manifest, "storage_checks", "fault")
+        self.assertIn("fault:/var/cache/nginx/client_temp", volumes)
+        self.assertIn("/tmp/config:/etc/nginx/conf.d/default.conf:ro", volumes)
+
+    def test_refresh_ports_reads_current_compose_bindings(self):
+        runner = gateway.Runner(None, {"project": "issue4-test"}, ".")
+        runner.port, runner.public_port = 1, 2
+        with patch.object(runner, "compose", side_effect=["127.0.0.1:12345", "127.0.0.1:23456"]):
+            runner.refresh_ports()
+        self.assertEqual((runner.public_port, runner.port), (12345, 23456))
 
     def test_cleanup_only_exact_label_and_failure(self):
         with gateway.temporary_directory() as directory:
@@ -240,12 +285,24 @@ class GatewayTests(unittest.TestCase):
         from types import SimpleNamespace
         runner = SimpleNamespace(directory=Path('.'), port=80, gateway="synthetic", receipts=lambda: {})
         with patch.object(gateway, "Body"), patch.object(gateway, "request", return_value={"status": None, "elapsed": 2.1, "started": 0}), \
-                patch.object(gateway, "command", return_value='"POST /bot<redacted>/sendDocument/client2-test HTTP/1.1" 408 0'):
+                patch.object(gateway, "command", side_effect=["", "POST api 408 0 2.000\n"]):
             self.assertTrue(gateway.idle_client(runner, "client2-test", False)["access_408"])
         with patch.object(gateway, "Body"), patch.object(gateway, "request", return_value={"status": None, "elapsed": 2.1, "started": 0}), \
-                patch.object(gateway, "command", return_value=''):
+                patch.object(gateway, "command", side_effect=["POST api 408 0 2.000\n", "POST api 408 0 2.000\n"]):
             with self.assertRaises(AssertionError):
                 gateway.idle_client(runner, "client2-test", False)
+
+    def test_log_privacy_checks_new_isolated_access_record(self):
+        from types import SimpleNamespace
+        runner = SimpleNamespace(gateway="synthetic", upload=lambda *args, **kwargs: None)
+        with patch.object(gateway, "command", side_effect=["GET other 200 0 0.001", "GET other 200 0 0.001\nPOST api 200 0 0.002"]):
+            self.assertTrue(gateway.log_privacy(runner)["query_omitted"])
+        with patch.object(gateway, "command", side_effect=["", "POST api 200 0 0.002 12345:synthetic"]):
+            with self.assertRaises(AssertionError):
+                gateway.log_privacy(runner)
+        with patch.object(gateway, "command", side_effect=["POST api 200 0 0.002", "POST api 200 0 0.002"]):
+            with self.assertRaises(AssertionError):
+                gateway.log_privacy(runner)
 
     def test_snapshot_counts_deleted_open_files(self):
         report = {"project": "issue4-test"}

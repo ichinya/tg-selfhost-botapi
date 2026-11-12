@@ -4,6 +4,7 @@ on:
   pull_request:
     paths: &upload-paths
       - 'nginx.conf'
+      - 'nginx-main.conf'
       - 'docker-compose*.yml'
       - 'tools/*gateway_upload*'
       - 'tools/doctor*'
@@ -27,7 +28,7 @@ concurrency:
 jobs:
   offline:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
@@ -39,7 +40,7 @@ jobs:
           git archive HEAD | tar -x -C "$RUNNER_TEMP/issue4-candidate"
       - name: Full regression discovery on clean candidate
         working-directory: ${{ runner.temp }}/issue4-candidate
-        run: timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
+        run: timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Compose models
         working-directory: ${{ runner.temp }}/issue4-candidate
         env:

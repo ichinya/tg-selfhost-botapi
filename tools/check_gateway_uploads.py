@@ -131,14 +131,15 @@ def request(host, port, body, case, chunked=False, pause=0, pause_after=65536,
                         if disconnect and result["sent"] > 1024 * 1024:
                             sock.shutdown(socket.SHUT_RDWR)
                             return
+                        if result["sent"] == body.size:
+                            if chunked:
+                                sock.sendall(b"0\r\n\r\n")
+                            result["send_completed"] = time.monotonic()
+                            if on_send_complete:
+                                on_send_complete()
+                            break
                         if throttle and done.wait(throttle):
                             break
-                    else:
-                        if chunked:
-                            sock.sendall(b"0\r\n\r\n")
-                        result["send_completed"] = time.monotonic()
-                        if on_send_complete:
-                            on_send_complete()
                 except OSError as exc:
                     result["send_error"] = type(exc).__name__
             sender = threading.Thread(target=send, daemon=True)
@@ -207,7 +208,7 @@ def compose_manifest(project, nginx, python, config):
         "botapi": {"image": python, "command": ["python", "/mock.py"], "labels": labels,
                    "ports": [], "volumes": [f"{(ROOT / 'tools/gateway_upload_mock.py').as_posix()}:/mock.py:ro"]},
         "gateway": {"image": nginx, "labels": labels, "ports": ["127.0.0.1::80", "127.0.0.1::82"], "cap_add": ["SYS_PTRACE"],
-                    "volumes": [f"{Path(config).as_posix()}:/etc/nginx/conf.d/default.conf:ro", "staging:/var/cache/nginx/client_temp"]}},
+                    "volumes": [f"{(ROOT / 'nginx-main.conf').as_posix()}:/etc/nginx/nginx.conf:ro", f"{Path(config).as_posix()}:/etc/nginx/conf.d/default.conf:ro", "staging:/var/cache/nginx/client_temp"]}},
         "volumes": {"staging": {"labels": labels}}, "networks": {"default": {"labels": labels}}}
 
 
@@ -250,8 +251,7 @@ class Runner:
         self.gateway = self.compose("ps", "-q", "gateway")
         self.mock = self.compose("ps", "-q", "botapi")
         self.record_resources()
-        self.public_port = int(self.compose("port", "gateway", "80").rsplit(":", 1)[1])
-        self.port = int(self.compose("port", "gateway", "82").rsplit(":", 1)[1])
+        self.refresh_ports()
         deadline = time.monotonic() + 30
         while True:
             try:
@@ -284,8 +284,7 @@ class Runner:
         self.compose("up", "-d", "--no-deps", "--force-recreate", "gateway")
         self.gateway = self.compose("ps", "-q", "gateway")
         self.record_resources()
-        self.public_port = int(self.compose("port", "gateway", "80").rsplit(":", 1)[1])
-        self.port = int(self.compose("port", "gateway", "82").rsplit(":", 1)[1])
+        self.refresh_ports()
         self.compose("exec", "-T", "gateway", "nginx", "-t")
         self.ready()
         effective = self.compose("exec", "-T", "gateway", "nginx", "-T")
@@ -301,6 +300,10 @@ class Runner:
             resources[kind] = command(["docker", *listing, "--filter", f"label={LABEL}={self.project}"]).split()
         self.report["resources"] = resources
         self.checkpoint()
+
+    def refresh_ports(self):
+        self.public_port = int(self.compose("port", "gateway", "80").rsplit(":", 1)[1])
+        self.port = int(self.compose("port", "gateway", "82").rsplit(":", 1)[1])
 
     def ready(self):
         def check():
@@ -554,10 +557,12 @@ def backpressure(runner, name, chunked, negative=False):
 
 def idle_client(runner, name, chunked):
     body = Body(runner.directory / "source.bin", 4 * 1024 * 1024)
+    before = command(["docker", "logs", runner.gateway])
     result = request("127.0.0.1", runner.port, body, name, chunked=chunked, pause=5)
-    # nginx may close without transmitting a 408 response on an idle body.
-    logs = command(["docker", "logs", "--tail", "200", runner.gateway])
-    evidence = {"client": result, "access_408": any(f"sendDocument/{name} " in line and " 408 " in line for line in logs.splitlines())}
+    # This request is isolated; the privacy log deliberately omits its URI.
+    logs = command(["docker", "logs", runner.gateway])
+    assert logs.startswith(before), "gateway logs changed unexpectedly"
+    evidence = {"client": result, "access_408": any(line.startswith("POST api 408 ") for line in logs[len(before):].splitlines())}
     runner.current_evidence = evidence
     assert result["status"] in (None, 408) and evidence["access_408"], evidence
     assert name not in runner.receipts(), evidence
@@ -649,6 +654,7 @@ def staging(runner, name, kind, chunked=False):
                 # project's staging only, including orphans left by SIGKILL.
                 runner.compose("run", "--rm", "--no-deps", "gateway", "find", "/var/cache/nginx/client_temp", "-type", "f", "-delete")
                 runner.compose("start", "gateway")
+                runner.refresh_ports()
                 runner.ready()
                 result["orphan"] = orphan
             else:
@@ -684,7 +690,7 @@ def disk_full(runner):
     normal = json.loads(json.dumps(manifest))
     manifest["volumes"]["fault"] = {"labels": {LABEL: runner.project}, "driver": "local",
                                          "driver_opts": {"type": "tmpfs", "device": "tmpfs", "o": "size=2097152"}}
-    manifest["services"]["gateway"]["volumes"][1] = "fault:/var/cache/nginx/client_temp"
+    replace_spool_volume(manifest, "storage_checks", "fault")
     try:
         runner.manifest.write_text(json.dumps(manifest), encoding="utf-8")
         try:
@@ -710,6 +716,19 @@ def storage_cases():
         for kind in ("success", "overflow", "timeout", "disconnect", "upstream5xx", "crash")]
 
 
+def replace_spool_volume(manifest, old, new):
+    volumes = manifest["services"]["gateway"]["volumes"]
+    spool = f"{old}:/var/cache/nginx/client_temp"
+    if volumes.count(spool) != 1:
+        raise AssertionError("expected exactly one spool mount")
+    volumes[volumes.index(spool)] = f"{new}:/var/cache/nginx/client_temp"
+
+
+def use_storage_volume(manifest, project):
+    manifest["volumes"]["storage_checks"] = {"labels": {LABEL: project}}
+    replace_spool_volume(manifest, "staging", "storage_checks")
+
+
 def run_storage(runner):
     def disk():
         probe = runner.fd_observation_probe()
@@ -722,8 +741,7 @@ def run_storage(runner):
     if next(row for row in runner.report["scenarios"] if row["name"] == "capacity-storage")["status"] != "PASS":
         return
     manifest = json.loads(runner.manifest.read_text(encoding="utf-8"))
-    manifest["volumes"]["storage_checks"] = {"labels": {LABEL: runner.project}}
-    manifest["services"]["gateway"]["volumes"][1] = "storage_checks:/var/cache/nginx/client_temp"
+    use_storage_volume(manifest, runner.project)
     runner.manifest.write_text(json.dumps(manifest), encoding="utf-8")
     runner.configure()
     runner.case("worker-fresh", runner.worker_probe)
@@ -774,10 +792,14 @@ def certificate_upload(runner):
 
 
 def log_privacy(runner):
+    before = command(["docker", "logs", runner.gateway])
     runner.upload("log-privacy-probe", size=1024)
     logs = command(["docker", "logs", runner.gateway])
+    assert logs.startswith(before), "gateway logs changed unexpectedly"
+    logs = logs[len(before):]
     assert "12345:synthetic" not in logs and "fixture=1" not in logs and "?x=" not in logs
-    assert "<redacted>" in logs and "log-privacy-probe" in logs
+    assert any(line.startswith("POST api 200 ") for line in logs.splitlines())
+    assert "log-privacy-probe" not in logs
     return {"token_redacted": True, "query_omitted": True,
             "logs_sha256": hashlib.sha256(logs.encode()).hexdigest()}
 

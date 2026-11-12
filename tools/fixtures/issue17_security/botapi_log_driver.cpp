@@ -15,7 +15,7 @@ class Capture final : public td::LogInterface {
 int main() {
   Capture capture;
   telegram_bot_api::PrivacyLog safe(&capture);
-  td::MemoryLog<4096> memory;
+  td::MemoryLog<8192> memory;
   telegram_bot_api::PrivacyLog safe_memory(&memory);
   const std::string marker="synthetic_issue17_private_marker";
   for (int level=0;level<=3;level++) {
@@ -24,7 +24,7 @@ int main() {
   }
   td::string token="123:"+marker, method="untrusted_"+marker, key="secret_token", value=marker;
   td::vector<std::pair<td::MutableSlice,td::MutableSlice>> args{{td::MutableSlice(key),td::MutableSlice(value)}};
-  telegram_bot_api::Query query({},token,false,td::MutableSlice(method),std::move(args),{},{},nullptr,td::IPAddress());
+  telegram_bot_api::Query query({},token,false,td::MutableSlice(method),std::move(args),{},{},nullptr,td::IPAddress(),false);
   td::StringBuilder builder;
   builder << query;
   if (builder.as_cslice().str().find(marker)!=std::string::npos) return 1;
