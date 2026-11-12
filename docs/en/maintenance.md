@@ -64,14 +64,21 @@ and on manual runs. GitHub may delay scheduled runs.
 
 The build key covers the resolved revisions/digests and the recipe, entrypoint,
 patch and image tests. If the corresponding published build exists, compilation
-is skipped. If registry inspection cannot confirm it, the pipeline rebuilds.
+is skipped; the candidate is pulled by digest and qualified again. If registry
+inspection cannot confirm it, the pipeline rebuilds. Acceptance scripts, fixtures,
+both storage overlays and their tests are part of the build key.
 
 For a new build it:
 
 1. Checks that the User-Agent patch applies to the selected official revision.
 2. Compiles the entire server.
 3. Runs `--version`, checks the header string in the binary and validates entrypoint syntax.
-4. Publishes `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and promotes `latest`.
+4. Checks the selected source revision and TDLib submodule for download modes
+   `0640/0750`, internal media temp paths and rename semantics.
+5. Qualifies the exact image ID with the non-root storage matrix and the existing
+   migration volume gate.
+6. Publishes `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and promotes `latest`
+   from that qualified image ID. Reused builds also pass steps 4–5 before promotion.
 
 Failed checks leave the previously published `latest` in place. Pull requests do
 not publish. A binary string check is not a live webhook-delivery test.
@@ -79,6 +86,36 @@ not publish. A binary string check is not a live webhook-delivery test.
 The workflow needs to be on the default branch before the schedule/publication
 can work. GHCR writes use `GITHUB_TOKEN` with `packages: write`. Configure package
 visibility or client authentication after the first publication.
+
+## Non-root candidate qualification
+
+On a local rootful Linux Docker Engine with a POSIX filesystem, Python 3.11+
+and current Compose v2, run against an explicitly built candidate:
+
+```sh
+python3 tools/check_nonroot_compose.py --deadline 120
+python3 tools/check_nonroot.py --image <candidate> --deadline 1200
+python3 tools/check_migration_volumes.py --require-docker --image <candidate> --receipt /tmp/migration-volume-gate.json
+```
+
+The explicit runner uses random labelled resources, network isolation, synthetic
+credentials, bounded calls and ownership-checked cleanup. It covers root bootstrap
+to `101:101`, explicit `101:101`, `1000:1000` and `1000:2000` (without a passwd
+entry), supplementary groups, PID 1 and token-free HTTP, migration evidence,
+fresh/prepared bind and named volumes, restart/recreate, preserved canaries,
+denied/read-only state and temp, foreign ownership, group access and an unreadable
+binlog actually opened by the server. Compose checks use production files and
+reject missing inputs, backing aliases and `base+files` without the non-root layer.
+
+The media fixture checks inode/GID/modes across an internal temp-to-final rename,
+scoped read-only access by another UID, POSIX write denial independently of the
+read-only mount, and stranger denial. It rejects a download temp on another mount.
+This synthetic fixture demonstrates the permission recipe; source assertions are
+checked against the selected revision in CI. Neither proves a Telegram download.
+Unit tests run without Docker; real-image acceptance, CI and production are separate
+observations. Unavailable checks are NOTRUN: verification deferred to CI/gates.
+Docker Desktop, rootless/user namespaces and network filesystems require separate
+qualification. Never run this harness against production mounts.
 
 ## Update an installation
 
@@ -102,7 +139,8 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
 ```
 
-Preserve `./data`, ownership `101:101`, the API endpoint and local-mode settings.
+Preserve `./data`, ownership for the selected server identity (default `101:101`),
+the API endpoint and local-mode settings.
 Do not run two Bot API processes against one data directory. Restoring an old
 image may also require a compatible state backup; image rollback alone is not
 a guarantee.

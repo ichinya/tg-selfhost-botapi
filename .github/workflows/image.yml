@@ -91,6 +91,42 @@ jobs:
           docker run --rm botapi-candidate:check --version
           docker run --rm --entrypoint sh botapi-candidate:check -ec \
             'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
+      - name: Load existing immutable candidate
+        if: steps.existing.outputs.exists == 'true' && github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ steps.existing.outputs.image }}
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+        run: |
+          digest=$(docker buildx imagetools inspect "$IMAGE:build-$BUILD_FINGERPRINT" --format '{{json .Manifest}}' |
+            python3 -c 'import json,re,sys; d=json.load(sys.stdin)["digest"]; assert re.fullmatch(r"sha256:[0-9a-f]{64}",d); print(d)')
+          docker pull "$IMAGE@$digest"
+          docker tag "$IMAGE@$digest" botapi-candidate:check
+      - name: Check selected source media semantics
+        timeout-minutes: 10
+        env:
+          BOT_API_REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+          ALPINE_IMAGE: ${{ steps.inputs.outputs.alpine_image }}
+        run: |
+          docker build --target source --build-arg BOT_API_REVISION="$BOT_API_REVISION" \
+            --build-arg ALPINE_IMAGE="$ALPINE_IMAGE" --tag botapi-nonroot-source:check .
+          sh -n tools/fixtures/nonroot/source-semantics.sh
+          docker run --rm --read-only --network none --env BOT_API_REVISION \
+            --mount "type=bind,source=$PWD/tools/fixtures/nonroot/source-semantics.sh,target=/check-source.sh,readonly" \
+            --entrypoint sh botapi-nonroot-source:check /check-source.sh
+      - name: Qualify non-root storage before publication
+        timeout-minutes: 30
+        env:
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+          BOT_API_REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+        run: |
+          candidate_id=$(docker image inspect --format '{{.Id}}' botapi-candidate:check)
+          test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$candidate_id")" = "$BUILD_FINGERPRINT"
+          test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.bot-api-revision"}}' "$candidate_id")" = "$BOT_API_REVISION"
+          sh -n tools/fixtures/nonroot/media-probe.sh
+          sh -n tools/fixtures/migration/fake-bot-api.sh
+          timeout 1400 python3 tools/check_nonroot.py --image "$candidate_id" --deadline 1200
+          timeout 240 python3 tools/check_migration_volumes.py --require-docker --image "$candidate_id" --receipt "$RUNNER_TEMP/migration-volume-gate.json"
+          printf '%s\n' "$candidate_id" > qualified-image-id.txt
       - name: Publish tested build then promote latest
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
@@ -99,9 +135,10 @@ jobs:
           EXISTS: ${{ steps.existing.outputs.exists }}
         run: |
           if [ "$EXISTS" != true ]; then
-            docker tag botapi-candidate:check "$IMAGE:build-$BUILD_FINGERPRINT"
+            docker tag "$(cat qualified-image-id.txt)" "$IMAGE:build-$BUILD_FINGERPRINT"
             docker push "$IMAGE:build-$BUILD_FINGERPRINT"
           fi
-          # Existing immutable builds have already passed the same checks.
-          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:build-$BUILD_FINGERPRINT"
+          # Publish/promote only the exact image ID that passed this run's gate.
+          docker tag "$(cat qualified-image-id.txt)" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
           echo "Published $IMAGE:build-$BUILD_FINGERPRINT" >> "$GITHUB_STEP_SUMMARY"

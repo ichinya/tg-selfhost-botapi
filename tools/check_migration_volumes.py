@@ -1,7 +1,9 @@
 """Required Docker lifecycle fixture; deletion requires exact IDs/labels/mounts.
 
 Only synthetic credentials and the fake executable enter the container. Its
-real entrypoint, chown, UID/GID and volumes are exercised. No Telegram session.
+real entrypoint, empty-root initialization and su-exec to 101:101 are exercised.
+Nonempty roots are not re-owned. The fixture keeps its default 101:101 contract;
+custom identities are qualified separately by check_nonroot.py. No Telegram session.
 """
 import argparse
 import hashlib

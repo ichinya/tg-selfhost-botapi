@@ -63,7 +63,9 @@ Workflow проверяет официальный исходник tdlib и dig
 вручную. GitHub может задерживать запуск по расписанию.
 
 Ключ сборки учитывает ревизии/digest, рецепт, entrypoint, патч и проверки образа.
-Если соответствующий образ уже опубликован, компиляция пропускается.
+Если соответствующий образ уже опубликован, компиляция пропускается; candidate
+скачивается по digest и проходит проверку заново. Acceptance scripts, fixtures,
+оба storage override и их тесты включены в ключ сборки.
 Если проверка registry не подтвердила наличие образа, выполняется новая сборка.
 
 Для нового образа workflow:
@@ -71,7 +73,12 @@ Workflow проверяет официальный исходник tdlib и dig
 1. Проверяет применимость патча User-Agent к выбранной официальной ревизии.
 2. Компилирует весь сервер.
 3. Выполняет `--version`, проверяет строку заголовка в бинарнике и синтаксис entrypoint.
-4. Публикует `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` и продвигает `latest`.
+4. Проверяет выбранную ревизию исходников и TDLib submodule: download modes
+   `0640/0750`, внутренний media temp и rename.
+5. Проверяет точный image ID матрицей non-root storage и существующим migration
+   volume gate.
+6. Публикует `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` и продвигает `latest`
+   из проверенного image ID. Повторно используемые сборки проходят шаги 4–5.
 
 Ошибка проверки оставляет прежний опубликованный `latest`. Из PR публикации нет.
 Наличие строки в бинарнике не заменяет проверку доставки реального webhook.
@@ -79,6 +86,36 @@ Workflow проверяет официальный исходник tdlib и dig
 Для расписания и публикации workflow должен быть в основной ветке. Запись в GHCR
 использует `GITHUB_TOKEN` с `packages: write`. После первого выпуска настройте
 публичность пакета либо авторизацию клиентов.
+
+## Квалификация non-root candidate
+
+Для локального rootful Linux Docker Engine с POSIX filesystem, Python 3.11+
+и актуальным Compose v2 запустите проверки явно собранного candidate:
+
+```sh
+python3 tools/check_nonroot_compose.py --deadline 120
+python3 tools/check_nonroot.py --image <candidate> --deadline 1200
+python3 tools/check_migration_volumes.py --require-docker --image <candidate> --receipt /tmp/migration-volume-gate.json
+```
+
+Runner использует случайные ресурсы с labels, изоляцию сети, synthetic credentials,
+ограниченные сроки вызовов и проверку владельца перед очисткой. Матрица проверяет
+root bootstrap в `101:101`, явные `101:101`, `1000:1000`, `1000:2000` без passwd
+entry, дополнительные группы, PID 1 и token-free HTTP, migration evidence, новые
+и подготовленные bind/named volumes, restart/recreate, сохранность canary, denied
+и read-only state/temp, чужого владельца, групповой доступ и недоступный binlog,
+который сервер действительно открывает. Compose проверяется по production files:
+отсутствующие inputs, aliases backing и `base+files` без non-root слоя отклоняются.
+
+Media fixture проверяет inode/GID/modes при внутреннем temp-to-final rename,
+ограниченный RO-доступ другого UID, запрет POSIX-записи отдельно от RO mount и
+отказ чужой группе. Download temp на другом mount отклоняется. Synthetic fixture
+подтверждает рецепт прав; source assertions сверяются с выбранной ревизией в CI.
+Эти проверки не подтверждают реальную загрузку Telegram. Unit-тесты не запускают
+Docker; real-image acceptance, CI и production — отдельные наблюдения. Недоступные
+проверки — NOTRUN: verification deferred to CI/gates. Для Docker Desktop,
+rootless/user namespaces и сетевых filesystem нужна отдельная квалификация.
+Не запускайте harness с production mounts.
 
 ## Обновление установки
 
@@ -102,7 +139,8 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
 ```
 
-Сохраните `./data`, владельца `101:101`, endpoint и local mode.
+Сохраните `./data`, владельца выбранной identity сервера (по умолчанию `101:101`),
+endpoint и local mode.
 Не запускайте два процесса Bot API с одним каталогом данных. Для возврата старого
 образа может понадобиться совместимая резервная копия состояния: одного отката
 бинарника недостаточно для гарантии.

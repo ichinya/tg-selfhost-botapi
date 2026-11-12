@@ -5,10 +5,22 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from image_inputs import build_key, digest, revision
+from image_inputs import RECIPE, ROOT, build_key, digest, revision
 
 
 class BuildInputsTest(unittest.TestCase):
+    def test_acceptance_inputs_invalidate_old_qualification(self):
+        required = {"docker-compose.nonroot.yml", "docker-compose.files.yml",
+                    "tools/check_nonroot.py", "tools/check_nonroot_compose.py",
+                    "tools/test_check_nonroot.py", "tools/test_nonroot_compose.py"}
+        required.update(p.relative_to(ROOT).as_posix() for p in (ROOT / "tools/fixtures/nonroot").rglob("*") if p.is_file())
+        self.assertTrue(required <= set(RECIPE))
+        files = {name: (ROOT / name).read_bytes() for name in RECIPE}
+        original = build_key({}, files)
+        for name in required:
+            with self.subTest(name=name):
+                self.assertNotEqual(original, build_key({}, {**files, name: files[name] + b"\nchanged"}))
+
     def test_any_upstream_change_invalidates_published_build(self):
         inputs = dict(source="a", base="b")
         files = {"Dockerfile": b"recipe", "patch": b"header"}
