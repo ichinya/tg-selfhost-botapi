@@ -5,6 +5,25 @@ translation: /docs/ru/maintenance.html
 
 # Maintenance
 
+## Changing the server identity
+
+Stop the writer and its restart automation before changing IDs. Make a consistent
+backup that preserves numeric ownership and modes. Verify the dedicated absolute
+paths, symlinks and other mounts; prepare an offline copy for the new UID/GID and
+inspect nested binlog and session files, not just the root. Run a storage smoke
+test, then start one writer. Keep the old copy with its original IDs and a
+compatible image for rollback. Do not recursively change permissions on a live or
+shared database. Existing cached paths are not migrated automatically.
+
+Prepare both state and HTTP temp for the effective server identity. Bind mounts,
+named volumes and tmpfs each have their own ownership and permissions; ownership
+inside the image does not fix mounted storage. New files use the effective UID;
+without filesystem inheritance their GID is the primary GID, while setgid or ACL
+rules can alter inheritance. Umask `0027` limits new modes but does not add group
+read permissions or change existing files. Keep migration dossiers owner-only.
+Docker supplementary groups are retained in direct non-root launches. A different
+UID reading media needs the scoped read-only subtree described in Getting started.
+
 ## Migration acceptance
 
 Use the required Linux/Node 24 mock gate documented in CONTRIBUTING. It covers
