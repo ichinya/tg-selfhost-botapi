@@ -69,6 +69,8 @@ combinations, state isolation, local/TLS/security integration и docs checks.
 Workflow проверяет официальный исходник tdlib и digest Alpine 3.22 каждую ночь
 около **04:37 Asia/Yekaterinburg** (23:37 UTC), при изменении основной ветки и
 вручную. GitHub может задерживать запуск по расписанию.
+Этот workflow также выполняет обязательные проверки безопасности мигратора;
+зависимости описаны в [Contributing](../../CONTRIBUTING.md).
 
 Ключ сборки учитывает ревизии/digest, рецепт, entrypoint, патч и проверки образа.
 Если соответствующий образ уже опубликован, компиляция пропускается.

@@ -56,6 +56,8 @@ review, preserving the original journal; never erase confirmed history.
 The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
+The image workflow also runs the required migrator security tests; see
+[Contributing](../../CONTRIBUTING.md) for their dependencies.
 
 The Bot API build key covers the resolved revisions/digests and file-contract
 recipe/tests/configs. Downloads has its own key including the immutable Python
