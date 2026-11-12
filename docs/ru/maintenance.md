@@ -120,26 +120,39 @@ rootless/user namespaces и сетевых filesystem нужна отдельн�
 ## Обновление установки
 
 Публикация в registry не перезапускает VPS. Выберите проверенный тег/digest через
-`BOTAPI_IMAGE` в `.env`, затем:
+`BOTAPI_IMAGE` в `.env`. Каждая команда обновления должна использовать ровно тот
+же набор файлов Compose в том же порядке, что и установка. Выберите `COMPOSE_FILES`:
 
 ```sh
-docker compose stop botapi
-# Здесь сделайте согласованную копию ./data и приватной конфигурации.
-docker compose pull botapi
-docker compose up -d --no-deps botapi
-docker compose logs --tail=100 botapi
+# base
+COMPOSE_FILES='-f docker-compose.yml'
+# base + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.build.yml'
+# base + nonroot
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml'
+# base + nonroot + files
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml'
+# base + nonroot + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.build.yml'
+# base + nonroot + files + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml -f docker-compose.build.yml'
 ```
 
-Для локальной сборки последовательно используйте build override:
+Выберите только одну строку выше. Без слоёв nonroot/files identity сервера
+вернётся к `101:101`, состояние подключится из `./data`, а media mount исчезнет.
+Для установки из registry:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml stop botapi
-# До замены бинарника сохраните ./data и приватную конфигурацию.
-docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
+docker compose $COMPOSE_FILES stop botapi
+# Сделайте согласованную копию фактического источника состояния и приватной конфигурации.
+docker compose $COMPOSE_FILES pull botapi
+docker compose $COMPOSE_FILES up -d --no-deps botapi
+docker compose $COMPOSE_FILES logs --tail=100 botapi
 ```
 
-Сохраните `./data`, владельца выбранной identity сервера (по умолчанию `101:101`),
+Для локальной сборки замените `pull` на `build` с теми же выбранными файлами.
+Сохраните фактический источник состояния (`$BOTAPI_STATE_SOURCE` для nonroot,
+`./data` для базовой модели), владельца выбранной identity сервера (по умолчанию `101:101`),
 endpoint и local mode.
 Не запускайте два процесса Bot API с одним каталогом данных. Для возврата старого
 образа может понадобиться совместимая резервная копия состояния: одного отката

@@ -125,6 +125,7 @@ jobs:
           sh -n tools/fixtures/nonroot/media-probe.sh
           sh -n tools/fixtures/migration/fake-bot-api.sh
           timeout 1400 python3 tools/check_nonroot.py --image "$candidate_id" --deadline 1200
+          chmod +x tools/fixtures/migration/fake-bot-api.sh
           timeout 240 python3 tools/check_migration_volumes.py --require-docker --image "$candidate_id" --receipt "$RUNNER_TEMP/migration-volume-gate.json"
           printf '%s\n' "$candidate_id" > qualified-image-id.txt
       - name: Publish tested build then promote latest

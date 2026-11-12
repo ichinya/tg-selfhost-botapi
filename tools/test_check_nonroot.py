@@ -18,6 +18,9 @@ class RunnerTests(unittest.TestCase):
         self.assertLess(gate, publish)
         self.assertNotIn("        if:", workflow[gate:publish])
         self.assertIn('tools/check_nonroot.py --image "$candidate_id"', workflow[gate:publish])
+        section = workflow[gate:publish]
+        self.assertLess(section.index('chmod +x tools/fixtures/migration/fake-bot-api.sh'),
+                        section.index('python3 tools/check_migration_volumes.py'))
         self.assertIn('docker tag "$(cat qualified-image-id.txt)" "$IMAGE:latest"', workflow[publish:])
 
     def test_numeric_identity_is_required(self):

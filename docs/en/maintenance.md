@@ -120,26 +120,39 @@ qualification. Never run this harness against production mounts.
 ## Update an installation
 
 Registry publication does not restart your VPS. Select a tested tag/digest with
-`BOTAPI_IMAGE` in `.env`, then:
+`BOTAPI_IMAGE` in `.env`. Every update command must use exactly the same Compose
+files, in the same order, as the installation. Choose the matching `COMPOSE_FILES`:
 
 ```sh
-docker compose stop botapi
-# Make a consistent backup of ./data and private configuration here.
-docker compose pull botapi
-docker compose up -d --no-deps botapi
-docker compose logs --tail=100 botapi
+# base
+COMPOSE_FILES='-f docker-compose.yml'
+# base + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.build.yml'
+# base + nonroot
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml'
+# base + nonroot + files
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml'
+# base + nonroot + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.build.yml'
+# base + nonroot + files + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml -f docker-compose.build.yml'
 ```
 
-For a locally built installation, use the build override consistently:
+Select only one line above. Omitting nonroot/files overrides changes the server
+identity back to `101:101`, reconnects state to `./data` and drops the media mount.
+For a registry installation:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml stop botapi
-# Back up ./data and private configuration before replacing the binary.
-docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
+docker compose $COMPOSE_FILES stop botapi
+# Back up the actual state source and private configuration consistently.
+docker compose $COMPOSE_FILES pull botapi
+docker compose $COMPOSE_FILES up -d --no-deps botapi
+docker compose $COMPOSE_FILES logs --tail=100 botapi
 ```
 
-Preserve `./data`, ownership for the selected server identity (default `101:101`),
+For a local build, replace `pull` with `build` using the same selected files.
+Preserve the actual state source (`$BOTAPI_STATE_SOURCE` for nonroot, `./data`
+for the base model), ownership for the selected server identity (default `101:101`),
 the API endpoint and local-mode settings.
 Do not run two Bot API processes against one data directory. Restoring an old
 image may also require a compatible state backup; image rollback alone is not
