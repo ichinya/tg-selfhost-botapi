@@ -31,6 +31,7 @@ jobs:
           bash -n migrate_off_to_self.sh
           sh -n tools/fixtures/migration/fake-bot-api.sh
           node --test tools/test_migration_ui.mjs
+          node tools/test_issue17_security_browser.cjs
   persistent-volumes:
     needs: mock-acceptance
     runs-on: ubuntu-24.04

@@ -323,6 +323,7 @@ class ShellSafetyTests(unittest.TestCase):
         key = self.private / 'test-only.key'
         subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=example.invalid',
                         '-keyout',str(key),'-out',str(certificate)], capture_output=True, check=True, timeout=15)
+        certificate.chmod(0o600)
         for multipart in (False, True):
             for value in values:
                 self.fresh_capture()
@@ -414,6 +415,7 @@ class ShellSafetyTests(unittest.TestCase):
                     if not cert.exists():
                         subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=example.invalid',
                                         '-keyout',str(key),'-out',str(cert)],capture_output=True,check=True,timeout=15)
+                        cert.chmod(0o600)
                     env.update(WEBHOOK_CERTIFICATE_MODE='provided',WEBHOOK_CERTIFICATE_FILE=str(cert))
                 api.applied=False
                 api.source['url']=''

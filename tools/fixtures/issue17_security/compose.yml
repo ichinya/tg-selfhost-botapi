@@ -1,0 +1,14 @@
+services:
+  botapi:
+    image: python:3.12-alpine
+    command: [python3, /mock_api.py]
+    volumes:
+      - ${ISSUE17_ROOT}/tools/fixtures/issue17_security/mock_api.py:/mock_api.py:ro
+      - ${ISSUE17_EVIDENCE}:/evidence
+  gateway:
+    image: nginx:alpine
+    ports: ['127.0.0.1::80']
+    volumes:
+      - ${ISSUE17_ROOT}/nginx-main.conf:/etc/nginx/nginx.conf:ro
+      - ${ISSUE17_GATEWAY_CONFIG}:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [botapi]

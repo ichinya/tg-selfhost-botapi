@@ -12,7 +12,7 @@ export function createClient({fetcher = globalThis.fetch, storage, render = () =
       redirect: 'error', cache: 'no-store', headers: body ? {'Content-Type': 'application/json', 'X-CSRF-Token': csrf} : {},
       ...(body ? {body: JSON.stringify(body)} : {})});
     const result = await response.json();
-    if (!response.ok) throw Error(result.reason || 'helper_request_failed');
+    if (!response.ok) throw Error('helper_request_failed');
     return result;
   }
   function remember(value) {

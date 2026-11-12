@@ -24,9 +24,11 @@ exclude:
   - Dockerfile
   - docker-compose.yml
   - docker-compose.build.yml
+  - docker-compose.secrets.yml
   - docker-entrypoint.sh
   - migrate_off_to_self.sh
   - nginx.conf
+  - nginx-main.conf
   - patches
   - tools
   - data
@@ -35,6 +37,7 @@ exclude:
   - .issue-flow
   - .stats-source
   - .site-check
+  - .issue-flow
   - examples
   - Dockerfile.downloads
   - docker-compose.files.yml

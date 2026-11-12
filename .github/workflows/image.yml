@@ -141,6 +141,16 @@ jobs:
           docker run --rm botapi-candidate:check --version
           docker run --rm --entrypoint sh botapi-candidate:check -ec \
             'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
+      - name: Qualify exact native image before publish or promotion
+        env:
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+        run: python3 tools/issue17_security_gate.py --image botapi-candidate:check --expected-build-key "$BUILD_FINGERPRINT" --manifest "$RUNNER_TEMP/issue17-image.json"
+      - name: Upload sanitized image qualification
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue17-image-manifest
+          path: ${{ runner.temp }}/issue17-image.json
+
       - name: Qualify exact pair with mock and actual no-bot runtime
         timeout-minutes: 8
         run: python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
