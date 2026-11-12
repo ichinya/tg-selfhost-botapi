@@ -636,7 +636,7 @@ class Installation:
         container = self.containers.get("gateway", {})
         bindings = []
         for port, values in container.get("NetworkSettings", {}).get("Ports", {}).items():
-            if port.endswith("/tcp"):
+            if port == "80/tcp":
                 for value in values or []:
                     try:
                         address = ipaddress.ip_address(value["HostIp"])
@@ -755,7 +755,7 @@ class Installation:
                 self.add(role + ".storage", "unknown", "storage_unverified", "Directory, counters or required container utilities could not be verified.")
 
     def exposure(self):
-        from doctor_checks import nginx_config, nginx_routes, nginx_privacy, overlaps, backing, environment
+        from doctor_checks import nginx_config, nginx_routes, nginx_privacy, nginx_route_contract, overlaps, backing, environment
         api = self.containers.get("botapi", {})
         env = environment(api.get("Config", {}).get("Env"))
         work = (self.process or {}).get("work") or env.get("TELEGRAM_WORK_DIR", "/var/lib/telegram-bot-api")
@@ -775,6 +775,28 @@ class Installation:
             accessible = any(overlaps(m.get("Source", "/"), s) for m in mounts for s in sensitive)
             if accessible:
                 self.add("state_mount_accessible", "fail", "state_mount_accessible", "An HTTP component can access a backing of state, temp or secrets, even through a read-only mount.")
+            if service == 'observer':
+                host = container.get('HostConfig', {})
+                allowed = {'/inputs/runtime', '/inputs/migration', '/inputs/registry', '/inputs/credentials'}
+                projection_only = all(m.get('Destination') in allowed and m.get('RW') is False
+                                      and '/.observability/' in m.get('Source', '').replace('\\', '/') for m in mounts)
+                namespace = host.get('NetworkMode') == 'container:' + api.get('Id', '__missing__')
+                hardening = (host.get('ReadonlyRootfs') is True and not host.get('Privileged') and not host.get('CapAdd')
+                             and not host.get('PidMode') and 'ALL' in (host.get('CapDrop') or [])
+                             and any(s.startswith('no-new-privileges') for s in host.get('SecurityOpt') or [])
+                             and container.get('Config', {}).get('User') == '101:101')
+                ports = not any(container.get('NetworkSettings', {}).get('Ports', {}).values())
+                images = getattr(self, 'image_data', {})
+                labels = images.get('observer', {}).get('Config', {}).get('Labels') or {}
+                api_labels = images.get('botapi', {}).get('Config', {}).get('Labels') or {}
+                recipe = (labels.get('org.opencontainers.image.source') == 'https://github.com/ichinya/tg-selfhost-botapi'
+                          and bool(labels.get('io.tg-selfhost.build-key'))
+                          and labels.get('io.tg-selfhost.build-key') == api_labels.get('io.tg-selfhost.build-key')
+                          and container.get('Config', {}).get('Entrypoint') == ['python3', '-m', 'observability.server'])
+                safe = not accessible and projection_only and namespace and hardening and ports and recipe
+                self.add('observer_isolation', 'pass' if safe else 'fail', 'observer_isolated' if safe else 'observer_unsafe',
+                         'Observer requires the supported recipe, owner network namespace, matching build key and dedicated read-only inputs.')
+                continue
             if service != "gateway":
                 for mount in mounts:
                     source, target = mount.get('Source'), mount.get('Destination')
@@ -806,7 +828,7 @@ class Installation:
                     self.add("state_exposure", "pass", "state_mount_isolated", "Gateway has no backing path to private state; supported nginx routes were checked.")
                 port = str((self.process or {}).get("port", "8081"))
                 expected = "http://botapi:" + port
-                compatible = bool(proxies) and all(p.rstrip("/") == expected for p in proxies)
+                compatible = nginx_route_contract(tree, port)
                 self.add("gateway_upstream", "pass" if compatible and not dynamic else "unknown" if dynamic else "fail", "upstream_matched" if compatible and not dynamic else "upstream_unverified" if dynamic else "upstream_mismatch", "nginx upstream compared with the observed API listener.")
                 _, published_port = self.gateway_endpoint()
                 published = int(published_port.split("/", 1)[0]) if published_port else None
@@ -816,6 +838,10 @@ class Installation:
                 stats_published = bool(stat and api.get("NetworkSettings", {}).get("Ports", {}).get(str(stat) + "/tcp"))
                 self.add("statistics_exposure", "fail" if stats_proxy or stats_published else "unknown" if dynamic else "pass", "statistics_exposed" if stats_proxy or stats_published else "statistics_unverified" if dynamic else "not_published", "Statistics routes are inspected without requesting statistics.")
                 self.gateway_route_verified = bool(self.process and compatible and not dynamic and published in listens and not stats_proxy and not stats_published)
+                management = container.get('NetworkSettings', {}).get('Ports', {}).get('81/tcp') or []
+                if 81 in listens:
+                    private = bool(management) and all(b.get('HostIp') in {'127.0.0.1', '::1'} for b in management)
+                    self.add('management_binding', 'pass' if private else 'fail', 'loopback_only' if private else 'management_exposed', 'Management must use a loopback binding or separately verified private ingress.')
                 # Mount-backed roots could hide symlinks into another mount. Never read their contents.
                 for root in roots:
                     if backing(root, mounts):

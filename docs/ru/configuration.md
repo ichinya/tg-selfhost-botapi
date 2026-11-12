@@ -264,3 +264,48 @@ Crash diagnostics исключает actor tags и debugger locals; entrypoint �
 core dumps. Гарантия требует проверенного собственного image/digest, а не любого
 upstream образа через BOTAPI_IMAGE. Private webhook state и исходящие secret
 headers сохраняют исходные байты. Вывод версии остаётся доступен.
+
+## Безопасная статистика
+
+`TELEGRAM_STAT` по умолчанию false. При включении raw stats слушает только
+127.0.0.1:8082 внутри namespace Bot API. Публиковать или проксировать этот порт нельзя.
+Observer принимает проверенный tab-separated формат manager и выдаёт только
+числовые наблюдения. Coverage очереди всегда sampled: пропущенный pending означает
+unknown, сумма выборки — нижняя граница, а не глобальный итог.
+Неверные, повторные, слишком большие, Closing и несовместимые ответы дают unavailable.
+
+## Развёртывание и изоляция observer
+
+Перед Compose up подготовьте входы на Linux host:
+
+```sh
+install -d -m 0700 .observability
+install -d -m 0755 .observability/runtime .observability/migration
+sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+Observer делит только network namespace Bot API, работает как 101:101 с read-only
+root и сброшенными capabilities, без Docker socket, state/temp и private migration
+dossier mounts. Пустые каталоги работают без bot credentials. Management на host:
+`http://127.0.0.1:18081`; проксируются только три точных пути, GET/HEAD, без query,
+body и Authorization. API listener 18080 закрывает эти пути. Отложенный Docker DNS
+позволяет nginx стартовать без target; management upstream errors дают фиксированный
+503. Management 4xx от nginx могут содержать стандартные HTML-страницы ошибок.
+Порты API 8082/8090 зарезервированы. Custom API port требует nginx override и
+doctor. Raw stats остаётся на loopback. Доступ к observer 8090 доверен только сети
+Compose; публиковать его как monitoring ingress нельзя.
+
+Doctor проверяет контексты routes и владельца namespace. Неизвестные переменные,
+лишние management routes, публичный management bind, raw stats proxy, state/socket
+mounts и неверный namespace owner дают fail или unknown. Doctor — preflight и
+не заменяет continuous health или доказательства доставки. База — pinned Alpine;
+APK repositories Python/curl/jq остаются изменяемыми. Immutable пара фиксирует
+результат сборки; побайтовая воспроизводимость не обещается.
+
+Опубликованный observer использует digest-pinned Python base, разрешённую CI.
+Локальный fallback — pinned Alpine с APK Python; для release base задайте
+OBSERVER_BASE с approved Python image digest. Supervision host producer,
+права registry/credentials и ownership/rotation описаны в
+[обслуживании](maintenance.md). Ready секции описывает её источник наблюдения;
+исходы миграции проверяются отдельно от готовности процесса.

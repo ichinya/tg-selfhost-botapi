@@ -114,7 +114,7 @@ def settings_checks(env, prefix="target", explicit=False, defaults_known=True):
         findings.append(check(prefix + "." + name.lower(), "pass" if valid else "fail", "configured" if valid else "invalid_boolean", "Entrypoint boolean syntax check."))
     port = env.get("TELEGRAM_HTTP_PORT", "8081")
     findings.append(check(prefix + ".http_port", "pass" if valid_port(port) else "fail", "configured" if valid_port(port) else "invalid_port", "HTTP port must be between 1 and 65535."))
-    if env.get("TELEGRAM_STAT") in {"1", "true", "TRUE"} and port == "8082":
+    if valid_port(port) and int(port) in {8082, 8090}:
         findings.append(check(prefix + ".stat_port", "fail", "port_conflict", "Statistics and API listeners conflict."))
     return findings
 
@@ -299,21 +299,39 @@ def nginx_routes(tree):
                     ("default", ["0"], []), (r"~^/file(?:/|%2[fF]|%25|\?|$)", ["1"], [])])
                 unknown |= not supported
                 continue
-            if name == "if":
-                if args == ["($legacy_file_request)"] and children == [("return", ["404"], [])]:
-                    continue
-                unknown = True
-            elif name == "return":
-                if args != ["404"] or children:
-                    unknown = True
-                continue
             if name in {"root", "alias"}:
                 if len(args) != 1 or "$" in args[0] or not args[0].startswith("/"):
                     unknown = True
                 else:
                     roots.append(args[0])
+            elif name == 'set':
+                if len(args) != 2 or not ((args[0] == '$botapi_upstream' and re.fullmatch(r'http://botapi:[0-9]+', args[1])) or args == ['$observer_upstream', 'http://botapi:8090']):
+                    unknown = True
+            elif name == 'if':
+                if not ((args == ['($legacy_file_request)'] and children == [('return', ['404'], [])]) or
+                        (args in [['($args)'], ['($http_content_length)'], ['($http_transfer_encoding)']] and children == [('return', ['400'], [])])):
+                    unknown = True
+                continue
+            elif name == 'limit_except':
+                if args != ['GET'] or children != [('deny', ['all'], [])]: unknown = True
+                continue
+            elif name == 'return':
+                if children or args not in [['404'], ['503', '{"error":"observer_unavailable"}'], ['404', '{"error":"not_found"}']]: unknown = True
+                continue
+            elif name == 'proxy_pass_request_body':
+                unknown |= args != ['off']
+            elif name == 'proxy_intercept_errors':
+                unknown |= args != ['on']
+            elif name == 'error_page':
+                unknown |= args != ['502', '504', '=503', '@unavailable']
             elif name == "proxy_pass":
-                if len(args) != 1 or not re.fullmatch(r"http://[a-zA-Z0-9_.-]+:[0-9]+/?", args[0]):
+                if args == ['$botapi_upstream$request_uri']:
+                    targets = [a[1] for n, a, _ in flatten_nginx(tree) if n == 'set' and len(a) == 2 and a[0] == '$botapi_upstream']
+                    if len(targets) != 1: unknown = True
+                    else: proxies.append(targets[0])
+                elif args == ['$observer_upstream$uri']:
+                    proxies.append('http://botapi:8090')
+                elif len(args) != 1 or not re.fullmatch(r"http://[a-zA-Z0-9_.-]+:[0-9]+/?", args[0]):
                     unknown = True
                 else:
                     proxies.append(args[0])
@@ -346,13 +364,66 @@ def nginx_privacy(tree):
     visit(tree)
     root_null=any(name=='error_log' and args==['/dev/null'] for name,args,_ in tree)
     return (root_null and bool(errors) and all(args==['/dev/null'] for args in errors)
-            and bool(accesses) and all(args==['/var/log/nginx/access.log','privacy'] for args in accesses)
+            and bool(accesses) and all(args in (['/var/log/nginx/access.log','privacy'], ['off']) for args in accesses)
             and formats==[['privacy','$privacy_method $privacy_route $status $body_bytes_sent $request_time']]
             and not nginx_routes(maps)[-1]
             and {tuple(args) for _,args,_ in maps} in (
                 {('$request_method','$privacy_method'),('$uri','$privacy_route')},
                 {('$request_method','$privacy_method'),('$uri','$privacy_route'),('$request_uri','$legacy_file_request')})
             and len(maps) == len({tuple(args) for _,args,_ in maps}))
+
+def flatten_nginx(nodes):
+    for node in nodes:
+        yield node
+        yield from flatten_nginx(node[2])
+
+
+def nginx_route_contract(tree, api_port):
+    """Match listeners, exact paths and fixed variable targets as one recipe."""
+    _, proxies, listens, unknown = nginx_routes(tree)
+    expected = 'http://botapi:' + str(api_port)
+    if unknown: return False
+    if 81 not in listens:
+        return bool(proxies) and all(p.rstrip('/') == expected for p in proxies)
+    servers = [children for name, _, children in flatten_nginx(tree) if name == 'server']
+    resolvers = [args for name,args,_ in flatten_nginx(tree) if name == 'resolver']
+    if resolvers != [['127.0.0.11', 'valid=5s', 'ipv6=off']]: return False
+    if len(proxies) != 4: return False
+    if len(servers) != 2: return False
+    for nodes in servers:
+        ports = [args for name, args, _ in nodes if name == 'listen']
+        locations = {tuple(args): children for name, args, children in nodes if name == 'location'}
+        all_locations = [1 for name, _, _ in nodes if name == 'location']
+        if len(locations) != len(all_locations): return False
+        if ports == [['80']]:
+            if ('set', ['$botapi_upstream', expected], []) not in nodes: return False
+            allowed = {('/',), ('=', '/health/live'), ('=', '/health/ready'), ('=', '/status'), ('=', '/selfz'), ('=', '/file'), ('/file/',)}
+            if set(locations) != allowed: return False
+            if ('if', ['($legacy_file_request)'], [('return', ['404'], [])]) not in nodes: return False
+            for path, children in locations.items():
+                if path != ('/',) and children != [('return', ['404'], [])]: return False
+            routes = [args for name,args,_ in flatten_nginx(locations[('/',)]) if name == 'proxy_pass']
+            if routes != [['$botapi_upstream$request_uri']]: return False
+        elif ports == [['81']]:
+            if ('set', ['$observer_upstream', 'http://botapi:8090'], []) not in nodes: return False
+            exact = {('=', '/health/live'), ('=', '/health/ready'), ('=', '/status')}
+            if set(locations) != exact | {('/',), ('@unavailable',)}: return False
+            for path in exact:
+                if locations[path] != [('limit_except', ['GET'], [('deny', ['all'], [])]), ('proxy_pass', ['$observer_upstream$uri'], [])]: return False
+            required = [('proxy_pass_request_body', ['off'], []), ('proxy_set_header', ['Authorization', ''], []),
+                        ('proxy_set_header', ['Content-Length', ''], []), ('proxy_set_header', ['Cookie', ''], []),
+                        ('proxy_set_header', ['Host', 'localhost'], []), ('proxy_intercept_errors', ['on'], []),
+                        ('error_page', ['502', '504', '=503', '@unavailable'], []),
+                        ('proxy_connect_timeout', ['1s'], []), ('proxy_read_timeout', ['3s'], []), ('access_log', ['off'], [])]
+            if any(node not in nodes for node in required): return False
+            for condition in ['($args)', '($http_content_length)', '($http_transfer_encoding)']:
+                if ('if', [condition], [('return', ['400'], [])]) not in nodes: return False
+            if locations[('/',)] != [('return', ['404', '{"error":"not_found"}'], [])]: return False
+            if locations[('@unavailable',)] != [('return', ['503', '{"error":"observer_unavailable"}'], [])]: return False
+        else: return False
+    # Nested overrides must not change either fixed target or escape route context.
+    sets = [(args[0], args[1]) for name,args,_ in flatten_nginx(tree) if name == 'set']
+    return sorted(sets) == sorted([('$botapi_upstream', expected), ('$observer_upstream', 'http://botapi:8090')])
 
 
 def overlaps(a, b):

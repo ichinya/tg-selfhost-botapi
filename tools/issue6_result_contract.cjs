@@ -88,9 +88,9 @@ async function main() {
   p.run('invalidate()'); assert(p.run('blocked(currentConfig())')); // The page-wide reconciliation guard remains active.
   assert.equal(p.run('guardFor(currentConfig()).reconcile ?? null'), null);
   p.elements.get('botToken').value = '123:rotated_synthetic_token_only';
-  p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
+  p.run('invalidate()'); assert(p.run('guardFor(currentConfig()).reconcile'));
   p.elements.get('botToken').value = '00123:rotated_synthetic_token_only';
-  p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
+  p.run('invalidate()'); assert(p.run('guardFor(currentConfig()).reconcile'));
   console.log('issue 6 result contract: 10 scenarios passed; 1 privacy scenario passed');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

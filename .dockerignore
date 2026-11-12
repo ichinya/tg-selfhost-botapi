@@ -21,3 +21,10 @@ examples/*
 !examples/files/
 examples/files/*
 !examples/files/local_reader.py
+!tools/botapi_healthcheck.sh
+!tools/observability/
+!tools/observability/*.py
+!tools/observability/status.schema.json
+!tools/observability/Dockerfile
+**/__pycache__
+**/*.pyc

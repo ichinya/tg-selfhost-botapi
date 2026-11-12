@@ -16,6 +16,9 @@ RECIPE = (
     "tools/fixtures/issue17_security/cases.json",
     "tools/issue17_security_gate.py", "tools/issue17_security_checks.py",
     ".github/workflows/image.yml",
+    'tools/botapi_healthcheck.sh', 'tools/check_stats_source.py',
+    'tools/observability/Dockerfile', 'tools/observability/status.schema.json',
+    'docker-compose.yml', 'docker-compose.build.yml', 'nginx.conf',
     "docker-compose.files.yml",
 )
 DOWNLOADS_RECIPE = (
@@ -45,6 +48,12 @@ RECIPE = tuple(dict.fromkeys((*RECIPE, *DOWNLOADS_RECIPE,
     'docs/en/migration.md', 'docs/ru/migration.md', 'examples/files/README.md',
     'README.md', 'CONTRIBUTING.md', 'docs/en/README.md', 'docs/ru/README.md',
 )))
+
+
+def recipe_files():
+    names = set(RECIPE)
+    names.update(str(p.relative_to(ROOT)).replace('\\', '/') for p in (ROOT / 'tools/observability').glob('*.py'))
+    return {name: (ROOT / name).read_bytes() for name in sorted(names)}
 
 
 def command(*args):
@@ -80,9 +89,10 @@ def resolve():
         "alpine_image": "alpine:3.22@" + digest("alpine:3.22"),
         "python_image": "python:3.12-slim@" + digest("python:3.12-slim"),
     }
+    inputs['observer_base'] = 'python:3.13.5-alpine3.22@' + digest('python:3.13.5-alpine3.22')
     inputs['downloads_key'] = build_key({'python_image': inputs['python_image']},
                                        {name: (ROOT / name).read_bytes() for name in DOWNLOADS_RECIPE})
-    inputs["build_key"] = build_key(inputs, {name: (ROOT / name).read_bytes() for name in RECIPE})
+    inputs["build_key"] = build_key(inputs, recipe_files())
     return inputs
 
 

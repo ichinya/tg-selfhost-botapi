@@ -29,6 +29,30 @@ private_record() {
   permissions="$(stat -c '%a' -- "$1")" || return 1
   [[ "$permissions" == 600 ]]
 }
+# Optional public projection. This variable is deliberately not loaded from the
+# helper's trusted .env allowlist. It never changes requests, locks or outcomes.
+emit_observation() {
+  [[ -n "${MIGRATION_STATUS_DIR:-}" ]] || return 0
+  local directory="$MIGRATION_STATUS_DIR" label="${MIGRATION_STATUS_ALIAS:-}" operation tmp
+  [[ "$label" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$ ]] || return 1
+  [[ "$directory" == "$script_dir/.observability/migration" && ! -L "$script_dir/.observability" &&
+     ! -L "$directory" && -d "$directory" && -O "$directory" ]] || return 1
+  [[ "$(stat -c '%a' -- "$directory")" == 755 ]] || return 1
+  operation="$(cat /proc/sys/kernel/random/uuid)" || return 1
+  tmp="$(mktemp "$directory/.status.XXXXXXXX")" || return 1
+  if jq --arg id "$operation" --arg alias "$label" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+    {schema_version:1, observed_at:$now, operations:[{
+      operation_id:$id, alias:$alias, observed_at:$now, stage:"finished",
+      outcome:(if .continuation_requires_reconciliation then "reconciliation_required"
+               elif .partial_migration then "partial"
+               elif .completed and .run_outcome == "CONFIRMED_SUCCESS" then "confirmed"
+               else "failed" end), delivery_evidence:"not_observed"}]}
+    ' "$API_TMP/summary.json" > "$tmp" && chmod 644 "$tmp" && mv -- "$tmp" "$directory/status.json"; then
+    return 0
+  fi
+  rm -f -- "$tmp"
+  return 1
+}
 cleanup() {
   local original_exit=$?
   trap - EXIT
@@ -53,6 +77,8 @@ cleanup() {
         if [[ "$PARTIAL_MIGRATION" == true || "$REQUEST_ACTIVE" == true ]]; then
           original_exit=3
         elif (( original_exit == 0 )); then original_exit=1; fi
+      elif ! emit_observation >/dev/null 2>&1; then
+        echo 'Monitoring projection unavailable' >&2
       fi
       if ! public_diagnostics; then
         rm -f -- "$API_TMP/public-manifest.json" 2>/dev/null || :

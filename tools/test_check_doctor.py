@@ -126,7 +126,7 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(2, len(commands))
         self.assertIn(harness.project, commands[0])
         self.assertIn("--volumes", commands[0])
-        self.assertEqual(["docker", "image", "rm", harness.project + ":synthetic"], commands[1])
+        self.assertEqual(["docker", "image", "rm", harness.project + ":synthetic", harness.project + ':observer'], commands[1])
 
     def test_full_pipeline_matrix_without_docker(self):
         data = dict(schema_version=1, workflow_prepared=True, file_access="not_used",

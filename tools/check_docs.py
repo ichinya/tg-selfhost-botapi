@@ -9,7 +9,7 @@ BASE = "/tg-selfhost-botapi"
 PRIVATE_CONTENT = ("Dockerfile", "Dockerfile.downloads", "nginx.conf", "docker-entrypoint.sh",
                    "docker-compose.yml", "docker-compose.build.yml", "docker-compose.files.yml",
                    "docker-compose.downloads.yml", "migrate_off_to_self.sh", "tools", "data",
-                   "examples", "media", "secrets", "files", "logs")
+                   "examples", "media", "secrets", "files", "logs", ".observability", ".issue-flow", ".stats-source")
 
 
 def check_private_content(root):
@@ -108,6 +108,9 @@ def check(root):
     if retained.is_file() and retained.read_bytes() != source.read_bytes():
         errors.append("The original migrator must be copied without changes")
     errors.extend(check_private_content(root))
+    for path in root.rglob('*'):
+        if path.is_file() and b'OBS16_PUBLICATION_SENTINEL' in path.read_bytes():
+            errors.append('Private observability sentinel published')
     if errors:
         raise SystemExit("\n".join(errors))
     print(f"Checked {len(pages)} HTML pages, internal links, language navigation and migrator compatibility.")

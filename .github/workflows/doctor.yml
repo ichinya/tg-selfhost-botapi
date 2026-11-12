@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'tools/doctor*'
+      - 'tools/observability/**'
+      - 'tools/test_observability*.py'
       - 'tools/doctor_fixtures/**'
       - 'tools/test_doctor*.py'
       - 'tools/check_doctor.py'
@@ -17,6 +19,8 @@ on:
     branches: [main]
     paths:
       - 'tools/doctor*'
+      - 'tools/observability/**'
+      - 'tools/test_observability*.py'
       - 'tools/doctor_fixtures/**'
       - 'tools/test_doctor*.py'
       - 'tools/check_doctor.py'
@@ -33,7 +37,7 @@ permissions:
 jobs:
   diagnostics:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
@@ -43,6 +47,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tools -p 'test_doctor*.py' -v
           python3 -m unittest discover -s tools -p 'test_check_doctor.py' -v
+          python3 -m unittest discover -s tools -p 'test_observability*.py' -v
           sh -n tools/doctor_fixtures/entrypoint.sh
       - name: Repository regression suite
         run: timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v

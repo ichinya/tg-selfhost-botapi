@@ -120,6 +120,13 @@ load_secret() {
 load_secret TELEGRAM_API_ID
 load_secret TELEGRAM_API_HASH
 
+case "${TELEGRAM_HTTP_PORT:-8081}" in
+    ''|0*|*[!0-9]*|8082|8090) echo 'Invalid or conflicting HTTP port' >&2; exit 1 ;;
+esac
+[ "${TELEGRAM_HTTP_PORT:-8081}" -ge 1 ] && [ "${TELEGRAM_HTTP_PORT:-8081}" -le 65535 ] || {
+    echo 'Invalid HTTP port' >&2; exit 1;
+}
+
 : "${TELEGRAM_WORK_DIR:?TELEGRAM_WORK_DIR is required}"
 : "${TELEGRAM_TEMP_DIR:?TELEGRAM_TEMP_DIR is required}"
 mkdir -p "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"
@@ -163,5 +170,9 @@ do
         *) echo "$setting_name must be true/false or 1/0" >&2; exit 1 ;;
     esac
 done
+
+case "${TELEGRAM_STAT:-false}" in
+    1|true|TRUE) set -- "$@" --http-stat-ip-address=127.0.0.1 ;;
+esac
 
 exec telegram-bot-api "$@"

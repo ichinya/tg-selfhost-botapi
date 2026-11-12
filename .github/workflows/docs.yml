@@ -62,6 +62,11 @@ jobs:
           mkdir -p secrets
           printf 'synthetic_issue17_publication_sentinel\n' > secrets/issue17-sentinel.txt
           python3 -m unittest discover -s tools -p 'test_issue17_security_docs.py'
+
+          mkdir -p .observability/runtime .observability/migration .observability/registry .observability/credentials
+          for directory in runtime migration registry credentials; do
+            printf 'OBS16_PUBLICATION_SENTINEL\n' > ".observability/$directory/sentinel.txt"
+          done
       - name: Build the GitHub Pages site
         uses: actions/jekyll-build-pages@v1
         with:
@@ -77,5 +82,7 @@ jobs:
           test ! -e .site-check/secrets
           test ! -e .site-check/nginx-main.conf
           test ! -e .site-check/docker-compose.secrets.yml
+
+          test ! -e .site-check/.observability
           timeout 60 python3 tools/check_docs.py .site-check
           timeout 30 python3 -m unittest discover -s tools -p 'test_issue11_docs.py' -v
