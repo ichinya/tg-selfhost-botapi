@@ -488,6 +488,22 @@ Doctor не запускает миграцию, helpers, методы бота,
 READY означает готовность начать подготовленную процедуру и не подтверждает
 helpers, завершённый перенос, авторизацию или доставку.
 
+## Опциональное наблюдение миграции
+
+Перед любой миграцией отключите registry worker observer и дождитесь завершения
+текущих запросов. Snapshot не является lock; состояние браузера не наблюдается.
+Запускайте Bash helper из корня checkout, где находится `migrate_off_to_self.sh`.
+Он может выдать безопасную финальную проекцию без изменения сценария:
+задайте в окружении процесса `MIGRATION_STATUS_DIR="$PWD/.observability/migration"`
+и `MIGRATION_STATUS_ALIAS=public_label` (не в .env helper). Подготовьте принадлежащий
+оператору каталог без symlink с правами 0755; атомарный `status.json` имеет 0644,
+не содержит private receipts, URL или токенов. Проекция v1 содержит UTC observed_at
+и до 100 операций: UUID operation_id, публичный alias, stage, outcome, UTC observed_at,
+delivery_evidence. Схема операции: `tools/observability/status.schema.json`.
+Producer запускается только после финализации summary; текущим операциям нужен
+отдельный heartbeat producer. Отсутствующий, неверный или stale настроенный вход
+блокирует запросы с токеном. Старые terminal результаты — только исторические данные.
+
 ## Полный профиль webhook
 
 До изменения source helper разрешает `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON-массив строк), `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL=true|false`. Неизвестный секрет/IP и отсутствующий custom certificate останавливают preflight. `fixed` — алиас pinned для canonical IPv4. Source `ip_address` не раскрывает намерение pinning. Явные параметры перекрывают source; отсутствие optional updates означает документированный default `[]`. `[]` исключает chat_member, message_reaction и message_reaction_count, а не включает все типы. Null и неверные типы отклоняются. Per-bot max_connections: 1–100; до 100000 только при явном подтверждении local mode (`TELEGRAM_LOCAL`/`--local`), независимо от серверного `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. Self-host URL этого не доказывает.
@@ -534,3 +550,5 @@ URL исходного webhook с управляющими символами о
 сам по себе не доказывает доставку webhook.
 
 Экспорт CLI требует существующего закрытого состояния и локально проверяет digest плана; он не создаёт и не импортирует authority.
+
+План Bash, созданный в браузере, выводит результат в stderr: `ERROR`, `PARTIAL`, `UNKNOWN` или `SUCCESS`, затем `phase=...` и `progress=0|1`. Прогресс отмечает подтверждённое изменение; при `UNKNOWN` необходима сверка, поскольку запрос без подтверждения мог выполниться. Для допустимой задержки HTTP 429 `retryNotBefore_epoch` означает самое раннее время повтора, но не разрешает повторять запрос без сверки. Успешная проверка наблюдаемого профиля не подтверждает доставку webhook.
