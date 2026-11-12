@@ -4,6 +4,36 @@ import check_apk_refresh as refresh
 
 
 class RefreshTests(unittest.TestCase):
+    def test_failed_command_reports_command_exit_code_and_saved_log(self):
+        import sys
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / 'packaging.log'
+            with self.assertRaises(RuntimeError) as raised:
+                refresh.command([sys.executable, '-c', 'import sys; print("primary failure"); sys.exit(37)'], log)
+            message = str(raised.exception)
+            self.assertIn('37', message)
+            self.assertIn(str(log), message)
+            self.assertIn(sys.executable, message)
+            self.assertIn('primary failure', log.read_text())
+
+    def test_cleanup_failure_does_not_mask_primary_error(self):
+        with patch.object(refresh.tempfile, 'TemporaryDirectory') as temporary:
+            temporary.return_value.name = 'temporary'
+            temporary.return_value.cleanup.side_effect = PermissionError('cleanup denied')
+            with self.assertRaisesRegex(RuntimeError, 'primary failure') as raised:
+                with refresh.temporary_workspace('test'):
+                    raise RuntimeError('primary failure')
+            self.assertIn('cleanup denied', str(raised.exception.__notes__))
+
+    def test_snapshot_uses_complete_recipe_including_observer_sources(self):
+        from image_inputs import recipe_files
+        files = recipe_files()
+        observer = next(name for name in files if name.startswith('tools/observability/') and name.endswith('.py'))
+        self.assertIn(observer, refresh.recipe_files())
+        self.assertEqual(refresh.recipe_files(), files)
+
     def test_fixture_repository_layout(self):
         script = (refresh.FIXTURE / 'package.sh').read_text()
         repo = '/work/repo-v$version/x86_64'

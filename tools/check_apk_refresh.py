@@ -1,5 +1,8 @@
 """Explicit signed A/A/control/B integration gate. Never invoked by unittest discovery."""
 import argparse
+from contextlib import contextmanager
+import os
+import shlex
 import functools
 import hashlib
 import ipaddress
@@ -9,11 +12,12 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import uuid
 
-from image_inputs import ROOT, RECIPE, build_key
+from image_inputs import ROOT, recipe_files, build_key
 from image_metadata import parse_installed
 
 
@@ -101,8 +105,26 @@ def command(args, log=None, timeout=900):
     if log:
         Path(log).write_text(result.stdout, encoding='utf-8')
     if result.returncode:
-        raise RuntimeError('Integration command failed; inspect saved log')
+        raise RuntimeError(f'Integration command failed: {shlex.join(args)}; exit code: {result.returncode}; log: {log or "not saved"}')
     return result.stdout
+
+
+@contextmanager
+def temporary_workspace(prefix):
+    workspace = tempfile.TemporaryDirectory(prefix=prefix)
+    primary = None
+    try:
+        yield workspace.name
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        try:
+            workspace.cleanup()
+        except Exception as error:
+            if primary is None:
+                raise
+            primary.add_note(f'Temporary workspace cleanup failed: {type(error).__name__}: {error}')
 
 
 def builder_gateway(namespace):
@@ -139,14 +161,14 @@ def integration(inputs, output):
     if inputs['platform'] != 'linux/amd64':
         raise ValueError('Fixture gate currently supports linux/amd64 only')
     recipe = (ROOT / 'Dockerfile').read_text()
-    files = {name: (ROOT / name).read_bytes() for name in RECIPE}
+    files = recipe_files()
     identity = {k: v for k, v in inputs.items() if k != 'build_key'}
     if build_key(identity, files) != inputs['build_key']:
         raise ValueError('Snapshot does not match exact candidate recipe')
     namespace = 'issue23-' + uuid.uuid4().hex[:12]
     images, records = [], []
     builder_created = False
-    with tempfile.TemporaryDirectory(prefix=namespace) as folder:
+    with temporary_workspace(namespace) as folder:
         temp = Path(folder)
         packaging, context, served = temp / 'packaging', temp / 'context', temp / 'served'
         packaging.mkdir(); context.mkdir(); served.mkdir()
@@ -155,7 +177,10 @@ def integration(inputs, output):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            command(['docker', 'run', '--rm', '--cpus', '2', '--memory', '3g', '-v', str(packaging) + ':/work',
+            command(['docker', 'run', '--rm', '--cpus', '2', '--memory', '3g',
+                     '-e', 'HOST_UID=' + str(os.getuid() if hasattr(os, 'getuid') else 0),
+                     '-e', 'HOST_GID=' + str(os.getgid() if hasattr(os, 'getgid') else 0),
+                     '-v', str(packaging) + ':/work',
                      inputs['alpine_image'], 'sh', '/work/source/package.sh'], output.parent / 'fixture-packaging.log')
             shutil.copytree(packaging / 'repo-v1', served / 'current')
             for name in ('tools/capture_apk_metadata.sh', 'tools/capture_link_metadata.py'):
@@ -280,13 +305,25 @@ def integration(inputs, output):
                       'repository_url': url, 'negative_controls': negative_controls}
             output.write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
         finally:
-            server.shutdown(); server.server_close(); thread.join(timeout=5)
-            try:
-                if images:
-                    command(['docker', 'image', 'rm', '-f', *images])
-            finally:
-                if builder_created:
-                    command(['docker', 'buildx', 'rm', namespace])
+            primary = sys.exception()
+            cleanup_errors = []
+            for cleanup in (
+                lambda: (server.shutdown(), server.server_close(), thread.join(timeout=5)),
+                lambda: command(['docker', 'image', 'rm', '-f', *images]) if images else None,
+                lambda: command(['docker', 'buildx', 'rm', namespace]) if builder_created else None,
+            ):
+                try:
+                    cleanup()
+                except Exception as error:
+                    cleanup_errors.append(error)
+            if cleanup_errors:
+                if primary is None:
+                    primary = cleanup_errors.pop(0)
+                    for error in cleanup_errors:
+                        primary.add_note(f'Cleanup failed: {type(error).__name__}: {error}')
+                    raise primary
+                for error in cleanup_errors:
+                    primary.add_note(f'Cleanup failed: {type(error).__name__}: {error}')
 
 
 def main():
@@ -299,7 +336,8 @@ def main():
         integration(json.loads(Path(args.inputs).read_text()), output)
     except Exception as error:
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps({'schema': 1, 'status': 'FAIL', 'error_type': type(error).__name__}) + '\n')
+        output.write_text(json.dumps({'schema': 1, 'status': 'FAIL', 'error_type': type(error).__name__,
+                                     'error': str(error), 'cleanup_errors': getattr(error, '__notes__', [])}) + '\n')
         raise
 
 
