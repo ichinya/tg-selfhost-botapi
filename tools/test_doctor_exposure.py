@@ -26,7 +26,7 @@ class ExposureTests(unittest.TestCase):
         from pathlib import Path
         config = (Path(__file__).resolve().parent.parent / "nginx.conf").read_text()
         roots, proxies, listens, unknown = nginx_routes(nginx_config(config))
-        self.assertEqual(([], ["http://botapi:8081"] + ["http://botapi:8090"] * 3, [80, 81], False), (roots, proxies, listens, unknown))
+        self.assertEqual(([], ["http://botapi:8081"] * 3 + ["http://botapi:8090"] * 3, [80, 82, 81], False), (roots, proxies, listens, unknown))
         for extra in ("server { root $uri_redacted; }", "server { unknown_route on; }",
                       "map $uri $uri_redacted { root /private; }",
                       "map $request_uri $legacy_file_request { default 0; root /private; }",
@@ -46,7 +46,9 @@ class ExposureTests(unittest.TestCase):
                               ('location = /status', 'location /extra'), ('Authorization ""', 'Authorization $http_authorization'),
                               ('proxy_set_header Cookie "";', ''), ('proxy_set_header Host localhost;', ''),
                               ('proxy_intercept_errors on;', ''), ('error_page 502 504 =503 @unavailable;', ''),
-                              ('proxy_connect_timeout 1s;', ''), ('proxy_read_timeout 3s;', '')]:
+                              ('proxy_connect_timeout 1s;', ''), ('proxy_read_timeout 3s;', ''),
+                              ('sendPhoto|sendLivePhoto', 'sendPhoto|.*'),
+                              ('location /file/ { return 404; }', 'location /file/ { proxy_pass http://botapi:8081; }')]:
             self.assertFalse(nginx_route_contract(nginx_config(config.replace(before, after)), '8081'))
 
     def test_observer_namespace_and_mount_isolation(self):

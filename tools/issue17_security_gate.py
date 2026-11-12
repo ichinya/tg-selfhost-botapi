@@ -29,6 +29,11 @@ MARKERS=list(CASES['markers'].values())
 class GateFailure(Exception): pass
 
 
+class UnitGateFailure(GateFailure):
+    def __init__(self, stage):
+        self.stage = stage
+
+
 def command(args, *, env=None, data=None, timeout=120, check=True):
     try:
         result=subprocess.run(args,cwd=ROOT,env=env,input=data,capture_output=True,timeout=timeout)
@@ -46,18 +51,27 @@ def require_clean_candidate():
 
 
 def unit_gate():
-    require_clean_candidate()
-    # The full discovery is intentionally restricted to a clean checkout.
-    command([sys.executable,'-m','unittest','discover','-s','tools','-p','test_*.py'],timeout=900)
-    command(['node','tools/embed_webhook_profile.cjs','--check'])
-    command(['node','tools/test_issue17_security_browser.cjs'])
-    command(['node','tools/test_issue17_security_shell.cjs'])
-    command(['node','tools/webhook_profile_ui_harness.cjs'],timeout=120)
-    command(['node','tools/test_migration_ui.mjs'])
-    for script in ('tools/webhook_profile_runtime.sh','tools/migration_diagnostics_main.sh','migrate_off_to_self.sh','tools/migration_executor.sh'):
-        command(['bash','-n',script])
-    command(['sh','-n','docker-entrypoint.sh'])
-    command(['git','diff','--check'])
+    try:
+        require_clean_candidate()
+    except GateFailure:
+        raise UnitGateFailure('clean_candidate') from None
+    steps = [
+        ('discovery', [sys.executable,'-m','unittest','discover','-s','tools','-p','test_*.py'], 900),
+        ('embed_profile', ['node','tools/embed_webhook_profile.cjs','--check'], 120),
+        ('security_browser', ['node','tools/test_issue17_security_browser.cjs'], 120),
+        ('security_shell', ['node','tools/test_issue17_security_shell.cjs'], 120),
+        ('profile_ui', ['node','tools/webhook_profile_ui_harness.cjs'], 120),
+        ('migration_ui', ['node','tools/test_migration_ui.mjs'], 120),
+    ]
+    for index, script in enumerate(('tools/webhook_profile_runtime.sh','tools/migration_diagnostics_main.sh','migrate_off_to_self.sh','tools/migration_executor.sh')):
+        steps.append(('bash_syntax_' + str(index + 1), ['bash','-n',script], 120))
+    steps.extend([('entrypoint_syntax', ['sh','-n','docker-entrypoint.sh'], 120),
+                  ('diff_check', ['git','diff','--check'], 120)])
+    for stage, args, timeout in steps:
+        try:
+            command(args, timeout=timeout)
+        except GateFailure:
+            raise UnitGateFailure(stage) from None
     return {'clean_candidate':True}
 
 
@@ -237,6 +251,8 @@ def main(argv=None):
     failed=False
     for name,run in gates:
         try:manifest['gates'][name]={'status':'PASS','evidence':run()}
+        except UnitGateFailure as exc:
+            failed=True;manifest['gates'][name]={'status':'FAIL','reason':'required_gate_failed','stage':exc.stage}
         except (GateFailure,AssertionError,ValueError,KeyError,OSError):
             failed=True;manifest['gates'][name]={'status':'FAIL','reason':'required_gate_failed'}
     if args.runtime or args.models:

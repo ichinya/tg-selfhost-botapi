@@ -5,6 +5,75 @@ translation: /docs/en/maintenance.html
 
 # Обслуживание
 
+## Хранение загрузок gateway и применение изменений
+
+Project-scoped volume `gateway_client_temp` содержит буферизованные тела запросов,
+отделён от состояния Bot API и может содержать конфиденциальные загрузки. Проверяйте
+место и inode на каждой файловой системе, включая диск Docker Desktop, и право
+записи worker nginx. Расчёт параллельных запросов приведён в
+[настройках](configuration.md); volume не резервирует ёмкость. Резервную копию
+состояния Bot API ведите отдельно от spool.
+
+До применения проверьте модель Compose и конфигурацию nginx. Для нового mount
+нужно пересоздать gateway; активные загрузки прервутся:
+
+```sh
+docker compose config --quiet
+docker compose run --rm --no-deps gateway nginx -t
+docker compose up -d --no-deps --force-recreate gateway
+docker compose exec gateway nginx -T
+```
+
+Проверьте загруженные настройки приватно и работоспособность синтетическим запросом.
+Для отката восстановите согласованную предыдущую пару файлов nginx и Compose,
+проверьте и снова пересоздайте gateway; сохраните данные Bot API. Не используйте
+`down -v` на рабочем стеке. Очищайте только точно выбранный spool volume при
+отсутствии запросов; не удаляйте вручную файлы активных тел.
+
+HTTP 411 означает отказ публичного listener для transfer encoding; 429 — превышение
+частоты или числа одновременных загрузок. Перед изменением лимитов проверьте
+адреса клиентов, видимые nginx, бюджет spool и deadlines ingress. Лимит слотов
+сам по себе не гарантирует справедливость или полное время загрузки.
+HTTP 413 может указывать на лимит тела или ingress, 408 — на таймаут тела клиента,
+504 — на таймаут upstream. Проверяйте также ограничения клиента и внешнего proxy,
+свободное место и inode. При `error_log crit` обычные ошибки nginx не записываются;
+перед передачей фильтруйте диагностические данные.
+
+
+## Синтетическая приёмка загрузок gateway
+
+Запускайте из корня репозитория с Python 3.11+, Docker Compose, Linux containers,
+доступом к registry и writable temp. Credentials Telegram не используются.
+
+```sh
+python3 tools/check_gateway_uploads.py --profile quick --revision candidate --report /tmp/issue4-quick.json
+python3 tools/check_gateway_uploads.py --profile full --revision candidate --report /tmp/issue4-full.json
+python3 tools/check_gateway_uploads.py --profile slow --revision candidate --report /tmp/issue4-slow.json
+python3 tools/check_gateway_uploads.py --profile storage --revision candidate --report /tmp/issue4-storage.json
+timeout 2700 python3 tools/check_gateway_uploads.py --profile all --revision candidate --report /tmp/issue4-all.json
+```
+
+Замените `candidate` на SHA проверяемого коммита. `quick` (alias `fast`) проверяет
+файлы 2/4 MiB и малые границы 8 MiB; реальный предел 2048 MiB этим не доказан.
+`full` передаёт настоящие тела 2048 MiB ±1 байт обоими способами framing и файл
+2000 MiB. Резервируйте минимум 10 GiB на файловых системах входов и Docker;
+суммарная запись последовательных сценариев может быть намного больше. Оба
+framing в этих transport-профилях используют изолированный доверенный порт 82;
+публичный порт 80 отклоняет chunked. WSL gateway unit tests также проверяют
+публичный admission на локальном nginx, если он установлен. `slow`
+проверяет реальные паузы больше 60 секунд и отдельные controls 2 секунды.
+`storage` — права worker, linked/open spool, возврат блоков, disconnect/crash
+recovery и ENOSPC на маленькой одноразовой файловой системе. `all` требует все профили.
+
+Для полного POSIX discovery используйте WSL/Linux или CI. Бюджеты unit и integration
+45 минут независимы. Синтетические отчёты относятся только к записанным revision,
+image IDs/digests и hashes конфигурации; храните их вне webroot. NOTRUN, отказ
+сценария или очистки оставляют приёмку открытой. При отсутствии локальных условий
+отмечайте `verification deferred to CI/gates`. Mock проверяет transport gateway;
+приёмка реальных Bot API, Telegram и VPS остаётся отдельной.
+Экспорт чистого candidate, scoped unit tests, image overrides и границы аварийной
+очистки описаны в [инструкции участника](../../CONTRIBUTING.md).
+
 ## Смена identity сервера
 
 Перед сменой ID остановите writer и автоматические перезапуски. Создайте
@@ -26,6 +95,10 @@ Umask `0027` ограничивает новые права, но не доба�
 UID используйте ограниченное RO-поддерево media из инструкции установки.
 
 ## Раздельное хранилище
+
+Перед первым включением split storage создайте новый пустой host-каталог командой
+`sudo install -d -m 0770 -o 101 -g 101 ./media`: Compose отказывает при отсутствии
+root. Не применяйте эту команду рекурсивно к существующему cache.
 
 Для split storage нужно окно обслуживания: остановите клиентов и writers,
 согласованно сохраните private state и конфигурацию, затем включите files override.

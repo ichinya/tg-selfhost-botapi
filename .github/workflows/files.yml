@@ -91,7 +91,7 @@ jobs:
           from pathlib import Path
           root = Path(os.environ['CONTEXT_EXPORT'])
           seen = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()}
-          expected = set('Dockerfile Dockerfile.downloads docker-entrypoint.sh patches/webhook-user-agent.patch tools/file_access.py tools/file_contract.py tools/download_server.py examples/files/local_reader.py'.split())
+          expected = set('Dockerfile Dockerfile.downloads docker-entrypoint.sh patches/webhook-user-agent.patch patches/botapi-secrets-redaction.patch tools/botapi_healthcheck.sh tools/file_access.py tools/file_contract.py tools/download_server.py examples/files/local_reader.py tools/fixtures/issue17_security/botapi_log_driver.cpp tools/observability/Dockerfile tools/observability/__init__.py tools/observability/migration.py tools/observability/probes.py tools/observability/runtime.py tools/observability/schema.py tools/observability/server.py tools/observability/stats.py tools/observability/status.schema.json tools/observability/webhook.py'.split())
           assert seen == expected, 'build context is not the exact allowlist'
           PY
       - name: Build exact candidates

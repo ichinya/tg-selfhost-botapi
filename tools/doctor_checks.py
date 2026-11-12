@@ -278,7 +278,9 @@ def nginx_routes(tree):
     safe = {"events", "worker_connections", "http", "server", "location", "upstream", "user", "worker_processes", "pid",
             "error_log", "access_log", "log_format", "default_type", "types", "sendfile", "keepalive_timeout", "tcp_nopush",
             "gzip", "index", "server_name", "proxy_http_version", "proxy_set_header", "client_max_body_size", "autoindex",
-            "resolver", "proxy_read_timeout", "proxy_connect_timeout", "proxy_send_timeout", "proxy_buffering", "charset"}
+            "resolver", "proxy_read_timeout", "proxy_connect_timeout", "proxy_send_timeout", "proxy_buffering", "charset",
+            "client_body_timeout", "client_body_temp_path", "client_header_timeout", "proxy_request_buffering",
+            "limit_req_zone", "limit_conn_zone", "limit_req", "limit_req_status", "limit_conn", "limit_conn_status"}
     def walk(nodes, in_types=False):
         nonlocal unknown
         for name, args, children in nodes:
@@ -297,6 +299,12 @@ def nginx_routes(tree):
                                      for key, values, nested in children))
                 supported |= (args == ["$request_uri", "$legacy_file_request"] and children == [
                     ("default", ["0"], []), (r"~^/file(?:/|%2[fF]|%25|\?|$)", ["1"], [])])
+                supported |= (args == ['$server_port', '$upload_global_key'] and children == [('default', ['uploads'], [])])
+                supported |= (args == ['$server_port:$http_transfer_encoding', '$reject_public_chunked'] and children == [
+                    ('default', ['0'], []), ('~*^80:.+', ['1'], [])])
+                supported |= (args == ['$request_method:$http_content_length:$http_transfer_encoding', '$reject_get_body'] and children == [
+                    ('default', ['0'], []), ('~*^(GET|HEAD):0*[1-9][0-9]*:', ['1'], []),
+                    ('~*^(GET|HEAD):[^:]*:.+', ['1'], [])])
                 unknown |= not supported
                 continue
             if name in {"root", "alias"}:
@@ -309,11 +317,13 @@ def nginx_routes(tree):
                     unknown = True
             elif name == 'if':
                 if not ((args == ['($legacy_file_request)'] and children == [('return', ['404'], [])]) or
+                        (args == ['($reject_public_chunked)'] and children == [('return', ['411'], [])]) or
+                        (args == ['($reject_get_body)'] and children == [('return', ['400'], [])]) or
                         (args in [['($args)'], ['($http_content_length)'], ['($http_transfer_encoding)']] and children == [('return', ['400'], [])])):
                     unknown = True
                 continue
             elif name == 'limit_except':
-                if args != ['GET'] or children != [('deny', ['all'], [])]: unknown = True
+                if args not in (['GET'], ['GET', 'POST']) or children != [('deny', ['all'], [])]: unknown = True
                 continue
             elif name == 'return':
                 if children or args not in [['404'], ['503', '{"error":"observer_unavailable"}'], ['404', '{"error":"not_found"}']]: unknown = True
@@ -369,7 +379,10 @@ def nginx_privacy(tree):
             and not nginx_routes(maps)[-1]
             and {tuple(args) for _,args,_ in maps} in (
                 {('$request_method','$privacy_method'),('$uri','$privacy_route')},
-                {('$request_method','$privacy_method'),('$uri','$privacy_route'),('$request_uri','$legacy_file_request')})
+                {('$request_method','$privacy_method'),('$uri','$privacy_route'),('$request_uri','$legacy_file_request')},
+                {('$request_method','$privacy_method'),('$uri','$privacy_route'),('$request_uri','$legacy_file_request'),
+                 ('$server_port','$upload_global_key'),('$server_port:$http_transfer_encoding','$reject_public_chunked'),
+                 ('$request_method:$http_content_length:$http_transfer_encoding','$reject_get_body')})
             and len(maps) == len({tuple(args) for _,args,_ in maps}))
 
 def flatten_nginx(nodes):
@@ -388,22 +401,29 @@ def nginx_route_contract(tree, api_port):
     servers = [children for name, _, children in flatten_nginx(tree) if name == 'server']
     resolvers = [args for name,args,_ in flatten_nginx(tree) if name == 'resolver']
     if resolvers != [['127.0.0.11', 'valid=5s', 'ipv6=off']]: return False
-    if len(proxies) != 4: return False
+    if len(proxies) != 6: return False
     if len(servers) != 2: return False
     for nodes in servers:
         ports = [args for name, args, _ in nodes if name == 'listen']
         locations = {tuple(args): children for name, args, children in nodes if name == 'location'}
         all_locations = [1 for name, _, _ in nodes if name == 'location']
         if len(locations) != len(all_locations): return False
-        if ports == [['80']]:
+        if ports == [['80'], ['82']]:
             if ('set', ['$botapi_upstream', expected], []) not in nodes: return False
-            allowed = {('/',), ('=', '/health/live'), ('=', '/health/ready'), ('=', '/status'), ('=', '/selfz'), ('=', '/file'), ('/file/',)}
-            if set(locations) != allowed: return False
             if ('if', ['($legacy_file_request)'], [('return', ['404'], [])]) not in nodes: return False
-            for path, children in locations.items():
-                if path != ('/',) and children != [('return', ['404'], [])]: return False
-            routes = [args for name,args,_ in flatten_nginx(locations[('/',)]) if name == 'proxy_pass']
-            if routes != [['$botapi_upstream$request_uri']]: return False
+            fixed = {('=', '/health/live'), ('=', '/health/ready'), ('=', '/status'), ('=', '/selfz'), ('=', '/file'), ('/file/',)}
+            regex = [path for path in locations if len(path) == 2 and path[0] == '~*']
+            if len(regex) != 2 or set(locations) != fixed | {('/',)} | set(regex): return False
+            if any(locations[path] != [('return', ['404'], [])] for path in fixed): return False
+            upload = next((path for path in regex if re.fullmatch(
+                r'\^/bot\[\^/\]\+/\(\?:sendPhoto(?:\|[A-Za-z][A-Za-z0-9]*)+\)\(\?:/\|\$\)', path[1])), None)
+            polling = ('~*', '^/bot[^/]+/getUpdates$')
+            if upload is None or polling not in regex: return False
+            for path in [('/',), upload, polling]:
+                children = locations[path]
+                if ('limit_except', ['GET', 'POST'], [('deny', ['all'], [])]) not in children: return False
+                routes = [args for name,args,_ in flatten_nginx(children) if name == 'proxy_pass']
+                if routes != [['$botapi_upstream$request_uri']]: return False
         elif ports == [['81']]:
             if ('set', ['$observer_upstream', 'http://botapi:8090'], []) not in nodes: return False
             exact = {('=', '/health/live'), ('=', '/health/ready'), ('=', '/status')}

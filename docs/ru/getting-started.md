@@ -85,6 +85,10 @@ sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/cre
 Заполните `API_ID` и `API_HASH` в `.env`. Не публикуйте этот файл.
 
 По умолчанию gateway слушает `127.0.0.1` и не раздаёт каталог состояния.
+
+Перед большими загрузками подготовьте место и inode для отдельного volume
+`gateway_client_temp` и хранилища Bot API. Worker nginx должен иметь право записи
+в spool. Расчёт приведён в [настройках](configuration.md).
 Если удалённым клиентам, включая получатель webhook, нужен доступ к Bot API,
 задайте `GATEWAY_BIND=0.0.0.0` в `.env` и обеспечьте HTTPS и сетевые ограничения.
 
