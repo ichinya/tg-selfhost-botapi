@@ -16,17 +16,35 @@ services:
     image: ${DOCTOR_NGINX_IMAGE:?harness must pin the gateway digest}
     ports:
       - '127.0.0.1::80'
+      - '127.0.0.1::81'
     volumes:
       - ../../nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - gateway_client_temp:/var/cache/nginx/client_temp
     depends_on:
       botapi:
         condition: service_healthy
+      observer:
+        condition: service_started
     healthcheck:
       test: ['CMD', 'nginx', '-t']
       interval: 1s
       timeout: 2s
       retries: 20
+  observer:
+    image: ${DOCTOR_OBSERVER_IMAGE:?harness must select its own observer image}
+    build:
+      context: ../..
+      dockerfile: tools/observability/Dockerfile
+    network_mode: service:botapi
+    user: '101:101'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      TELEGRAM_STAT: 'false'
+    depends_on:
+      botapi:
+        condition: service_healthy
 volumes:
   state:
   audit:

@@ -137,6 +137,29 @@ Use WSL/Linux or CI for POSIX tests; native Windows results do not replace them.
 Integration has a separate 45-minute watchdog. Interrupted runs clean only their
 exact owner label. CI repeats cleanup in an always-step and retains the report.
 
+File-contract changes must preserve both direct/scoped RO reads and the per-bot
+`POST /v1/files/download` boundary. Run scoped units for `test_file_access.py`,
+`test_download_server.py`, `test_check_file_contract.py`, `test_check_docs.py`,
+`test_entrypoint.py`, image inputs and doctor before the full clean-candidate suite.
+Build `botapi-candidate:check` and `downloads-candidate:check`, then run:
+
+```sh
+python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
+  --downloads-image downloads-candidate:check --report file-report.json
+```
+
+The full runtime gate uses only disposable synthetic storage and requires Linux
+amd64/openat2. It records exact source hashes/image IDs. A denied/unavailable
+Docker, kernel or Jekyll gate is NOTRUN (`verification deferred to CI/gates`), not
+PASS. Never use production volumes or import unrelated untracked helpers to make
+the gate pass. Retain the original migrator HTML bytes and exclude examples,
+fixtures, media, secrets and runtime configuration from Pages.
+
+`files.yml` runs the complete suite only on a clean checkout. `image.yml` qualifies
+the exact Bot API/downloads IDs and current source hashes on both build and reuse
+paths; publication follows the file and rendered-docs gates. `DOWNLOADS_RECIPE`
+and the main recipe must include new runtime or qualification inputs before use.
+
 ## По-русски
 
 ### Приёмка загрузок gateway
@@ -198,6 +221,29 @@ production; недоступный gate — NOTRUN. Реальные migration-i
 Проверяйте схему отчёта, вход v1, exit codes 0/1/2/3 и shell-синтаксис fixture.
 Запускайте тесты на чистом candidate без чужих helpers и `tools/__init__.py`;
 внутренние ошибки сбора должны отличаться от неверного вызова.
+## Observability checks (issue #16)
+
+On a dirty checkout use owned patterns; unrelated untracked suites are not release
+evidence. On Linux/CI run:
+
+```sh
+python3 -m unittest discover -s tools -p 'test_observability*.py' -v
+python3 -m unittest discover -s tools -p 'test_observe_runtime.py' -v
+python3 -m unittest discover -s tools -p 'test_botapi_healthcheck.py' -v
+python3 -m unittest discover -s tools -p 'test_doctor*.py' -v
+python3 -m unittest discover -s tools -p 'test_check_doctor.py' -v
+bash -n migrate_off_to_self.sh
+sh -n tools/botapi_healthcheck.sh
+python3 tools/check_stats_source.py /path/to/exact/upstream-checkout
+python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
+```
+
+Helper and producer acceptance requires POSIX Bash, curl, jq and coreutils.
+Windows skips are NOTRUN. Docker source/image/privacy, Jekyll and actual Kuma
+gates are separate from Python unit results. Both release images must share one
+build key and pass qualification before promotion. Never use real bot credentials
+in fixtures or logs. Keep documentation paired in docs/en and docs/ru.
+
 
 Webhook profile #7 gates: Node 24+, Python 3.13, Bash 4+, curl/jq/openssl, non-root POSIX.
 Run the four explicit `tools.test_webhook_profile_*` modules listed in maintenance, then all tracked #10 tests and `test_webhook_user_agent`.

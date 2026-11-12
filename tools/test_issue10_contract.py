@@ -24,7 +24,9 @@ class ContractTests(unittest.TestCase):
         entrypoint = (ROOT / 'docker-entrypoint.sh').read_text(encoding='utf-8')
         self.assertIn('"${GATEWAY_BIND:-127.0.0.1}:18080:80"', compose)
         self.assertIn('listen 80;', nginx)
-        self.assertIn('proxy_pass http://botapi:8081;', nginx)
+        self.assertIn('set $botapi_upstream http://botapi:8081;', nginx)
+        self.assertIn('proxy_pass $botapi_upstream$request_uri;', nginx)
+        self.assertIn('resolver 127.0.0.11', nginx)
         self.assertRegex(entrypoint, r'TELEGRAM_HTTP_PORT[^\n]*8081')
 
     def test_existing_standalone_migrator_url_is_kept(self):

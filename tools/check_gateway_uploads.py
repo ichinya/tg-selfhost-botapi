@@ -817,11 +817,13 @@ def routing(runner):
             case = "routing-" + content
             connection.request(method, uri, data, {"Content-Type": content, "X-Case": case})
             response = connection.getresponse()
-            result = json.loads(response.read())
-            assert response.status == 200, result
+            body = response.read()
             if data is None:
-                assert result["uri"] == uri, result
+                assert response.status == 404, response.status
+                assert case not in runner.receipts(), "blocked file request reached upstream"
             else:
+                result = json.loads(body)
+                assert response.status == 200, result
                 receipt = runner.receipts()[case]
                 assert receipt["uri"] == uri and receipt["body_sha256"] == hashlib.sha256(data).hexdigest(), receipt
             evidence.append({"uri": uri, "status": response.status})

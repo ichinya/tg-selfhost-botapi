@@ -143,17 +143,57 @@ headers or a header on `setWebhook` do not configure this outgoing header.
 
 ## Files in local mode
 
+Split storage is opt-in: add `-f docker-compose.files.yml` after the base Compose
+file. Bot API alone writes `./media` at `/var/lib/telegram-bot-api-files` via
+`TELEGRAM_FILES_DIR` / `--files-dir`. Without it the legacy combined layout stays
+private. State, absolute private temp, logs and credential files must not overlap
+media. Relative logs, noncanonical paths and symlink ancestors are rejected.
+New directories use umask `007`; the supported server identity is `101:101`.
+Existing cache permissions are never changed recursively.
+
+`--help` / `--version` remain credential-free. Explicit server CLI arguments are
+not supplemented from environment variables: split CLI requires long-form
+`--files-dir`, `--dir`, `--temp-dir`, matching any configured directory/log env
+values. Duplicate directory flags fail. Use the default entrypoint for identity
+setup; arbitrary Compose `user:` overrides are not supported.
+The short `-f` files-directory option is rejected; use validated long-form flags.
+
 `getFile` can return an absolute container-local path. A bot application needs a
 matching shared volume/path to read that file directly. Do not turn an arbitrary
 absolute path into an HTTP download URL.
 
+For direct reads use the [scoped reader example](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+Only one existing bot subtree is mounted read-only at the identical absolute
+path. The Linux/amd64 opener uses openat2 with no symlinks or mount crossings,
+rejects hardlinks and nonregular files, and streams from the checked FD. Nested
+mounts and a compromised trusted writer/host are outside this deployment contract.
+The shared stdlib getFile client (`tools/file_contract.py`) bounds upstream JSON
+to 64 KiB / 30 seconds and never follows redirects or environment proxies.
+
 The previously documented `X-Telegram-Bot-Token` download scheme is not implemented.
-A remote authenticated file handler is tracked in
-[issue #5](https://github.com/ichinya/tg-selfhost-botapi/issues/5).
+Remote downloads use the opt-in `docker-compose.downloads.yml` after base+files.
+One handler serves one bot: `POST /v1/files/download`, JSON only `file_id`, separate
+Bearer credential from `DOWNLOAD_AUTH_TOKEN_FILE`, bot token from
+`DOWNLOAD_BOT_TOKEN_FILE`. Only the configured subtree is mounted RO. Loopback
+HTTP 18082 must sit behind the TLS frontend in the
+[example](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+No registry, alias URL or client-supplied path/token is accepted. Requests and
+upstream responses are bounded; streaming uses at most 64 KiB blocks, four slots,
+30s socket timeout and a 600s total deadline (`DOWNLOAD_MAX_DURATION`). See the
+example for statuses, setup, limits and auth rotation.
+Path/URL-like `file_id` values are rejected before upstream I/O. The supplied
+remote client requires one Content-Length and fails on an incomplete response;
+discard its partial output after any nonzero exit.
 
 ## Current limitations
 
-- nginx forwards `/file/` requests to the Bot API; it does not serve the state directory.
+Doctor observes `--files-dir` from the running argv (fallback: work directory),
+compares media/private backings and checks scoped read-only consumer mounts.
+Shared filesystems contribute capacity once. It does not certify download auth
+or application mapping: those remain UNKNOWN until independently checked with
+`tools/check_file_contract.py`. A supplied JSON receipt cannot grant READY.
+
+- nginx returns 404 for `/file` and `/file/` requests; it does not serve the state directory.
 - nginx limits the entire request body to `2048m` (2,147,483,648 bytes), including
   multipart fields and all attachments; larger requests receive HTTP 413. Request
   buffering is on and uses the separate disk-backed spool before forwarding.
@@ -200,3 +240,49 @@ The deadline applies to each request; the token-free probe is capped at 10
 seconds. Process settings take precedence over the trusted environment file;
 only an unset setting uses its default. Unlike the endpoint settings, an
 explicitly empty timeout is invalid. These settings are not passed to containers.
+
+## Safe statistics
+
+`TELEGRAM_STAT` defaults to false. When enabled, raw statistics bind only to
+127.0.0.1:8082 in the Bot API namespace. Never publish or proxy this port.
+The observer accepts the reviewed tab-separated manager format and returns only
+numeric observations. Queue coverage is always sampled: omitted pending fields
+mean unknown, and the observed sum is a lower bound, never a global total.
+Malformed, duplicate, oversized, Closing or incompatible responses are unavailable.
+
+## Observer deployment and isolation
+
+Before Compose up, prepare inputs on the Linux host:
+
+```sh
+install -d -m 0700 .observability
+install -d -m 0755 .observability/runtime .observability/migration
+sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+The observer shares only Bot API's network namespace. It runs as 101:101 with a
+read-only root, dropped capabilities and no Docker socket, state/temp or private
+migration dossier mount. Empty directories work without bot credentials. Host
+management is `http://127.0.0.1:18081`; only three exact management routes are
+proxied, GET/HEAD only, without query/body/Authorization. API listener 18080
+blocks these routes. Both APIs use delayed Docker DNS resolution so nginx can
+start while a target is absent; management upstream errors become a fixed 503.
+Management 4xx responses generated by nginx can use its standard HTML error pages.
+API ports 8082/8090 are reserved. A custom API port also needs an nginx override
+and doctor validation. Raw stats remain loopback-only. Observer 8090 is trusted
+Compose-network access, never a public monitoring ingress.
+
+Doctor understands the supported route contexts and network owner; unsupported
+variables, extra management routes, public management bindings, raw stats proxying,
+state/socket mounts or wrong namespace owners fail or remain unknown. Doctor is
+preflight and never substitutes for continuous health or actual delivery evidence.
+The base is pinned Alpine; APK Python/curl/jq package repositories remain mutable.
+Immutable image pairs capture the resulting build; byte-reproducibility is not promised.
+
+The published observer uses a digest-pinned Python base resolved by CI. The local
+fallback uses pinned Alpine plus APK Python; set OBSERVER_BASE to an approved
+Python image digest to reproduce the release base. Host producer supervision,
+registry/credential permissions and ownership/rotation are described in
+[maintenance](maintenance.md). A section's ready state describes its observation
+source; inspect migration outcomes separately from process readiness.

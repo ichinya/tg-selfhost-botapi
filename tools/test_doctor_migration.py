@@ -2,6 +2,16 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import unittest
+
+
+class FileContractBoundaryTests(unittest.TestCase):
+    def test_remote_claim_remains_unknown(self):
+        from doctor_checks import migration_checks
+        checks = migration_checks('official-to-self', {'schema_version': 1, 'file_access': 'remote_authenticated'})
+        item = next(c for c in checks if c['id'] == 'migration.file_access')
+        self.assertEqual('unknown', item['status'])
+        self.assertIn('check_file_contract.py', item['remediation'])
+
 import contextlib
 import io
 import json

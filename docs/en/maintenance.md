@@ -67,6 +67,20 @@ gateway transport; real Bot API, Telegram and VPS acceptance remain separate.
 See [contributor instructions](../../CONTRIBUTING.md) for clean candidate export,
 scoped unit tests, image overrides and emergency cleanup ownership.
 
+## Split storage
+
+Split storage requires a maintenance window: stop clients and writers, back up
+private state and configuration consistently, then enable the files override.
+It creates a new media cache; it does not move old downloads or rewrite stored
+absolute paths. Keep legacy storage private and re-run getFile for saved file IDs.
+Runtime identity and real TDLib file modes require qualification of the exact
+image; source/unit checks alone do not establish production permissions.
+
+
+Doctor checks split media persistence and private backing separation without
+downloading real files. Optional handlers and consumer mapping remain UNKNOWN;
+use the independent synthetic file gate and inspect the deployed mapping.
+
 ## Migration acceptance
 
 Use the required Linux/Node 24 mock gate documented in CONTRIBUTING. It covers
@@ -105,16 +119,28 @@ The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
 
-The build key covers the resolved revisions/digests and the recipe, entrypoint,
-patch and image tests. If the corresponding published build exists, compilation
-is skipped. If registry inspection cannot confirm it, the pipeline rebuilds.
+The Bot API build key covers the resolved revisions/digests and file-contract
+recipe/tests/configs. Downloads has its own key including the immutable Python
+base. If a Bot API build exists, compilation may be skipped, but the exact reused
+image and the downloads candidate must pass the current file gate again.
+Unconfirmed registry inspection rebuilds; it never establishes a passing gate.
 
 For a new build it:
 
 1. Checks that the User-Agent patch applies to the selected official revision.
 2. Compiles the entire server.
 3. Runs `--version`, checks the header string in the binary and validates entrypoint syntax.
-4. Publishes `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and promotes `latest`.
+4. Builds the downloads image, runs synthetic local/TLS/negative checks and
+   network-none actual Bot API startup for the exact image pair, recording IDs and
+   source hashes. It also checks rendered Pages/private exclusions.
+5. Publishes tested `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and
+   `ghcr.io/ichinya/tg-selfhost-botapi-downloads:build-<downloads-key>`, then promotes
+   their `latest` tags without rebuilding the tested pair.
+
+The standalone `files.yml` workflow runs full unit discovery on a clean checkout,
+Compose combinations, state isolation, exact-pair integration and docs checks.
+Unavailable local runtime checks are `verification deferred to CI/gates`; CI must
+pass them before image publication. This does not deploy or verify a VPS.
 
 Failed checks leave the previously published `latest` in place. Pull requests do
 not publish. A binary string check is not a live webhook-delivery test.
@@ -125,24 +151,56 @@ visibility or client authentication after the first publication.
 
 ## Update an installation
 
+### Enable split storage / roll back
+
+1. Stop clients, downloads, Bot API writers and any supervisors that restart them.
+   Make a consistent backup of the private state, image identity, Compose/env,
+   secret files and, for an existing split installation, media separately.
+2. In a maintenance window enable `docker-compose.files.yml`, retaining the exact
+   qualified image/config. Never copy state/binlogs into media or edit TDLib DB
+   paths by hand. The default transition starts a new media cache.
+   Prepare the new empty host directory with
+   `sudo install -d -m 0770 -o 101 -g 101 ./media`; Compose refuses a missing root.
+3. Re-run getFile for saved file IDs. Verify that each returned path lies in the
+   new media bot subtree, verify bytes/digest, ownership and mount mapping before
+   enabling consumers. If upstream returns an old private path, fail closed and
+   investigate; do not grant access to private state. Old cache/path continuity is
+   not guaranteed. A cold cache move preserving paths needs separate validation
+   for the selected upstream version.
+4. Rollback requires stopping new writers and restoring a mutually compatible
+   image, configuration, private state and old layout from the consistent backup.
+   Restoring an image alone is insufficient. Keep any split media snapshots in
+   sync with state when moving between servers.
+
+Do not recursively chmod/chown the cache or grant world access. Check actual
+TDLib modes and UID/GID 101:101; give the reader that identity or a specifically
+validated read/traverse ACL. Each handler/reader gets one RO subtree, no parent,
+sibling, private temp/log/secret mounts or nested mounts. The local API and writer
+are trusted; mutually untrusted operators need separate instances/storage.
+
+Rotation replaces the protected Bearer file and restarts downloads. Confirm the
+old credential gets 401 and the new one retrieves synthetic bytes. Cache eviction,
+30s I/O timeout and the total deadline can interrupt transfers; no Range/resume
+or retention SLA is promised. Never paste token-bearing paths into reports.
+
 Registry publication does not restart your VPS. Select a tested tag/digest with
-`BOTAPI_IMAGE` in `.env`, then:
+`BOTAPI_IMAGE` and the matching `OBSERVER_IMAGE` in `.env`, then:
 
 ```sh
-docker compose stop botapi
+docker compose stop observer botapi
 # Make a consistent backup of ./data and private configuration here.
-docker compose pull botapi
-docker compose up -d --no-deps botapi
+docker compose pull botapi observer gateway
+docker compose up -d --force-recreate botapi observer gateway
 docker compose logs --tail=100 botapi
 ```
 
 For a locally built installation, use the build override consistently:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml stop botapi
+docker compose -f docker-compose.yml -f docker-compose.build.yml stop observer botapi
 # Back up ./data and private configuration before replacing the binary.
-docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
+docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi observer
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --force-recreate botapi observer gateway
 ```
 
 Preserve `./data`, ownership `101:101`, the API endpoint and local-mode settings.
@@ -325,6 +383,141 @@ owner-only location outside `logs/migration` before removing reconciled run
 directories and a stale lock. Keep the archive until resolution. A lock must
 never be removed merely to retry an unknown request. An unfinished token-free
 probe without a surviving lock does not block; authenticated unfinished attempts do.
+
+## Operational status schema v1
+
+The observer exposes independent `process`, `migration`, `webhook`, `queue`,
+`storage` and `image` observations. Each has a fixed source, state, reason,
+UTC `observed_at` and age in seconds. Unknown counts are null, never implied zero.
+Process readiness does not establish migration completion or webhook delivery.
+The public JSON schema is `tools/observability/status.schema.json`; unknown fields,
+invalid integers, future timestamps and oversized documents are rejected.
+
+## Host runtime producer
+
+Storage and image identity come from a trusted Python 3 host CLI, not the HTTP
+observer. With the same project name/files as deployment, run:
+
+```sh
+python3 tools/observe_runtime.py --project-directory "$PWD" --file docker-compose.yml --file docker-compose.build.yml --watch
+```
+
+Prepare `.observability/runtime` as an owned 0755 directory. Atomic 0644 status.json
+is mounted read-only; output contains no paths, environment or raw inspect fields.
+The producer selects exactly one Bot API, reads PID 1 flags and effective UID/GID,
+gets filesystem metadata for actual work/temp, binary version and actual image
+metadata, then rechecks container identity. Custom unsupported images fail closed.
+Filesystem IDs let you recognize work/temp on the same filesystem: do not sum them.
+Available inodes can be null; capacity is not a quota or write-readiness check.
+Local builds may have no registry digest. Binary version, source revision, build
+key, image ID and digest are distinct. Without a successful producer they are
+unknown; after 90 seconds the snapshot is stale. Health remains independent.
+
+For supervision, install an operator-owned systemd service with `Type=simple`,
+`WorkingDirectory=/opt/tg-selfhost-botapi`, `ExecStart=/usr/bin/python3 /opt/tg-selfhost-botapi/tools/observe_runtime.py --project-directory /opt/tg-selfhost-botapi --file docker-compose.yml --file docker-compose.build.yml --watch`,
+`Restart=on-failure`, `RestartSec=5`, `UMask=0077`; run as the trusted Docker-capable
+host account and enable with `systemctl enable --now botapi-observation.service`.
+Alternatively use a oneshot service with the same command without --watch and a
+timer `OnBootSec=30`, `OnUnitActiveSec=30`. Docker access grants host privileges;
+never mount its socket in observer. A manual oneshot needs regular renewal.
+
+## Candidate-pair acceptance
+
+The build key covers every observer Python module, JSON schema, health helper and
+Docker/Compose/nginx recipe. CI resolves a digest-pinned Python observer base,
+loads both exact candidates and checks their shared build-key labels. Reuse still
+requires a fresh pair qualification; a missing image is built and the complete
+pair is tested before publication. PRs never publish. `build-<key>` and
+`observer-build-<key>` are immutable deployment inputs; latest aliases are promoted
+only after gates and their promotion is not atomic.
+
+Run the isolated gate explicitly with `python3 tools/check_observability.py
+--botapi-image botapi-candidate:check --observer-image observer-candidate:check`.
+It creates a random internal Docker network, uses synthetic inputs, tests mock
+privacy and actual root/manager/helper behavior, and removes its own containers.
+`python3 tools/check_stats_source.py <upstream-checkout>` checks the reviewed source
+fragments of the exact candidate revision. A changed format requires review.
+Actual image build/smoke, POSIX producer/file gates, CI/Jekyll/Kuma and production
+have not been executed in this Windows implementation pass: verification deferred
+to CI/gates. Mock tests do not establish privacy of an actual Bot API logging
+configuration. Keep authenticated polling disabled until that deployment's
+synthetic token privacy gate has passed at its supported verbosity.
+
+## Opt-in webhook diagnostics
+
+Polling is disabled with an empty OBSERVER_REGISTRY. To enable it, first run the
+host runtime producer and copy its current `.image.instance` into a private
+`registry.json` under `.observability/registry` (file mode 0600, owner 101:101):
+
+```json
+{"schema_version":1,"enabled":true,"instance":"<64 hex characters from the fresh runtime snapshot>","allow_unobserved_migration":false,"bots":[{"alias":"public_label","credential_file":"bot.json"}]}
+```
+
+Store `{"token":"<BOT_TOKEN>"}` in `.observability/credentials/bot.json`, mode 0600,
+owner 101:101, then set `OBSERVER_REGISTRY=/inputs/registry/registry.json`.
+Aliases are public `[A-Za-z0-9][A-Za-z0-9_-]{0,31}` labels; never use a secret as a
+label. The target is fixed to the local Bot API bind/port. No cloud fallback or
+autodiscovery exists. Stats never provide credentials. With a migration producer,
+set `OBSERVER_MIGRATION_DIR=/inputs/migration`: only fresh, confirmed finished
+operations allow polling. Without a producer, `allow_unobserved_migration=true`
+is a separate explicit ownership opt-in and requires pausing before every move.
+Disable `enabled`, wait at least 60 seconds for in-flight bounded requests to
+finish, and pause before migration. It is not a cross-host lock. Recreate changes
+the instance; old confirmation stops working. Refresh host metadata, reconcile
+migration, then explicitly update instance and enable. Replace private files
+atomically for rotation; mount directories so rename is visible.
+After observer restart, the worker stays closed until the first later runtime snapshot.
+
+The worker polls only getWebhookInfo, every 60 seconds, at most four concurrently,
+with a 2-second request deadline and no immediate retries (including 429). Public
+results contain mode, registered pending count, historical error time/category
+and synchronization error time; no URL/IP/header/raw error text. Delivery remains
+not_observed. Run the synthetic actual-image logging privacy gate before enabling.
+
+## Uptime Kuma
+
+Create two HTTP(s) GET monitors against your private management ingress:
+
+- `Bot API liveness`: `http://127.0.0.1:18081/health/live`.
+- `Bot API infrastructure readiness (HTTP handler / manager if enabled)`:
+  `http://127.0.0.1:18081/health/ready`.
+
+For both: accepted status **200 only**, timeout **5 seconds**, heartbeat interval
+**60 seconds**, retries **2**, redirects **off**. No bot token or webhook secret.
+A remote Kuma must use a protected HTTPS ingress, VPN or tunnel with its own access
+control. In a Kuma container, 127.0.0.1 means Kuma itself: configure and verify its
+reachable private management ingress hostname/port. Never use raw 8082 or publish
+8090. HTTP 200 `/status` does not mean every component is UP; optional JSON checks
+must inspect the relevant section and freshness under schema_version 1.
+
+Expected interpretations: process ready + migration unknown is valid; historical
+webhook error is not current DOWN; growing sampled backlog is a lower-bound trend;
+stats disabled yields unknown queue, not zero; stale runtime means disk/image
+unknown for current decisions. Polling mode does not establish a live consumer.
+No URL, zero pending count, absent error or migration completion confirms delivery.
+Only an independently authorized update and recipient evidence can do that.
+
+Acceptance on an isolated deployment: record the Kuma version and configured
+private endpoints/settings; observe UP, stop Bot API and observe DOWN, recreate
+the complete pair and gateway and observe UP. Separately stop observer to
+distinguish its failure. This manual Kuma acceptance is NOTRUN in this pass.
+
+## Updating and rollback of the pair
+
+Pin BOTAPI_IMAGE to `build-<key>` and OBSERVER_IMAGE to `observer-build-<same-key>`
+or their exact digests. Keep the same project and Compose overrides throughout:
+
+```sh
+docker compose pull botapi observer gateway
+docker compose up -d --force-recreate botapi observer gateway
+```
+
+For local builds use both `-f docker-compose.yml -f docker-compose.build.yml` on
+build/up. Recreate observer whenever its namespace owner changes; recreate gateway
+to refresh routing. Rollback selects the previous compatible pair and follows the
+same procedure, with a compatible state backup when needed. A botapi-only
+--no-deps update is incomplete. Docker unhealthy is a signal, not automatic restart
+or recovery. Recheck health, source freshness and ownership after every replacement.
 
 ## Isolated mock walkthrough
 

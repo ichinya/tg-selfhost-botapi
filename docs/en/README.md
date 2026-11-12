@@ -13,6 +13,8 @@ a webhook User-Agent patch, and migration helpers.
 
 - [Getting started](getting-started.md) — install, build or pull an image, verify the service.
 - [Configuration](configuration.md) — ports, environment variables, files and access.
+- File access: split media + scoped RO volume, or the opt-in per-bot Bearer handler;
+  [setup and trust boundary](configuration.md#files-in-local-mode).
 - [Migration](migration.md) — cloud/local transitions and the current helper limitations.
 - [Maintenance](maintenance.md) — image updates, backups, diagnostics and documentation.
 
@@ -25,6 +27,8 @@ a webhook User-Agent patch, and migration helpers.
 | Official tdlib server | Bot API implementation |
 | This project's image | Builds the server, applies the webhook patch and starts it from environment variables |
 | nginx gateway | Forwards HTTP requests to the server |
+| Observer | Token-free health and filtered operational snapshots on a private management listener |
+| Runtime host CLI | Writes sanitized disk and actual image metadata without granting observer Docker access |
 | Doctor host CLI | Checks installation and migration prerequisites with safe text/JSON reports |
 | Python executor | Sealed plan/apply/status/resume for all four migration directions |
 | Bash helper | Compatibility adapter to the same executor |

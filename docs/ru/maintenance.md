@@ -67,6 +67,22 @@ image IDs/digests и hashes конфигурации; храните их вне
 Экспорт чистого candidate, scoped unit tests, image overrides и границы аварийной
 очистки описаны в [инструкции участника](../../CONTRIBUTING.md).
 
+Перед первым включением split storage создайте новый пустой host-каталог командой
+`sudo install -d -m 0770 -o 101 -g 101 ./media`: Compose отказывает при отсутствии
+root. Не применяйте эту команду рекурсивно к существующему cache.
+
+Для split storage нужно окно обслуживания: остановите клиентов и writers,
+согласованно сохраните private state и конфигурацию, затем включите files override.
+Создаётся новый media cache; старые загрузки и сохранённые абсолютные пути
+автоматически не переносятся. Legacy storage остаётся приватным; повторите getFile
+для сохранённых file_id. Identity и реальные modes TDLib проверяются на конкретном
+образе; исходники и unit-проверки не подтверждают права production.
+
+
+Doctor проверяет persistence split media и разделение private backings без
+скачивания реальных файлов. Optional handlers и consumer mapping остаются UNKNOWN;
+нужен независимый synthetic file gate и проверка развёрнутого mapping.
+
 ## Приёмка миграции
 
 Обязательный Linux/Node 24 mock-gate описан в CONTRIBUTING: потеря ответа до/после
@@ -100,6 +116,18 @@ endpoint/token bindings и временем. Без доказательств �
 
 ## Сборка образа
 
+Build key Bot API включает resolved revisions/digests и file-contract recipe,
+tests/configs. У downloads отдельный key с immutable Python base. Даже если Bot API
+переиспользуется из registry, текущий file gate проверяет точную пару образов снова.
+После gate и проверки Pages публикуются `tg-selfhost-botapi:build-<key>` и
+`tg-selfhost-botapi-downloads:build-<downloads-key>` в GHCR, затем без пересборки
+продвигаются их `latest`.
+
+Отдельный `files.yml` выполняет полный unit discovery на чистом checkout, Compose
+combinations, state isolation, local/TLS/security integration и docs checks.
+Недоступные локальные runtime-проверки — `verification deferred to CI/gates`;
+для публикации CI обязан их пройти. Публикация не развёртывает и не проверяет VPS.
+
 Workflow проверяет официальный исходник tdlib и digest Alpine 3.22 каждую ночь
 около **04:37 Asia/Yekaterinburg** (23:37 UTC), при изменении основной ветки и
 вручную. GitHub может задерживать запуск по расписанию.
@@ -113,7 +141,10 @@ Workflow проверяет официальный исходник tdlib и dig
 1. Проверяет применимость патча User-Agent к выбранной официальной ревизии.
 2. Компилирует весь сервер.
 3. Выполняет `--version`, проверяет строку заголовка в бинарнике и синтаксис entrypoint.
-4. Публикует `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` и продвигает `latest`.
+4. Собирает downloads, проверяет точную пару через synthetic local/TLS/security
+   matrix и actual startup без сети, сохраняет IDs/source hashes и проверяет Pages.
+5. Публикует проверенные Bot API/downloads `build-<key>` и продвигает их `latest`
+   без пересборки.
 
 Ошибка проверки оставляет прежний опубликованный `latest`. Из PR публикации нет.
 Наличие строки в бинарнике не заменяет проверку доставки реального webhook.
@@ -124,24 +155,52 @@ Workflow проверяет официальный исходник tdlib и dig
 
 ## Обновление установки
 
+### Включение split storage и откат
+
+1. Остановите клиентов, downloads, writers Bot API и supervisors, которые их
+   перезапускают. Согласованно сохраните private state, identity образа, Compose/env,
+   secret files и отдельно media для уже разделённой установки.
+2. В окно обслуживания включите `docker-compose.files.yml` с проверенным образом
+   и конфигурацией. Не копируйте state/binlogs в media и не исправляйте пути TDLib
+   DB вручную. По умолчанию переход создаёт новый media cache.
+3. Повторите getFile по сохранённым file_id. Перед доступом consumers проверьте
+   новую media subtree, bytes/digest, ownership и mapping. Если upstream вернул
+   старый private path, оставьте отказ и разберитесь в причине; доступ к state
+   расширять нельзя. Сохранность старого cache/path не обещается. Холодный перенос
+   с сохранением путей требует отдельной проверки выбранной upstream-версии.
+4. Для rollback остановите новых writers и восстановите совместимые image,
+   конфигурацию, private state и прежний layout из согласованного backup. Одного
+   отката образа недостаточно. При self-to-self снимки media и state согласуются.
+
+Не меняйте права cache рекурсивно и не открывайте его всем. Проверьте реальные
+TDLib modes и UID/GID 101:101; reader использует ту же identity либо отдельно
+проверенную read/traverse ACL. Каждому reader/handler — одна RO subtree, без parent,
+соседних ботов, private temp/log/secrets и nested mounts. Local API и writer
+доверенные; взаимно недоверенным операторам нужны отдельные instances/storage.
+
+Для ротации замените защищённый Bearer-файл и перезапустите downloads. Проверьте
+401 со старым credential и synthetic bytes с новым. Cache eviction, I/O timeout
+30 секунд и общий deadline могут прервать передачу; Range/resume и retention SLA
+не обещаются. Не вставляйте token-bearing paths в отчёты.
+
 Публикация в registry не перезапускает VPS. Выберите проверенный тег/digest через
-`BOTAPI_IMAGE` в `.env`, затем:
+`BOTAPI_IMAGE` и соответствующий `OBSERVER_IMAGE` в `.env`, затем:
 
 ```sh
-docker compose stop botapi
+docker compose stop observer botapi
 # Здесь сделайте согласованную копию ./data и приватной конфигурации.
-docker compose pull botapi
-docker compose up -d --no-deps botapi
+docker compose pull botapi observer gateway
+docker compose up -d --force-recreate botapi observer gateway
 docker compose logs --tail=100 botapi
 ```
 
 Для локальной сборки последовательно используйте build override:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml stop botapi
+docker compose -f docker-compose.yml -f docker-compose.build.yml stop observer botapi
 # До замены бинарника сохраните ./data и приватную конфигурацию.
-docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
+docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi observer
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --force-recreate botapi observer gateway
 ```
 
 Сохраните `./data`, владельца `101:101`, endpoint и local mode.
@@ -324,6 +383,140 @@ Image/default upstream logger qualification, multipart через shipped nginx,
 каталогов запусков и stale lock. Храните архив до разрешения ситуации. Нельзя
 удалять lock ради повтора неизвестного запроса. Незавершённый probe без токена
 и сохранившегося lock не блокирует запуск; незавершённые запросы с токеном блокируют.
+
+## Схема операционного статуса v1
+
+Observer выдаёт независимые наблюдения `process`, `migration`, `webhook`, `queue`,
+`storage` и `image`. У каждого фиксированные source, state, reason,
+UTC `observed_at` и возраст в секундах. Неизвестные числа равны null, а не нулю.
+Готовность процесса не подтверждает завершение миграции или доставку webhook.
+Публичная JSON schema: `tools/observability/status.schema.json`; неизвестные поля,
+неверные целые, будущее время и слишком большой документ отклоняются.
+
+## Host producer runtime
+
+Диск и identity образа собирает доверенный host CLI на Python 3 вне HTTP observer.
+Используйте те же project name/files, что при deployment:
+
+```sh
+python3 tools/observe_runtime.py --project-directory "$PWD" --file docker-compose.yml --file docker-compose.build.yml --watch
+```
+
+Подготовьте принадлежащий оператору `.observability/runtime` с правами 0755.
+Атомарный status.json 0644 монтируется read-only; в нём нет путей, environment и
+raw inspect. Producer выбирает ровно один Bot API, читает flags PID 1 и effective
+UID/GID, metadata реальных work/temp, версию бинарника и actual image metadata,
+после чего повторно проверяет identity контейнера. Неподдерживаемый custom image
+даёт отказ. Одинаковые filesystem IDs work/temp нельзя суммировать.
+Available inodes может быть null; capacity не проверяет quota или возможность записи.
+У local build может не быть registry digest. Binary version, source revision,
+build key, image ID и digest — разные поля. Без успешного producer они unknown,
+через 90 секунд snapshot stale. Health от них не зависит.
+
+Для supervision установите operator-owned systemd service с `Type=simple`,
+`WorkingDirectory=/opt/tg-selfhost-botapi`, `ExecStart=/usr/bin/python3 /opt/tg-selfhost-botapi/tools/observe_runtime.py --project-directory /opt/tg-selfhost-botapi --file docker-compose.yml --file docker-compose.build.yml --watch`,
+`Restart=on-failure`, `RestartSec=5`, `UMask=0077`; запускайте под доверенным
+host account с Docker и включите `systemctl enable --now botapi-observation.service`.
+Альтернатива — oneshot service с той же командой без --watch и timer с
+`OnBootSec=30`, `OnUnitActiveSec=30`. Доступ к Docker даёт права на хост;
+socket нельзя монтировать в observer. Ручной oneshot требует регулярного обновления.
+
+## Приёмка пары кандидатов
+
+Build key охватывает все Python modules observer, JSON schema, health helper и
+Docker/Compose/nginx recipe. CI разрешает digest-pinned Python base observer,
+загружает оба точных кандидата и проверяет общий build-key label. Reuse требует
+повторной qualification; отсутствующий образ собирается, затем полная пара
+проверяется до публикации. PR ничего не публикует. `build-<key>` и
+`observer-build-<key>` — immutable входы deployment; latest aliases продвигаются
+после gates, их продвижение не атомарно.
+
+Изолированный gate запускается явно: `python3 tools/check_observability.py
+--botapi-image botapi-candidate:check --observer-image observer-candidate:check`.
+Он создаёт случайную internal Docker network, использует synthetic inputs,
+проверяет mock privacy и реальные root/manager/helper, удаляет свои контейнеры.
+`python3 tools/check_stats_source.py <upstream-checkout>` проверяет reviewed
+фрагменты source точной revision кандидата; смена формата требует review.
+Actual image build/smoke, POSIX producer/file gates, CI/Jekyll/Kuma и production
+в этом Windows проходе не выполнялись: verification deferred to CI/gates.
+Mock tests не доказывают privacy реального Bot API logging. Оставьте запросы
+с токеном отключёнными до synthetic token privacy gate данного deployment
+на поддерживаемом verbosity.
+
+## Opt-in диагностика webhook
+
+При пустом OBSERVER_REGISTRY опрос отключён. Для включения запустите host producer
+и перенесите текущую `.image.instance` в приватный `registry.json` каталога
+`.observability/registry` (0600, owner 101:101):
+
+```json
+{"schema_version":1,"enabled":true,"instance":"<64 hex characters from the fresh runtime snapshot>","allow_unobserved_migration":false,"bots":[{"alias":"public_label","credential_file":"bot.json"}]}
+```
+
+Сохраните `{"token":"<BOT_TOKEN>"}` в `.observability/credentials/bot.json`, 0600,
+owner 101:101, задайте `OBSERVER_REGISTRY=/inputs/registry/registry.json`.
+Aliases — публичные метки `[A-Za-z0-9][A-Za-z0-9_-]{0,31}`, без секретов.
+Target фиксирован локальными bind/port Bot API. Cloud fallback и autodiscovery нет;
+stats не служит источником credentials. При наличии migration producer задайте
+`OBSERVER_MIGRATION_DIR=/inputs/migration`: опрос разрешают только свежие confirmed
+finished операции. Без producer `allow_unobserved_migration=true` — отдельный явный
+ownership opt-in; перед каждым переносом нужна пауза. Отключите `enabled`, подождите
+минимум 60 секунд завершения текущих bounded requests и сделайте паузу до миграции.
+Это не cross-host lock. Recreate меняет instance и отменяет прежнее подтверждение.
+После перезапуска observer worker закрыт до первого более позднего runtime snapshot.
+Обновите host metadata, сопоставьте миграцию, затем явно обновите instance и enabled.
+Для rotation заменяйте приватные файлы атомарно; directory mounts видят rename.
+
+Worker вызывает только getWebhookInfo каждые 60 секунд, до четырёх параллельно,
+с deadline 2 секунды и без немедленного retry, включая 429. Публичны mode,
+registered pending count, время/category исторической ошибки и synchronization
+error time. URL/IP/headers/raw text не выдаются. Delivery остаётся not_observed.
+Перед включением обязателен synthetic logging privacy gate actual image.
+
+## Uptime Kuma
+
+Создайте два HTTP(s) GET monitors на private management ingress:
+
+- `Bot API liveness`: `http://127.0.0.1:18081/health/live`.
+- `Bot API infrastructure readiness (HTTP handler / manager if enabled)`:
+  `http://127.0.0.1:18081/health/ready`.
+
+Для обоих: accepted status **только 200**, timeout **5 секунд**, heartbeat interval
+**60 секунд**, retries **2**, redirects **off**. Без bot token и webhook secret.
+Удалённая Kuma использует защищённый HTTPS ingress, VPN или tunnel со своим access
+control. В контейнере Kuma 127.0.0.1 означает саму Kuma: укажите и проверьте доступный
+ей private management hostname/port. Нельзя использовать raw 8082 и публиковать
+8090. HTTP 200 `/status` не означает общий UP. Опциональные JSON checks должны
+проверять нужную секцию и freshness схемы schema_version 1.
+
+Интерпретация: process ready + migration unknown допустимы; историческая webhook
+ошибка не означает текущий DOWN; рост sampled backlog — тренд нижней границы;
+stats disabled означает неизвестную очередь, а не ноль; stale runtime означает
+неизвестные диск/image для текущих решений. Polling mode не доказывает живой consumer.
+URL, нулевая очередь, отсутствие ошибки и завершение миграции не подтверждают
+доставку. Для этого нужны отдельно разрешённый update и evidence получателя.
+
+Приёмка на изолированном deployment: запишите Kuma version, private endpoints и
+settings; наблюдайте UP, остановите Bot API и получите DOWN, пересоздайте полную
+пару и gateway и получите UP. Отдельно остановите observer, чтобы отличить его
+отказ. Ручная приёмка настоящей Kuma в этом проходе NOTRUN.
+
+## Обновление и rollback пары
+
+Закрепите BOTAPI_IMAGE как `build-<key>`, OBSERVER_IMAGE как
+`observer-build-<same-key>` либо точные digest. Сохраняйте project и Compose overrides:
+
+```sh
+docker compose pull botapi observer gateway
+docker compose up -d --force-recreate botapi observer gateway
+```
+
+Для local builds используйте оба `-f docker-compose.yml -f docker-compose.build.yml`
+при build/up. Пересоздавайте observer при смене владельца namespace и gateway для
+обновления routing. Rollback выбирает прежнюю совместимую пару и ту же процедуру;
+при необходимости нужна совместимая backup состояния. Обновление только botapi
+с --no-deps неполно. Docker unhealthy — сигнал, а не автоматический restart или
+recovery. После замены проверьте health, freshness источников и ownership.
 
 ## Изолированный пример с mock-сервером
 

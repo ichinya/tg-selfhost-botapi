@@ -1,9 +1,11 @@
 """Run the shipped-page result contract with an external watchdog."""
 import subprocess
 import json
+import os
 import socket
 import sys
 import threading
+import tempfile
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TOKEN = '123:synthetic_token_for_tests_only'
 HOOK = 'https://sink.test/private-hook?secret=synthetic-secret'
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from issue10_test_support import bash_binary
+from issue10_test_support import bash_binary, posix_path
 
 
 class ResultContract(unittest.TestCase):
@@ -47,8 +49,10 @@ class ResultContract(unittest.TestCase):
                 if method == 'getMe':
                     result = {'id': 456 if scenario == 'id-mismatch' and role == 'target' else 123}
                 else:
-                    final = sum(m == 'getWebhookInfo' for _, m in calls) > 1
-                    result = {'url': 'https://other.test/hook' if final and scenario == 'url-mismatch' else hooks[role]}
+                    final = any(m == 'setWebhook' for _, m in effects)
+                    result = {'url': 'https://other.test/hook' if final and scenario == 'url-mismatch' else hooks[role],
+                              'max_connections': 40, 'has_custom_certificate': False,
+                              'pending_update_count': 0, 'allowed_updates': []}
                 self.reply(200, {'ok': True, 'result': result})
 
             def do_POST(self):
@@ -95,9 +99,17 @@ class ResultContract(unittest.TestCase):
                                   capture_output=True, text=True, timeout=10).stdout
             self.assertNotIn(HOOK, plan)
             self.assertNotIn(TOKEN, plan)
-            result = subprocess.run([bash_binary(), '-c', plan],
-                                    input=('y\n' + TOKEN + '\n' + runtime_hook + '\n').encode(), cwd=ROOT,
-                                    capture_output=True, timeout=20)
+            env = {key: value for key, value in os.environ.items() if key.upper() in
+                   {'PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME'}}
+            env.update(BOT_TOKEN=TOKEN, OFFICIAL_BOT_URL=address + '/source',
+                       SELF_BOT_URL=address + ('/source' if mode == 'hook-only' else '/target'),
+                       WEBHOOK_URL=runtime_hook, WEBHOOK_SECRET_MODE='none', WEBHOOK_IP_MODE='dns', WEBHOOK_CERTIFICATE_MODE='none',
+                       NO_PROXY='127.0.0.1', no_proxy='127.0.0.1')
+            with tempfile.TemporaryDirectory() as temp:
+                script = Path(temp) / 'plan.sh'
+                script.write_text(plan, encoding='utf-8', newline='\n')
+                result = subprocess.run([bash_binary(), posix_path(script)], input=b'y\n', cwd=ROOT, env=env,
+                                        capture_output=True, timeout=30)
             for secret in (TOKEN, HOOK):
                 self.assertNotIn(secret.encode(), result.stdout + result.stderr)
             return result, calls, effects, hooks, initial_hook
@@ -109,24 +121,22 @@ class ResultContract(unittest.TestCase):
     def test_shell_known_refusal_stops(self):
         result, calls, effects, _, _ = self.run_shell('400')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'ERROR phase=delivery_configured', result.stderr)
-        self.assertEqual(calls, [('source', 'getMe'), ('source', 'getWebhookInfo'), ('source', 'setWebhook')])
+        self.assertIn(b'API HTTP rejection; stop and reconcile', result.stderr)
+        self.assertEqual(calls, [('source', 'getMe'), ('source', 'getWebhookInfo'), ('source', 'getWebhookInfo'), ('source', 'setWebhook')])
         self.assertEqual(effects, [])
 
     def test_shell_429_stops_without_effect(self):
         result, calls, effects, _, _ = self.run_shell('429')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'ERROR phase=delivery_configured', result.stderr)
-        self.assertRegex(result.stderr, rb'retryNotBefore_epoch=\d+')
+        self.assertIn(b'API HTTP rejection; stop and reconcile', result.stderr)
         self.assertEqual(calls[-1], ('source', 'setWebhook'))
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 4)
         self.assertEqual(effects, [])
 
-    def test_shell_429_after_detach_is_partial(self):
+    def test_shell_429_after_detach_stops(self):
         result, calls, effects, _, _ = self.run_shell('logout-429', mode='official-to-self')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'PARTIAL phase=source_disabled progress=1', result.stderr)
-        self.assertRegex(result.stderr, rb'retryNotBefore_epoch=\d+')
+        self.assertIn(b'API HTTP rejection; stop and reconcile', result.stderr)
         self.assertEqual(calls[-1], ('source', 'logOut'))
         self.assertEqual(effects, [('source', 'deleteWebhook')])
         self.assertFalse(any(role == 'target' and method != 'probe' for role, method in calls))
@@ -134,32 +144,31 @@ class ResultContract(unittest.TestCase):
     def test_shell_lost_ack_retains_remote_effect(self):
         result, calls, effects, hooks, _ = self.run_shell('lost-ack')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'UNKNOWN phase=delivery_configured', result.stderr)
+        self.assertIn(b'UNKNOWN phase=delivery_configured progress=0 response unavailable; reconcile without retry', result.stderr)
         self.assertEqual(calls[-1], ('source', 'setWebhook'))
         self.assertEqual(effects, [('source', 'setWebhook')])
         self.assertEqual(hooks['source'], HOOK)
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 4)
 
-    def test_shell_final_url_mismatch_is_partial(self):
+    def test_shell_final_url_mismatch_is_reported(self):
         result, calls, effects, _, _ = self.run_shell('url-mismatch')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'PARTIAL phase=target_verified', result.stderr)
-        self.assertIn(b'target URL mismatch', result.stderr)
+        self.assertIn(b'"observable_profile_matches":false', result.stdout)
         self.assertEqual(calls[-1], ('source', 'getWebhookInfo'))
         self.assertEqual(effects, [('source', 'setWebhook')])
 
     def test_shell_target_id_mismatch_stops_before_webhook(self):
         result, calls, effects, _, _ = self.run_shell('id-mismatch', mode='official-to-self')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'PARTIAL phase=target_authorized', result.stderr)
-        self.assertIn(b'target identity mismatch', result.stderr)
+        self.assertIn(b'PARTIAL phase=target_authorized progress=1 target identity mismatch; source login forbidden', result.stderr)
         self.assertEqual(calls[-1], ('target', 'getMe'))
         self.assertEqual(effects, [('source', 'deleteWebhook'), ('source', 'logOut')])
 
-    def test_shell_empty_prompt_inherits_source(self):
+    def test_shell_empty_webhook_env_inherits_source(self):
         result, calls, effects, hooks, initial_hook = self.run_shell('success', runtime_hook='')
         self.assertEqual(result.returncode, 0, result.stderr.decode())
-        self.assertIn(b'SUCCESS phase=target_verified', result.stderr)
+        self.assertIn(b'"observable_profile_matches":true', result.stdout)
+        self.assertIn(b'"delivery_confirmed":false', result.stdout)
         self.assertEqual(hooks['source'], initial_hook)
         self.assertEqual(effects, [('source', 'setWebhook')])
         self.assertEqual(calls[-1], ('source', 'getWebhookInfo'))
