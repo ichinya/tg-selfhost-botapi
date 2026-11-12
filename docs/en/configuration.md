@@ -64,6 +64,10 @@ persistent work mount and writable separate temp path. A local-build image need
 not have a RepoDigest; temp storage need not be persistent. `_FILE` credentials
 are supported. Managed Docker diagnostics perform explicit tiny write probes as
 the runtime user; they are not read-only. The HTTP helper cannot select containers.
+Managed readiness observes the server at PID 1 and verifies the probe's UID,
+GID and normalized supplementary groups before reading secret files or writing.
+Identity mismatch or process drift blocks evidence. The external v1 evidence
+retains UID/GID and does not separately attest the group set.
 Local webhook mode must match deployment evidence: HTTP/private IP/any port is
 allowed in local mode; cloud requires HTTPS, a supported port and public IPv4.
 Unsupported profiles fail before source mutations. Transport has bounded DNS,

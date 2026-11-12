@@ -139,6 +139,56 @@ class DockerEvidence:
             raise ValueError('invalid docker inspect result')
         return result[0]
 
+    def process(self):
+        """Observe PID 1 without exposing argv or paths in diagnostics."""
+        raw = self.run('exec', self.container, 'sh', '-c',
+                       'readlink /proc/1/exe; cat /proc/1/status; printf "\\nBOTAPI_STAT\\n"; cat /proc/1/stat; printf "\\nBOTAPI_ARGV\\n"; cat /proc/1/cmdline')
+        try:
+            head, tail = raw.split('\nBOTAPI_STAT\n', 1)
+            statline, argvraw = tail.split('\nBOTAPI_ARGV\n', 1)
+            lines = head.splitlines()
+            if PurePosixPath(lines[0]).name != 'telegram-bot-api':
+                raise ValueError
+            values = dict(line.split(':', 1) for line in lines[1:] if ':' in line)
+            uid, gid = values['Uid'].split(), values['Gid'].split()
+            if (len(uid) != 4 or len(gid) != 4 or len(set(uid)) != 1 or len(set(gid)) != 1
+                    or not all(v.isdecimal() for v in uid + gid)):
+                raise ValueError
+            groups = values['Groups'].split()
+            if not all(v.isdecimal() for v in groups):
+                raise ValueError
+            # stat field 22 is starttime; comm may contain spaces and parentheses.
+            start = statline[statline.rindex(')') + 2:].split()[19]
+            if not start.isdecimal():
+                raise ValueError
+            args = argvraw.split('\x00')
+            if not args or PurePosixPath(args[0]).name != 'telegram-bot-api':
+                raise ValueError
+            u, g = int(uid[0]), int(gid[0])
+            if u == 0:
+                raise ValueError
+            return (u, g, tuple(sorted({int(x) for x in groups} | {g})), start, tuple(args))
+        except (ValueError, KeyError, IndexError):
+            raise ValueError('managed server process identity unverified') from None
+
+    def probe_user(self, process):
+        uid, gid, groups = process[:3]
+        def observe(prefix):
+            result = self.run('exec', *prefix, self.container, 'sh', '-c', 'id -u; id -g; id -G').splitlines()
+            try:
+                u, g = int(result[0]), int(result[1])
+                return u, g, tuple(sorted({int(x) for x in result[2].split()} | {g}))
+            except (IndexError, ValueError):
+                raise ValueError('probe identity unverified') from None
+        prefix = []
+        observed = observe(prefix)
+        if observed[:2] != (uid, gid):
+            prefix = ['--user', f'{uid}:{gid}']
+            observed = observe(prefix)
+        if observed != (uid, gid, groups):
+            raise ValueError('supplementary_groups_mismatch')
+        return prefix
+
     def __call__(self):
         import hashlib
         info=self.inspect('inspect',self.container)
@@ -158,20 +208,27 @@ case "$v" in ''|*[!0-9]*) exit 1;; esac
 h=${TELEGRAM_API_HASH:-}; [ -z "${TELEGRAM_API_HASH_FILE:-}" ] || h=$(cat "$TELEGRAM_API_HASH_FILE")
 [ "${#h}" -eq 32 ]; case "$h" in *[!0-9a-fA-F]*) exit 1;; esac
 '''
-        self.run('exec',self.container,'sh','-c',credentials)
         work,temp=env.get('TELEGRAM_WORK_DIR','/var/lib/telegram-bot-api'),env.get('TELEGRAM_TEMP_DIR','/tmp/telegram-bot-api')
-        argv=self.run('exec',self.container,'cat','/proc/1/cmdline').split('\x00')
+        process=self.process()
+        uid,gid,groups,_,argv=process
         if (not argv or PurePosixPath(argv[0]).name!='telegram-bot-api'
                 or '--dir='+work not in argv or '--temp-dir='+temp not in argv):
             raise ValueError('managed runtime arguments do not match deployment configuration')
         mounts={m['Destination']:m for m in info['Mounts']}
         if work not in mounts or not mounts[work]['RW'] or temp in mounts and not mounts[temp]['RW']:
             raise ValueError('managed persistent mount must be writable')
-        uid=int(self.run('exec',self.container,'id','-u','telegram-bot-api').strip())
-        gid=int(self.run('exec',self.container,'id','-g','telegram-bot-api').strip())
-        script='set -eu; a=$(mktemp "$1/.migration-write.XXXXXX"); trap \'rm -f "$a"\' EXIT; printf fixture > "$a"; test -r "$a"'
+        prefix=self.probe_user(process)
+        # Check identity in the same process that reads credentials and writes.
+        identity='[ "$(id -u)" = "$1" ] && [ "$(id -g)" = "$2" ] || exit 1; actual=$( { id -G; echo "$2"; } | tr " " "\\n" | sort -n -u | tr "\\n" " "); [ "$actual" = "$3" ] || exit 1; shift 3; '
+        expected=''.join(str(g)+' ' for g in groups)
+        self.run('exec',*prefix,self.container,'sh','-c',identity+credentials,'sh',str(uid),str(gid),expected)
+        script=identity+'set -eu; a=$(mktemp "$1/.migration-write.XXXXXX"); trap \'rm -f "$a"\' EXIT; printf fixture > "$a"; test -r "$a"; rm "$a"; trap - EXIT'
         for directory in (work,temp):
-            self.run('exec','--user',f'{uid}:{gid}',self.container,'sh','-c',script,'sh',directory)
+            self.run('exec',*prefix,self.container,'sh','-c',script,'sh',str(uid),str(gid),expected,directory)
+        current=self.inspect('inspect',self.container)
+        if (not current['State']['Running'] or current['Id'] != info['Id'] or current['Image'] != info['Image']
+                or current['State'].get('StartedAt') != info['State'].get('StartedAt') or self.process() != process):
+            raise ValueError('managed server changed during readiness probe')
         image=self.inspect('image','inspect',self.expected_image)
         digests=image.get('RepoDigests',[])
         return dict(version=1,endpoint=self.endpoint,created_at=time.time(),deployment_id=info['Id'],
