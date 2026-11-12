@@ -1,6 +1,12 @@
 """Offline tests: no Docker discovery, pulls or long sleeps."""
 import hashlib
+import http.client
 import json
+import select
+import shutil
+import socket
+import subprocess
+import time
 from pathlib import Path
 import sys
 import tempfile
@@ -12,6 +18,123 @@ from http.server import ThreadingHTTPServer
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_gateway_uploads as gateway
 from gateway_upload_mock import Multipart, Handler, State
+
+
+@unittest.skipUnless(shutil.which("nginx") and sys.platform != "win32", "nginx POSIX fixture unavailable")
+class AdmissionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.upstream = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.upstream.state = State()
+        threading.Thread(target=self.upstream.serve_forever, daemon=True).start()
+        self.addCleanup(self.upstream.server_close)
+        self.addCleanup(self.upstream.shutdown)
+        def port():
+            with socket.socket() as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+        self.public, self.trusted, management = port(), port(), port()
+        conf = (gateway.ROOT / "nginx.conf").read_text(encoding="utf-8")
+        conf = conf.replace("listen 80;", f"listen 127.0.0.1:{self.public};")
+        conf = conf.replace("listen 82;", f"listen 127.0.0.1:{self.trusted};")
+        conf = conf.replace("listen 81;", f"listen 127.0.0.1:{management};")
+        conf = conf.replace("~*^80:.+", f"~*^{self.public}:.+")
+        conf = conf.replace("http://botapi:8081", f"http://127.0.0.1:{self.upstream.server_port}")
+        conf = conf.replace("/var/cache/nginx/client_temp", self.tmp.name + "/spool")
+        conf = conf.replace("/var/log/nginx/access.log", self.tmp.name + "/access.log")
+        conf = conf.replace("/var/log/nginx/error.log", self.tmp.name + "/error.log")
+        conf = conf.replace("client_body_timeout 300s;", "client_body_timeout 2s;")
+        path = Path(self.tmp.name) / "nginx.conf"
+        path.write_text(f"pid {self.tmp.name}/nginx.pid;\nevents {{}}\nhttp {{\n{conf}\n}}\n")
+        subprocess.run(["nginx", "-t", "-p", self.tmp.name, "-c", str(path)], check=True, capture_output=True)
+        self.process = subprocess.Popen(["nginx", "-p", self.tmp.name, "-c", str(path), "-g", "daemon off;"], stderr=subprocess.PIPE)
+        self.addCleanup(self.stop_nginx)
+        for _ in range(100):
+            try:
+                socket.create_connection(("127.0.0.1", self.public), timeout=.1).close()
+                break
+            except OSError:
+                time.sleep(.02)
+        else:
+            self.fail("nginx did not start: " + self.process.stderr.read().decode())
+
+    def stop_nginx(self):
+        self.process.terminate()
+        self.process.communicate(timeout=5)
+
+    def send(self, method, path, headers=None, body=None, port=None):
+        conn = http.client.HTTPConnection("127.0.0.1", port or self.public, timeout=4)
+        try:
+            conn.request(method, path, body, headers or {})
+            response = conn.getresponse()
+            response.read()
+            return response.status
+        finally:
+            conn.close()
+
+    def hold(self, case, address="127.0.0.1"):
+        sock = socket.socket()
+        sock.settimeout(4)
+        sock.bind((address, 0))
+        sock.connect(("127.0.0.1", self.trusted))
+        sock.sendall((f"POST /bot12345:synthetic/sendDocument HTTP/1.1\r\nHost: test\r\nX-Case: {case}\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n").encode())
+        time.sleep(.05)
+        return sock
+
+    def test_public_rejects_chunked_methods_and_get_bodies_before_upstream(self):
+        path = "/bot12345:synthetic/sendDocument"
+        for method in ("PUT", "DELETE", "PATCH"):
+            self.assertEqual(self.send(method, path, {"X-Case": method}, b"x"), 403)
+        for method in ("GET", "HEAD"):
+            self.assertEqual(self.send(method, path, {"X-Case": method}, b"x"), 400)
+        results = []
+        def chunk(i):
+            results.append(self.send("POST", path, {"Transfer-Encoding": "chunked", "X-Case": f"chunk{i}"}, b"1\r\nx\r\n0\r\n\r\n"))
+        threads = [threading.Thread(target=chunk, args=(i,)) for i in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(results, [411] * 4)
+        self.assertFalse(self.upstream.state.receipts)
+        self.assertFalse(list((Path(self.tmp.name) / "spool").rglob("*")))
+
+    def test_slots_release_after_abort_and_timeout_rpc_and_second_client(self):
+        first, second = self.hold("first"), self.hold("second")
+        self.addCleanup(first.close)
+        self.addCleanup(second.close)
+        rejected = self.hold("rejected")
+        self.addCleanup(rejected.close)
+        self.assertIn(b" 429 ", rejected.recv(4096))
+        other = self.hold("other", "127.0.0.2")
+        self.addCleanup(other.close)
+        other2 = self.hold("other2", "127.0.0.2")
+        self.addCleanup(other2.close)
+        overflow = self.hold("overflow", "127.0.0.3")
+        self.addCleanup(overflow.close)
+        self.assertIn(b" 429 ", overflow.recv(4096))
+        self.assertEqual(self.send("GET", "/bot12345:synthetic/getMe"), 200)
+        first.close()
+        time.sleep(.3)
+        replacement = self.hold("replacement")
+        self.addCleanup(replacement.close)
+        self.assertFalse(select.select([replacement], [], [], .1)[0])
+        self.assertEqual(second.recv(4096), b"")  # nginx records 408 then closes
+        self.assertIn(' 408 ', (Path(self.tmp.name) / "access.log").read_text())
+        time.sleep(.3)
+        after = self.hold("after")
+        self.addCleanup(after.close)
+        self.assertFalse(select.select([after], [], [], .1)[0])
+        self.assertFalse(self.upstream.state.receipts)
+
+    def test_rate_burst_returns_429_without_upstream(self):
+        path = "/bot12345:synthetic/sendDocument"
+        statuses = [self.send("POST", path, {"X-Case": f"burst{i}"}, b"") for i in range(12)]
+        self.assertIn(429, statuses)
+        for i, status in enumerate(statuses):
+            if status == 429:
+                self.assertNotIn(f"burst{i}", self.upstream.state.receipts)
 
 
 class GatewayTests(unittest.TestCase):
@@ -218,7 +341,7 @@ class GatewayTests(unittest.TestCase):
     def test_quick_alias_and_current_nginx_contract(self):
         self.assertEqual(gateway.inventory("quick"), gateway.inventory("fast"))
         config = (gateway.ROOT / "nginx.conf").read_text(encoding="utf-8")
-        limit = int(gateway.re.search(r"client_max_body_size\s+(\d+)m;", config)[1]) * 1024 ** 2
+        limit = max(map(int, gateway.re.findall(r"client_max_body_size\s+(\d+)m;", config))) * 1024 ** 2
         self.assertEqual(gateway.LIMIT, limit)
         self.assertEqual(gateway.NGINX_IMAGE, "nginx:1.28.0-alpine3.21")
 

@@ -194,10 +194,10 @@ or application mapping: those remain UNKNOWN until independently checked with
 `tools/check_file_contract.py`. A supplied JSON receipt cannot grant READY.
 
 - nginx returns 404 for `/file` and `/file/` requests; it does not serve the state directory.
-- nginx limits the entire request body to `2048m` (2,147,483,648 bytes), including
+- File-capable Bot API methods have a `2048m` (2,147,483,648 bytes) body limit, including
   multipart fields and all attachments; larger requests receive HTTP 413. Request
   buffering is on and uses the separate disk-backed spool before forwarding.
-  Client body and upstream send idle timeouts are 300 seconds, upstream read is
+  Upload body and upstream send idle timeouts are 300 seconds, upstream read is
   600 seconds, and upstream connect is 5 seconds. These are not total deadlines.
   Upstream describes local-mode uploads up to 2000 MB per file; the gateway limit
   applies to the entire body, so several attachments share it. The 2048 MiB body
@@ -212,7 +212,21 @@ or application mapping: those remain UNKNOWN until independently checked with
   the same filesystem. The volume reserves no space or quota, and Doctor's 1 GiB
   default reserve does not qualify a large upload. Check free bytes and inodes,
   including the Docker Desktop disk image. Spool may contain sensitive uploads;
-  restrict access. The operator controls concurrency.
+  restrict access. The gateway admits at most two uploads per source address and
+  four in total: reserve at least 8 GiB plus operational headroom. Upload starts
+  are limited to 2/s per address (burst 4) and 10/s overall (burst 20); excess
+  requests receive 429. Source addresses must be preserved by the ingress; nginx
+  does not trust forwarded addresses. GET, HEAD and POST are allowed, but GET/HEAD
+  bodies are rejected. Other methods receive 403.
+
+  Ordinary RPC bodies are limited to 1 MiB, with 15-second body/send and 30-second
+  read idle timeouts. `getUpdates` has a separate 600-second read timeout. Public
+  port 80 rejects transfer-encoded requests with 411 before reading the body;
+  send uploads with Content-Length. Internal port 82 accepts chunked uploads and
+  is not published by Compose: expose it only to trusted clients. These idle
+  timeouts are not absolute deadlines: a slow Content-Length upload can still
+  hold a slot indefinitely. For untrusted access use an ingress that enforces an
+  absolute request deadline or minimum rate, and admission before reading bodies.
 - The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`
   only if remote clients, such as a webhook receiver, must reach it; protect external
   access with HTTPS and appropriate network controls.

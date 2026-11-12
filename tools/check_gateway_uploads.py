@@ -206,7 +206,7 @@ def compose_manifest(project, nginx, python, config):
     return {"services": {
         "botapi": {"image": python, "command": ["python", "/mock.py"], "labels": labels,
                    "ports": [], "volumes": [f"{(ROOT / 'tools/gateway_upload_mock.py').as_posix()}:/mock.py:ro"]},
-        "gateway": {"image": nginx, "labels": labels, "ports": ["127.0.0.1::80"], "cap_add": ["SYS_PTRACE"],
+        "gateway": {"image": nginx, "labels": labels, "ports": ["127.0.0.1::80", "127.0.0.1::82"], "cap_add": ["SYS_PTRACE"],
                     "volumes": [f"{Path(config).as_posix()}:/etc/nginx/conf.d/default.conf:ro", "staging:/var/cache/nginx/client_temp"]}},
         "volumes": {"staging": {"labels": labels}}, "networks": {"default": {"labels": labels}}}
 
@@ -250,7 +250,8 @@ class Runner:
         self.gateway = self.compose("ps", "-q", "gateway")
         self.mock = self.compose("ps", "-q", "botapi")
         self.record_resources()
-        self.port = int(self.compose("port", "gateway", "80").rsplit(":", 1)[1])
+        self.public_port = int(self.compose("port", "gateway", "80").rsplit(":", 1)[1])
+        self.port = int(self.compose("port", "gateway", "82").rsplit(":", 1)[1])
         deadline = time.monotonic() + 30
         while True:
             try:
@@ -277,13 +278,14 @@ class Runner:
         text = (ROOT / "nginx.conf").read_text(encoding="utf-8")
         for key, value in overrides.items():
             text, count = re.subn(r"\b" + key + r"\s+[^;]+;", f"{key} {value};", text)
-            if count != 1:
+            if count < 1:
                 raise AssertionError(f"directive {key}: {count}")
         self.config.write_text(text, encoding="utf-8", newline="\n")
         self.compose("up", "-d", "--no-deps", "--force-recreate", "gateway")
         self.gateway = self.compose("ps", "-q", "gateway")
         self.record_resources()
-        self.port = int(self.compose("port", "gateway", "80").rsplit(":", 1)[1])
+        self.public_port = int(self.compose("port", "gateway", "80").rsplit(":", 1)[1])
+        self.port = int(self.compose("port", "gateway", "82").rsplit(":", 1)[1])
         self.compose("exec", "-T", "gateway", "nginx", "-t")
         self.ready()
         effective = self.compose("exec", "-T", "gateway", "nginx", "-T")

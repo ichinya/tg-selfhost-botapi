@@ -16,6 +16,6 @@ class ConfigTests(unittest.TestCase):
 
     def test_build_context_is_allowlisted(self):
         text = (ROOT/'.dockerignore').read_text()
-        self.assertTrue(text.startswith('*\n'))
+        self.assertTrue(text.startswith('**\n'))
         self.assertIn('!tools/botapi_healthcheck.sh', text)
         self.assertNotIn('!tools/**', text)
