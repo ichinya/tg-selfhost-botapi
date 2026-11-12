@@ -115,6 +115,15 @@ jobs:
           python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
           docker build -f Dockerfile.downloads --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
           python3 tools/check_file_contract.py --botapi-image botapi-candidate:check --downloads-image downloads-candidate:check --report evidence/file-report.json
+      - name: Smoke-test built binary
+        run: |
+          docker run --rm botapi-candidate:check --version
+          docker run --rm --entrypoint sh botapi-candidate:check -ec \
+            'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
+      - name: Qualify exact native image before publish or promotion
+        env:
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+        run: python3 tools/issue17_security_gate.py --image botapi-candidate:check --expected-build-key "$BUILD_FINGERPRINT" --manifest evidence/issue17-image.json
       - name: Build Pages before promotion
         uses: actions/jekyll-build-pages@v1
         with:

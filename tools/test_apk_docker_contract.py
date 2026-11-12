@@ -58,7 +58,8 @@ class DockerContractTests(unittest.TestCase):
         dockerfile = (ROOT / 'Dockerfile').read_text()
         self.assertIn('strip /usr/local/bin/telegram-bot-api', dockerfile)
         self.assertIn('capture_link_metadata.py', dockerfile)
-        self.assertNotIn('COPY tools/', dockerfile)
+        self.assertNotIn('COPY tools/capture_apk_metadata.sh', dockerfile)
+        self.assertNotIn('COPY tools/capture_link_metadata.py', dockerfile)
 
 
 if __name__ == '__main__':

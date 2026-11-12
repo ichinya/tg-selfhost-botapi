@@ -43,11 +43,11 @@ class HarnessTests(unittest.TestCase):
             out, err = io.StringIO(), io.StringIO()
             with patch("doctor_runtime.sys.platform", "linux"), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 code = doctor.main(["--scenario", "official-to-self", "--format", fmt], runner=runner, http=http, collector=collector)
-            self.assertEqual(0, code, out.getvalue())
+            self.assertEqual(3, code, out.getvalue())
             self.assertNotIn(sentinel, out.getvalue() + err.getvalue())
             assert_commands(runner.calls)
             if fmt == "json":
-                self.assertEqual(0, json.loads(out.getvalue())["exit_code"])
+                self.assertEqual(3, json.loads(out.getvalue())["exit_code"])
 
     def test_self_to_self_selected_subtree_capacity_and_compatibility(self):
         from types import SimpleNamespace

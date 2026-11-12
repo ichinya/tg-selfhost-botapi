@@ -6,6 +6,11 @@ import {createClient} from '../assets/js/migration-client.mjs';
 const digest = 'a'.repeat(64);
 const location = {protocol: 'http:', hostname: '127.0.0.1'};
 const reply = value => ({ok: true, json: async () => value});
+
+test('untrusted helper error text is replaced by a fixed code', async () => {
+  const client=createClient({fetcher:async()=>({ok:false,json:async()=>({reason:'private_marker_reflected'})})});
+  assert.equal(await client.handshake(location),false);
+});
 function fixture() {
   const calls = [], renders = [], stored = new Map();
   let effects = 0;

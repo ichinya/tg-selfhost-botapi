@@ -27,6 +27,12 @@ COPY patches/webhook-user-agent.patch /tmp/webhook-user-agent.patch
 RUN git apply --check /tmp/webhook-user-agent.patch \
  && git apply /tmp/webhook-user-agent.patch \
  && git diff --check
+COPY patches/botapi-secrets-redaction.patch /tmp/botapi-secrets-redaction.patch
+RUN git apply --check /tmp/botapi-secrets-redaction.patch \
+ && git apply /tmp/botapi-secrets-redaction.patch \
+ && git diff --check
+COPY tools/fixtures/issue17_security/botapi_log_driver.cpp /tmp/botapi_log_driver.cpp
+RUN printf '\nadd_executable(botapi-privacy-driver /tmp/botapi_log_driver.cpp telegram-bot-api/Query.cpp telegram-bot-api/Stats.cpp)\ntarget_include_directories(botapi-privacy-driver PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})\ntarget_link_libraries(botapi-privacy-driver PRIVATE memprof tdactor tdcore tddb tdnet tdutils)\n' >> CMakeLists.txt
 
 FROM source AS build
 # One job limits peak memory consumption when building TDLib on a VPS.
@@ -41,6 +47,8 @@ RUN --mount=type=bind,source=tools/capture_link_metadata.py,target=/tmp/capture_
  && printf '%s\n' 'set_property(TARGET telegram-bot-api APPEND_STRING PROPERTY LINK_FLAGS " -Wl,-Map=${CMAKE_BINARY_DIR}/telegram-bot-api.map")' >> CMakeLists.txt \
  && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
  && cmake --build build --target install -j ${BUILD_JOBS} \
+ && cmake --build build --target botapi-privacy-driver -j ${BUILD_JOBS} \
+ && build/botapi-privacy-driver \
  && sha256sum /usr/local/bin/telegram-bot-api > /usr/share/tg-selfhost-botapi/build/pre-strip.sha256 \
  && strip /usr/local/bin/telegram-bot-api \
  && python3 /tmp/capture_link_metadata.py
@@ -74,6 +82,7 @@ LABEL org.opencontainers.image.source="https://github.com/ichinya/tg-selfhost-bo
       io.tg-selfhost.apk-refresh-window="${APK_REFRESH_WINDOW}" \
       io.tg-selfhost.apk-refresh-generation="${APK_REFRESH_GENERATION}" \
       io.tg-selfhost.platform="${TARGETPLATFORM}"
+LABEL io.tg-selfhost.privacy-policy="issue17-v1"
 ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
     TELEGRAM_TEMP_DIR="/tmp/telegram-bot-api"
 RUN addgroup -g 101 -S telegram-bot-api \
@@ -83,6 +92,7 @@ RUN addgroup -g 101 -S telegram-bot-api \
  && chmod 770 /var/lib/telegram-bot-api-files
 COPY --from=build /usr/local/bin/telegram-bot-api /usr/local/bin/telegram-bot-api
 COPY --from=build /usr/share/tg-selfhost-botapi/build /usr/share/tg-selfhost-botapi/build
+COPY --from=build /usr/src/telegram-bot-api/build/botapi-privacy-driver /usr/local/bin/botapi-privacy-driver
 COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
 COPY --chmod=755 tools/botapi_healthcheck.sh /usr/local/bin/botapi-healthcheck
 COPY --from=source /usr/src/telegram-bot-api/LICENSE_1_0.txt /usr/share/licenses/telegram-bot-api/LICENSE_1_0.txt

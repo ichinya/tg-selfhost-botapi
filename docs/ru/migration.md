@@ -215,7 +215,7 @@ Webhook-only preserve — проверяемый no-op; сочетание с dr
 старыми именами `TELEGRAM_BOT_URL` и `WEB_HOOK`; старое имя в окружении сильнее
 значения из файла. Пустой webhook сохраняет прежнюю логику выбора, описанную
 ниже. Из другого каталога можно вызвать `ENV_FILE="/path/to/settings.env" bash
-/path/to/migrate_off_to_self.sh "$BOT_TOKEN"`.
+/path/to/migrate_off_to_self.sh`.
 
 Порядок аргументов: `BOT_TOKEN`, `SELF_BOT_URL`, затем `WEBHOOK_URL`:
 
@@ -223,24 +223,24 @@ Webhook-only preserve — проверяемый no-op; сочетание с dr
 ```sh
 export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
-read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
+export BOT_TOKEN_FILE=/secure/bot-token
 SELF_BOT_URL="http://127.0.0.1:18080" \
 WEBHOOK_URL="https://example.com/telegram/webhook" \
-  bash ./migrate_off_to_self.sh "$BOT_TOKEN"
-unset BOT_TOKEN
+  bash ./migrate_off_to_self.sh
+unset BOT_TOKEN_FILE
 ```
 
-Можно передать все три аргумента позиционно. Webhook нельзя ставить вторым
-аргументом: это место адреса Bot API.
+Legacy positional input сохраняется, но раскрывает аргументы.
+Новые сценарии используют файл и именованные переменные:
 
 <!-- issue10-example:positional -->
 ```sh
 export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
-read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
-bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
-  "http://127.0.0.1:18080" "https://example.com/telegram/webhook"
-unset BOT_TOKEN
+export BOT_TOKEN_FILE=/secure/bot-token
+SELF_BOT_URL=http://127.0.0.1:18080 WEBHOOK_URL=https://example.com/telegram/webhook \
+  bash ./migrate_off_to_self.sh
+unset BOT_TOKEN_FILE
 ```
 
 Обе формы используют внешний API-порт **18080**; nginx передаёт запросы на
@@ -248,10 +248,10 @@ unset BOT_TOKEN
 Из другого рабочего каталога используйте абсолютный путь к утилите:
 
 ```sh
-read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
+export BOT_TOKEN_FILE=/secure/bot-token
 ENV_FILE="/path/to/settings.env" \
-  bash /path/to/migrate_off_to_self.sh "$BOT_TOKEN"
-unset BOT_TOKEN
+  bash /path/to/migrate_off_to_self.sh
+unset BOT_TOKEN_FILE
 ```
 
 `DROP_PENDING_UPDATES=true` удаляет накопившиеся обновления. По умолчанию — `false`.
@@ -337,7 +337,7 @@ issue. Retention — до осознанного ручного удаления
 Журнал использует atomic rename, без гарантии fsync durability. Для issue #2
 нужен явный адаптер этой схемы; журналы разных executor не взаимозаменяемы.
 Контракт относится только к `migrate_off_to_self.sh`: browser execution,
-generated Bash и raw-curl runbook имеют отдельные контракты.
+generated Bash и raw-curl private-input HTTP runbook имеют отдельные контракты.
 Ручные curl-примеры не создают досье и не реализуют guard.
 Обновлённый helper берите из актуального checkout репозитория. Он работает на
 хосте, исключён из server image и Pages; повторное развёртывание сервера не требуется.
@@ -403,14 +403,31 @@ CORS-ошибка может скрыть ответ уже выполненно
 проверьте, что `result.url` — строка, равная `""`:
 
 ```sh
-# BOT_TOKEN и SELF_BOT_URL относятся к выбранному target после миграции.
 set -euo pipefail
-curl -q -fsS --connect-timeout 5 --max-time 30 -X POST \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/deleteWebhook" \
-  --data-urlencode 'drop_pending_updates=false' | jq -e '.ok == true and .result == true'
-curl -q -fsS --connect-timeout 5 --max-time 30 \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/getWebhookInfo" | \
-  jq -e '.ok == true and (.result.url | type == "string") and .result.url == ""'
+export BOT_TOKEN_FILE=/secure/bot-token
+export SELF_BOT_URL=http://127.0.0.1:18080
+python3 - <<'PY'
+import json, os, re, sys, urllib.request
+sys.path.insert(0, 'tools')
+from migration_cli import private_text
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args): return None
+try:
+    token = re.sub(r'\r?\n$', '', private_text(os.environ['BOT_TOKEN_FILE']))
+    if not re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]+', token): raise ValueError()
+    client = urllib.request.build_opener(NoRedirect)
+    for method in ['deleteWebhook', 'getWebhookInfo']:
+        url = os.environ['SELF_BOT_URL'].rstrip('/') + '/bot' + token + '/' + method
+        data = b'drop_pending_updates=false' if method == 'deleteWebhook' else None
+        with client.open(urllib.request.Request(url, data=data), timeout=15) as response:
+            result = json.load(response)
+        if result.get('ok') is not True: raise ValueError()
+        if method == 'deleteWebhook' and result.get('result') is not True: raise ValueError()
+        if method == 'getWebhookInfo' and result['result']['url'] != '': raise ValueError()
+    print('api_checks_pass; delivery_not_verified')
+except Exception:
+    raise SystemExit('request_failed; reconcile before retry') from None
+PY
 ```
 
 При ошибке любой проверки остановитесь. Собственный polling-клиент запускайте
@@ -521,7 +538,7 @@ Producer запускается только после финализации s
 
 Используйте ровно один из `WEBHOOK_SECRET_TOKEN` и `WEBHOOK_SECRET_TOKEN_FILE` для provided; none явно утверждает отсутствие секрета. В файле разрешён один конечный LF/CRLF; inline-секрет не обрезается. `WEBHOOK_CERTIFICATE_FILE` — публичный PEM, никогда private key. Protected files, включая `BOT_TOKEN_FILE`, должны находиться вне checkout/webroot с доступом только оператору. Process env перекрывает trusted `ENV_FILE` (по умолчанию `.env` рядом с helper), включая явные пустые значения; пары value/file выбираются на одном уровне. Positional URL имеют высший приоритет. Для polling профиль webhook не применяется.
 
-Передача полного профиля включена: urlencoded без сертификата, полностью multipart с сертификатом. Секрет и scalar-файлы — приватные снимки; токен/секрет/URL не попадают в curl argv и raw diagnostics. Helper отключает trace, применяет curl -q без redirects, проверяет HTTP/ok/result и не повторяет мутации. Для публичного PEM нужны Bash 4+, jq, curl, realpath и проверка openssl X.509; private key отклоняется. Временные файлы создаются с umask 077 и очищаются при выходе/сигналах.
+Передача полного профиля включена: urlencoded без сертификата, полностью multipart с сертификатом. Секрет и scalar-файлы — приватные снимки; токен/секрет/URL не попадают в curl argv и shareable diagnostics. Helper отключает trace, применяет curl -q без redirects, проверяет HTTP/ok/result и не повторяет мутации. Для публичного PEM нужны Bash 4+, jq, curl, realpath и проверка openssl X.509; private key отклоняется. Временные файлы создаются с umask 077 и очищаются при выходе/сигналах.
 
 В автономном браузере добавлены secret/none, JSON updates, connections/local capability, DNS/fixed IPv4 и File публичного сертификата. Неполный профиль блокирует мутации. Файлы фиксируются до logout; загрузка использует FormData без ручного boundary. Изменения формы сбрасывают снимки, сохраняя UNKNOWN/completion locks. Переходы local→local/cloud остаются отдельными ручными этапами.
 
@@ -550,5 +567,26 @@ bash ./migrate_off_to_self.sh
 Браузер использует password/File controls и не сохраняет private inputs в storage. Preflight браузера проверяет только структуру X.509, а не криптографическую корректность; сертификат проверяется target API при принятии. Helper дополнительно проверяет X.509 через openssl. Экспорт требует повторного ввода private inputs при запуске и не содержит browser token, secret, URL, байты сертификата или настоящее имя private file. Ручной план содержит безусловный STOP/exit перед отдельным сохраняемым target-stage script; перенос state он не выполняет. Для target-stage нужны явные сохранённые URL, updates, connections и certificate mode. После source logOut не входите снова на прежний source для диагностики — сверяйте target. До подтверждённого logOut не авторизуйте обе стороны. UNKNOWN может означать применённую мутацию: слепого повтора, rollback или polling fallback нет.
 
 Exit 0 означает API acceptance и сверку читаемого профиля. Байты секрета/сертификата через readback не проверяются. Рост очереди — наблюдение, а не требование равенства счётчиков или доказательство потерь; исторические ошибки отличаются от новых delivery/synchronization errors. Нулевая очередь не доказывает доставку. Доставка остаётся unverified без нового коррелированного receiver receipt. Окно 10 секунд/два samples короче рекомендованного максимума 30 секунд; это не SLA. Не включайте debug/VLOG; logger/image qualification и реальная test-bot delivery — отдельные внешние гейты. Инструкции receiver, pinned-source и CI приведены в maintenance.
+
+### Политика защищённого ввода
+
+Для standalone helper задайте `BOT_TOKEN_FILE=/secure/bot-token` без позиционного
+токена. Python CLI принимает `--token-file /secure/bot-token` или скрытый ввод
+в терминале. Файлы с доступом группы/остальных, ссылками, изменившимся snapshot
+или неверными строками токена отклоняются. Нужны файлы вне checkout/webroot,
+принадлежащие оператору, с правами 0400 или 0600. Допустим один конечный LF/CRLF.
+Если нельзя отключить echo, скрытый ввод завершается отказом. Старый позиционный
+интерфейс совместим, но раскрывает исходные аргументы процесса. URL HTTP и
+значения webhook передаются через private curl files, без секретов в child argv.
+
+### Экспорт для передачи другим
+
+Публичные история и сводка браузера содержат роли и фиксированные статусы;
+префиксы endpoint остаются private, HTTP использует исходный URL. Старые записи
+при повторном показе снова проходят проекцию. Bash export требует нового ввода
+private inputs. Передавать можно только `public-manifest.json` после успешной
+проекции диагностики; dossier, тела, curl configs и raw captures остаются private.
+Ошибка очистки или sanitization блокирует готовность manifest. UNKNOWN требует
+сверки состояния до любого повтора.
 
 Bash-????, ????????? ? ????????, ??????? ????????? ? stderr: `ERROR`, `PARTIAL`, `UNKNOWN` ??? `SUCCESS`, ????? `phase=...` ? `progress=0|1`. ???????? ???????? ?????????????? ?????????? ????????; ??? `UNKNOWN` ????? ??????, ????????? ?????? ??? ????????????? ??? ???????????. ??? ?????????? ???????? HTTP 429 ???? `retryNotBefore_epoch` ?????? ????? ?????? ????? ???????, ?? ?? ????????? ?????? ??? ??????. ???????? ???????? ???????????? ??????? ?? ???????????? ???????? webhook.

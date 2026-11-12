@@ -80,6 +80,11 @@ cleanup() {
       elif ! emit_observation >/dev/null 2>&1; then
         echo 'Monitoring projection unavailable' >&2
       fi
+      if ! public_diagnostics; then
+        rm -f -- "$API_TMP/public-manifest.json" 2>/dev/null || :
+        echo 'Shareable diagnostics unavailable; private reconciliation required' >&2
+        (( original_exit != 0 )) || original_exit=1
+      fi
     fi
   fi
   if [[ -n "${WP_TMP-}" ]]; then rm -rf -- "$WP_TMP" || :; fi
@@ -87,6 +92,36 @@ cleanup() {
     rmdir -- "$STORAGE_ROOT/.lock" 2>/dev/null || :
   fi
   exit "$original_exit"
+}
+public_diagnostics() {
+  # This explicit projection is the only shareable artifact. Never archive the
+  # dossier, even if a file is named receipt.json or has a harmless extension.
+  rm -f -- "$API_TMP/public-manifest.json" 2>/dev/null || return 1
+  [[ "$RAW_RETAINED" == false && "$REQUEST_ACTIVE" == false ]] || return 1
+  local file
+  local -a receipts=()
+  for file in "$API_TMP"/request-*/receipt.json; do
+    [[ -e $file ]] || continue
+    private_record "$file" || return 1
+    receipts+=("$file")
+  done
+  if (( ${#receipts[@]} )); then
+    jq -s '
+      def safe_label($allowed): if type=="string" and IN($allowed[]) then . else "UNKNOWN" end;
+      map(if .raw_retained == true or .cleanup_error == true or .sanitization_status != "complete" then error("unsafe") else
+        {method:(.method|safe_label(["probe","getMe","getWebhookInfo","deleteWebhook","logOut","setWebhook"])),
+         role:(.endpoint_role|safe_label(["source","target"])),
+         outcome:(.outcome|safe_label(["CONFIRMED_SUCCESS","CONFIRMED_REJECTION","UNKNOWN","in_flight"])),
+         effect_possible:(.effect_possible==true),mutating:(.mutating==true),
+         http_status:(if (.http_status|type)=="number" and .http_status>=100 and .http_status<=599 then .http_status else null end)} end)
+    ' "${receipts[@]}" > "$API_TMP/.public-receipts" 2>/dev/null || return 1
+  else printf '[]' > "$API_TMP/.public-receipts" || return 1; fi
+  jq -n --slurpfile summary "$API_TMP/summary.json" --slurpfile receipts "$API_TMP/.public-receipts" '
+    {schema_version:1,operation:"current-operation",receipts:$receipts[0],
+     completed:($summary[0].completed==true),partial_migration:($summary[0].partial_migration==true),
+     continuation_requires_reconciliation:($summary[0].continuation_requires_reconciliation==true),
+     delivery_confirmed:false}
+  ' > "$API_TMP/.public.tmp" 2>/dev/null && mv -- "$API_TMP/.public.tmp" "$API_TMP/public-manifest.json"
 }
 check_previous_runs() {
   local previous request operation attempt effect mutating had_mutation complete
@@ -216,14 +251,7 @@ redact_file() {
   ' "$input" | jq -rj . > "$output"
 }
 endpoint_preview() {
-  local url="$1" authority scheme
-  scheme="${url%%://*}"
-  authority="${url#*://}"
-  authority="${authority%%[/?#]*}"
-  authority="${authority##*@}"
-  printf '%s' "${scheme}://${authority}" > "$API_TMP/.preview.raw" &&
-    redact_file "$API_TMP/.preview.raw" "$API_TMP/.preview.txt" true &&
-    jq -Rs -r '.[0:2048]|@json' "$API_TMP/.preview.txt"
+  printf 'private endpoint reference\n'
 }
 write_record() {
   local phase="$1" outcome="$2" reason="$3"
@@ -254,7 +282,7 @@ write_record() {
        api_error_code:(if ($body.error_code | type == "number" and
                            . >= -9007199254740991 and . <= 9007199254740991 and floor == .)
                        then $body.error_code else null end),
-       description:(if ($body.description|type) == "string" then $body.description else null end),
+       description:null,
        retry_after:(if ($retry|integer) then $retry else null end),
        retry_after_status:(if ($body|has("parameters")|not) then "absent"
          elif ($body.parameters|type) != "object" then "invalid"

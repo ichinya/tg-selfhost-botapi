@@ -34,3 +34,5 @@ authenticated handler: [English](docs/en/configuration.md#files-in-local-mode) �
 [Русский](docs/ru/configuration.md#файлы-в-local-mode).
 
 [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/ichinya/tg-selfhost-botapi/issues)
+
+File secrets: [EN](docs/en/configuration.md#docker-compose-file-secrets) · [RU](docs/ru/configuration.md#файловые-секреты-docker-compose).
