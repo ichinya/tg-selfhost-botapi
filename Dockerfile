@@ -15,12 +15,20 @@ COPY patches/webhook-user-agent.patch /tmp/webhook-user-agent.patch
 RUN git apply --check /tmp/webhook-user-agent.patch \
  && git apply /tmp/webhook-user-agent.patch \
  && git diff --check
+COPY patches/botapi-secrets-redaction.patch /tmp/botapi-secrets-redaction.patch
+RUN git apply --check /tmp/botapi-secrets-redaction.patch \
+ && git apply /tmp/botapi-secrets-redaction.patch \
+ && git diff --check
+COPY tools/fixtures/issue17_security/botapi_log_driver.cpp /tmp/botapi_log_driver.cpp
+RUN printf '\nadd_executable(botapi-privacy-driver /tmp/botapi_log_driver.cpp telegram-bot-api/Query.cpp telegram-bot-api/Stats.cpp)\ntarget_include_directories(botapi-privacy-driver PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})\ntarget_link_libraries(botapi-privacy-driver PRIVATE memprof tdactor tdcore tddb tdnet tdutils)\n' >> CMakeLists.txt
 
 FROM source AS build
 # One job limits peak memory consumption when building TDLib on a VPS.
 ARG BUILD_JOBS=1
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
  && cmake --build build --target install -j ${BUILD_JOBS} \
+ && cmake --build build --target botapi-privacy-driver -j ${BUILD_JOBS} \
+ && build/botapi-privacy-driver \
  && strip /usr/local/bin/telegram-bot-api
 
 FROM ${ALPINE_IMAGE}
@@ -31,6 +39,7 @@ LABEL org.opencontainers.image.source="https://github.com/ichinya/tg-selfhost-bo
       org.opencontainers.image.licenses="BSL-1.0" \
       io.tg-selfhost.bot-api-revision="${BOT_API_REVISION}" \
       io.tg-selfhost.build-key="${BUILD_FINGERPRINT}"
+LABEL io.tg-selfhost.privacy-policy="issue17-v1"
 ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
     TELEGRAM_TEMP_DIR="/tmp/telegram-bot-api"
 RUN apk add --no-cache openssl libstdc++ curl jq \
@@ -40,6 +49,7 @@ RUN apk add --no-cache openssl libstdc++ curl jq \
  && chown telegram-bot-api:telegram-bot-api /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \
  && chmod 770 /var/lib/telegram-bot-api-files
 COPY --from=build /usr/local/bin/telegram-bot-api /usr/local/bin/telegram-bot-api
+COPY --from=build /usr/src/telegram-bot-api/build/botapi-privacy-driver /usr/local/bin/botapi-privacy-driver
 COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
 COPY --chmod=755 tools/botapi_healthcheck.sh /usr/local/bin/botapi-healthcheck
 COPY --from=source /usr/src/telegram-bot-api/LICENSE_1_0.txt /usr/share/licenses/telegram-bot-api/LICENSE_1_0.txt

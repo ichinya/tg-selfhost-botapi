@@ -134,14 +134,36 @@ Use token-bearing calls only on the chosen server at the appropriate migration
 stage. To check a bot already assigned to this server:
 
 ```sh
-read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
-curl --connect-timeout 5 --max-time 15 \
-  "http://127.0.0.1:18080/bot$BOT_TOKEN/getMe"
-unset BOT_TOKEN
+set -euo pipefail
+export BOT_TOKEN_FILE=/secure/bot-token
+export SELF_BOT_URL=http://127.0.0.1:18080
+python3 - <<'PY'
+import json, os, re, sys, urllib.request
+sys.path.insert(0, 'tools')
+from migration_cli import private_text
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args): return None
+try:
+    token = re.sub(r'\r?\n$', '', private_text(os.environ['BOT_TOKEN_FILE']))
+    if not re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]+', token): raise ValueError()
+    client = urllib.request.build_opener(NoRedirect)
+    for method in ['getMe']:
+        url = os.environ['SELF_BOT_URL'].rstrip('/') + '/bot' + token + '/' + method
+        data = b'drop_pending_updates=false' if method == 'deleteWebhook' else None
+        with client.open(urllib.request.Request(url, data=data), timeout=15) as response:
+            result = json.load(response)
+        if result.get('ok') is not True: raise ValueError()
+        if method == 'deleteWebhook' and result.get('result') is not True: raise ValueError()
+        if method == 'getWebhookInfo' and result['result']['url'] != '': raise ValueError()
+    print('api_checks_pass; delivery_not_verified')
+except Exception:
+    raise SystemExit('request_failed; reconcile before retry') from None
+PY
 ```
 
-These command examples use Bash. A token expanded into curl's URL can be visible
-in process arguments and access logs; run diagnostics in a trusted environment.
+These examples use Bash and Python with private-file input. The token stays in
+the HTTP client process; only a fixed result is printed. Use the qualified gateway
+and native image logging policy described in configuration.
 
 [Configure the service](configuration.md) · [Move an existing bot](migration.md)
 
@@ -160,6 +182,8 @@ exposes state through an alias, file server, or gateway mount is BLOCKED. See
 scope, [configuration](configuration.md) for Compose/storage inputs, and
 [migration](migration.md) for the private input contract. READY is a snapshot of
 preconditions; it does not authorize a bot or perform a transfer.
+Optional file credentials: follow the [Compose secrets profile](configuration.md#docker-compose-file-secrets), store files outside checkout, and apply secrets after the build overlay.
+
 
 ## Token-free health
 

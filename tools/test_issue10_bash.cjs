@@ -53,6 +53,8 @@ const watchdog = setTimeout(() => {
   const servers = await Promise.all(['source','target','sink'].map(server));
   const urls = servers.map(s => `http://127.0.0.1:${s.address().port}`);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'issue10-'));
+  const tokenFile = path.join(tmp, 'token');
+  fs.writeFileSync(tokenFile, '123:synthetic', {mode:0o600});
   const helper = path.join(tmp, 'helper.sh');
   fs.copyFileSync(path.join(__dirname, '..', 'migrate_off_to_self.sh'), helper);
   fs.copyFileSync(helper, path.join(tmp, 'migrate_off_to_self.sh'));
@@ -136,10 +138,10 @@ const watchdog = setTimeout(() => {
         assert(section, `Missing ${language}/${form} published example`);
         const block = section.split('```sh')[1]?.split('```')[0];
         assert(block, `Missing ${language}/${form} shell block`);
-        const command = block.replace(/\r\n/g, '\n').replace(/^read -rsp[^\n]*$/m, "BOT_TOKEN='123:synthetic'")
+        const command = block.replace(/\r\n/g, '\n').replaceAll('/secure/bot-token', tokenFile)
           .replaceAll('http://127.0.0.1:18080', urls[1])
           .replaceAll('https://example.com/telegram/webhook', urls[2] + '/telegram/webhook');
-        result = await run('y\n', urls[1], {command});
+        result = await run('y\n', urls[1], {command, env:{BOT_TOKEN:undefined}});
         assert.strictEqual(result.code, 0, `${language}/${form}: ${result.output}`);
         const set = events.find(([role,url]) => role === 'target' && url.endsWith('/setWebhook'));
         assert(set, `No target setWebhook: ${language}/${form}`);
@@ -149,7 +151,7 @@ const watchdog = setTimeout(() => {
           const swapped = command.replaceAll(urls[1], '__API__')
             .replaceAll(urls[2] + '/telegram/webhook', urls[1])
             .replaceAll('__API__', urls[2] + '/telegram/webhook');
-          result = await run('y\n', urls[1], {command:swapped});
+          result = await run('y\n', urls[1], {command:swapped, env:{BOT_TOKEN:undefined}});
           assert.notStrictEqual(result.code, 0, 'Reversed published arguments must fail');
           assert(events.every(([role]) => role === 'sink'));
           assert(!JSON.stringify(events).includes('123:synthetic'));

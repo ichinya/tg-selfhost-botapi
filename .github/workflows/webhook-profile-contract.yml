@@ -23,6 +23,7 @@ jobs:
           test "$(id -u)" -ne 0
           bash -n migrate_off_to_self.sh
           node tools/embed_webhook_profile.cjs --check
+          node tools/test_issue17_security_browser.cjs
       - name: Three-surface contract, wire, privacy and tracked regressions
         env:
           PYTHONPATH: .:tools

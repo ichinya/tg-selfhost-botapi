@@ -285,9 +285,15 @@ def nginx_routes(tree):
         nonlocal unknown
         for name, args, children in nodes:
             if name == "map":
+                # Unknown maps never constitute routing/privacy evidence.
+                supported = (args == ["$request_method", "$privacy_method"] and children == [
+                    ('default',['OTHER'],[]),('GET',['GET'],[]),('POST',['POST'],[]),
+                    ('HEAD',['HEAD'],[]),('OPTIONS',['OPTIONS'],[])]) or (
+                    args == ["$uri", "$privacy_route"] and children == [
+                    ('default',['other'],[]),('~^/bot[^/]+/',['api'],[]),('~^/file/bot[^/]+/',['file'],[])])
                 # Only the shipped URI redaction map is understood. Its entries
                 # are logging values, never nested routing directives.
-                supported = (args == ["$uri", "$uri_redacted"] and bool(children)
+                supported |= (args == ["$uri", "$uri_redacted"] and bool(children)
                              and all(not nested and len(values) == 1
                                      and (key == "default" or key.startswith("~"))
                                      for key, values, nested in children))
@@ -301,18 +307,6 @@ def nginx_routes(tree):
                     ('~*^(GET|HEAD):[^:]*:.+', ['1'], [])])
                 unknown |= not supported
                 continue
-            if name == "if":
-                if ((args == ["($legacy_file_request)"] and children == [("return", ["404"], [])]) or
-                    (args == ['($reject_public_chunked)'] and children == [('return', ['411'], [])]) or
-                    (args == ['($reject_get_body)'] and children == [('return', ['400'], [])]) or
-                    (args in [['($args)'], ['($http_content_length)'], ['($http_transfer_encoding)']]
-                     and children == [('return', ['400'], [])])):
-                    continue
-                unknown = True
-            elif name == "return":
-                if args not in (["404"], ['503', '{"error":"observer_unavailable"}'], ['404', '{"error":"not_found"}']) or children:
-                    unknown = True
-                continue
             if name in {"root", "alias"}:
                 if len(args) != 1 or "$" in args[0] or not args[0].startswith("/"):
                     unknown = True
@@ -322,14 +316,18 @@ def nginx_routes(tree):
                 if len(args) != 2 or not ((args[0] == '$botapi_upstream' and re.fullmatch(r'http://botapi:[0-9]+', args[1])) or args == ['$observer_upstream', 'http://botapi:8090']):
                     unknown = True
             elif name == 'if':
-                if args not in [['($args)'], ['($http_content_length)'], ['($http_transfer_encoding)']] or children != [('return', ['400'], [])]:
+                if not ((args == ['($legacy_file_request)'] and children == [('return', ['404'], [])]) or
+                        (args == ['($reject_public_chunked)'] and children == [('return', ['411'], [])]) or
+                        (args == ['($reject_get_body)'] and children == [('return', ['400'], [])]) or
+                        (args in [['($args)'], ['($http_content_length)'], ['($http_transfer_encoding)']] and children == [('return', ['400'], [])])):
                     unknown = True
                 continue
             elif name == 'limit_except':
                 if args not in (['GET'], ['GET', 'POST']) or children != [('deny', ['all'], [])]: unknown = True
                 continue
             elif name == 'return':
-                if args not in [['404'], ['503', '{"error":"observer_unavailable"}'], ['404', '{"error":"not_found"}']]: unknown = True
+                if children or args not in [['404'], ['503', '{"error":"observer_unavailable"}'], ['404', '{"error":"not_found"}']]: unknown = True
+                continue
             elif name == 'proxy_pass_request_body':
                 unknown |= args != ['off']
             elif name == 'proxy_intercept_errors':
@@ -363,6 +361,30 @@ def nginx_routes(tree):
     return roots, proxies, listens, unknown
 
 
+def nginx_privacy(tree):
+    """Recognize only the shipped policy across all effective contexts."""
+    errors=[]; accesses=[]; formats=[]; maps=[]
+    def visit(nodes):
+        for name,args,children in nodes:
+            if name=='error_log': errors.append(args)
+            if name=='access_log': accesses.append(args)
+            if name=='log_format': formats.append(args)
+            if name=='map': maps.append((name,args,children))
+            if name!='map': visit(children)
+    visit(tree)
+    root_null=any(name=='error_log' and args==['/dev/null'] for name,args,_ in tree)
+    return (root_null and bool(errors) and all(args==['/dev/null'] for args in errors)
+            and bool(accesses) and all(args in (['/var/log/nginx/access.log','privacy'], ['off']) for args in accesses)
+            and formats==[['privacy','$privacy_method $privacy_route $status $body_bytes_sent $request_time']]
+            and not nginx_routes(maps)[-1]
+            and {tuple(args) for _,args,_ in maps} in (
+                {('$request_method','$privacy_method'),('$uri','$privacy_route')},
+                {('$request_method','$privacy_method'),('$uri','$privacy_route'),('$request_uri','$legacy_file_request')},
+                {('$request_method','$privacy_method'),('$uri','$privacy_route'),('$request_uri','$legacy_file_request'),
+                 ('$server_port','$upload_global_key'),('$server_port:$http_transfer_encoding','$reject_public_chunked'),
+                 ('$request_method:$http_content_length:$http_transfer_encoding','$reject_get_body')})
+            and len(maps) == len({tuple(args) for _,args,_ in maps}))
+
 def flatten_nginx(nodes):
     for node in nodes:
         yield node
@@ -388,6 +410,7 @@ def nginx_route_contract(tree, api_port):
         if len(locations) != len(all_locations): return False
         if ports == [['80'], ['82']]:
             if ('set', ['$botapi_upstream', expected], []) not in nodes: return False
+            if ('if', ['($legacy_file_request)'], [('return', ['404'], [])]) not in nodes: return False
             fixed = {('=', '/health/live'), ('=', '/health/ready'), ('=', '/status'), ('=', '/selfz'), ('=', '/file'), ('/file/',)}
             regex = [path for path in locations if len(path) == 2 and path[0] == '~*']
             if len(regex) != 2 or set(locations) != fixed | {('/',)} | set(regex): return False

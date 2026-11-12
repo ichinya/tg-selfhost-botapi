@@ -10,14 +10,14 @@ async function main() {
   assert(!secretPage.elements.get('summaryBox').textContent.includes('SYNTHETIC_q'));
   assert(!secretPage.run('JSON.stringify(state.history)').includes('SYNTHETIC_q2'));
   assert(!secretPage.run('JSON.stringify(state.history)').includes('SYNTHETIC_q'));
-  assert(secretPage.elements.get('summaryBox').textContent.includes('https://legacy.test'));
+  assert(!secretPage.elements.get('summaryBox').textContent.includes('https://legacy.test'));
   secretPage.elements.get('webhookUrl').value = '';
   secretPage.elements.get('webhookUrl').events.input();
   assert(!secretPage.run('JSON.stringify(state.history)').includes('SYNTHETIC_q2'));
   let p = page({hook:'https://sink.test/hook'});
   await p.run('executeInBrowser()');
-  assert.match(p.elements.get('summaryBox').textContent, /^SUCCESS/);
-  assert.match(p.elements.get('summaryBox').textContent, /https:\/\/sink\.test\/…/);
+  assert.equal(p.run('operationOutcome(state.history[0])'), 'SUCCESS');
+  assert(!p.elements.get('summaryBox').textContent.includes('https://sink.test'));
   assert.equal(p.run('state.history[0].botId'), 123);
 
   for (const method of ['getWebhookInfo', 'getMe']) {
@@ -35,25 +35,25 @@ async function main() {
 
   p = refusingPage('deleteWebhook', 429, 600);
   await p.run('executeInBrowser()');
-  assert.match(p.elements.get('summaryBox').textContent, /^ERROR/);
+  assert.equal(p.run('operationOutcome(state.history[0])'), 'ERROR');
   assert(!p.calls.some(c => c.method === 'logOut'));
   assert(p.run('state.guards.get("123").retryNotBefore > Date.now()'));
   assert(!p.plan().includes('curl '));
 
   p = refusingPage('logOut', 429, 600);
   await p.run('executeInBrowser()');
-  assert.match(p.elements.get('summaryBox').textContent, /^PARTIAL/);
+  assert.equal(p.run('operationOutcome(state.history[0])'), 'PARTIAL');
   assert(!p.calls.some(c => c.role === 'target' && c.method !== 'probe'));
   const before = p.calls.length; await p.run('executeInBrowser()'); assert.equal(p.calls.length, before);
 
   p = page({fail:'source:logOut',failure:'lost'});
   await p.run('executeInBrowser()');
-  assert.match(p.elements.get('summaryBox').textContent, /^UNKNOWN/);
+  assert.equal(p.run('operationOutcome(state.history[0])'), 'UNKNOWN');
   assert(!p.calls.some(c => c.role === 'target' && c.method !== 'probe'));
 
   p = refusingPage('setWebhook', 400, null, {mode:'hook-only',hook:'https://sink.test/hook'});
   await p.run('executeInBrowser()');
-  assert.match(p.elements.get('summaryBox').textContent, /^ERROR/);
+  assert.equal(p.run('operationOutcome(state.history[0])'), 'ERROR');
   assert.equal(p.calls.filter(c => c.method === 'getWebhookInfo').length, 2); // Snapshot and pre-mutation consistency check.
   assert.equal(p.calls.filter(c => c.method === 'setWebhook').length, 1);
 
@@ -73,7 +73,7 @@ async function main() {
     };
   }`);
   await p.run('executeInBrowser()');
-  assert.match(p.elements.get('summaryBox').textContent, /^PARTIAL/);
+  assert.equal(p.run('operationOutcome(state.history[0])'), 'PARTIAL');
   assert(!p.calls.some(c => c.method === 'setWebhook'));
 
   p = page({hook:'https://sink.test/hook'});
@@ -82,8 +82,8 @@ async function main() {
 
   p = page({mismatch:true,hook:'https://sink.test/hook'});
   await p.run('executeInBrowser()');
-  assert.match(p.elements.get('summaryBox').textContent, /^PARTIAL/);
-  assert.match(p.elements.get('summaryBox').textContent, /target_verified: REJECTED getWebhookInfo target/);
+  assert.equal(p.run('operationOutcome(state.history[0])'), 'PARTIAL');
+  assert(p.run("state.history[0].receipts.some(r => r.stage === 'target_verified' && r.status === 'REJECTED' && r.method === 'getWebhookInfo' && r.role === 'target')"));
   p.elements.get('botToken').value = '456:another_synthetic_token_only';
   p.run('invalidate()'); assert(p.run('blocked(currentConfig())')); // The page-wide reconciliation guard remains active.
   assert.equal(p.run('guardFor(currentConfig()).reconcile ?? null'), null);

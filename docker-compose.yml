@@ -62,6 +62,7 @@ services:
       - "${MGMT_BIND:-127.0.0.1}:18081:81"
       # Port 82 is deliberately not published: chunked uploads require a trusted ingress.
     volumes:
+      - ./nginx-main.conf:/etc/nginx/nginx.conf:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - gateway_client_temp:/var/cache/nginx/client_temp
     depends_on:

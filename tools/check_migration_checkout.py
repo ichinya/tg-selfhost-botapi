@@ -5,6 +5,12 @@ import sys
 from check_migration_safety import PATTERNS
 
 REQUIRED = ['tools/migration_executor.sh','tools/migration_executor.html','migrate_off_to_self.sh','tg_selfhost_botapi_migrator.html','assets/js/migration-client.mjs',
+            'nginx-main.conf','docker-compose.secrets.yml','patches/botapi-secrets-redaction.patch',
+            'tools/issue17_security_gate.py','tools/issue17_security_checks.py',
+            'tools/test_issue17_security_browser.cjs','tools/test_issue17_security_shell.cjs',
+            *('tools/test_issue17_security_'+name+'.py' for name in ('inputs','exports','gateway','botapi','docs','matrix','gate','compose')),
+            *('tools/fixtures/issue17_security/'+name for name in ('cases.json','mock_api.py','compose.yml','botapi_log_driver.cpp','README.md')),
+            '.github/workflows/issue17-security.yml',
             *('tools/migration_'+name+'.py' for name in ('contract','store','http','probe','engine','reconcile','cli','export','helper','mock','transport','readiness','preflight')),
             *('tools/'+pattern for pattern in PATTERNS), 'tools/test_migration_ui.mjs',
             'tools/check_docs.py','tools/check_migration_safety.py','tools/check_migration_volumes.py',

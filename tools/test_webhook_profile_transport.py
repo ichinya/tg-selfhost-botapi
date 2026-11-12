@@ -21,8 +21,10 @@ class ProfileTransportTests(unittest.TestCase):
         self.private = Path(self.tmp.name)
         self.token = self.private / "token"
         self.token.write_text(TOKEN)
+        self.token.chmod(0o600)
         self.secret = self.private / "secret"
         self.secret.write_text(SECRET + "\n")
+        self.secret.chmod(0o600)
         self.env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "TMPDIR", "LANG")}
         self.env.update(BOT_TOKEN_FILE=str(self.token), WEBHOOK_SECRET_MODE="provided",
                         WEBHOOK_SECRET_TOKEN_FILE=str(self.secret), WEBHOOK_IP_MODE="pinned",
@@ -43,7 +45,7 @@ class ProfileTransportTests(unittest.TestCase):
         else:
             shutil.copyfile(ROOT / "migrate_off_to_self.sh", script)
         config = {**self.env, "OFFICIAL_BOT_URL": api.base + "/source", "SELF_BOT_URL": api.base + "/target", **env}
-        return subprocess.run(["bash", "-x", str(script)], cwd=ROOT,
+        return subprocess.run(["bash", "-x", str(script)], cwd=run_dir,
                               env={key: value for key, value in config.items() if value is not None},
                               input="y\n", text=True, capture_output=True, timeout=20)
 
@@ -65,6 +67,7 @@ class ProfileTransportTests(unittest.TestCase):
                     if cert:
                         certificate, key = self.private / "public.pem", self.private / "test-only.key"
                         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-keyout", str(key), "-out", str(certificate)], capture_output=True, check=True, timeout=15)
+                        certificate.chmod(0o600)
                         env.update(WEBHOOK_CERTIFICATE_MODE="provided", WEBHOOK_CERTIFICATE_FILE=str(certificate))
                     # Audit the real curl arguments without placing the secret in them.
                     bindir = self.private / "bin"
