@@ -1,0 +1,12 @@
+# Opt-in only: docker compose -f docker-compose.yml -f docker-compose.files.yml ...
+services:
+  botapi:
+    environment:
+      TELEGRAM_FILES_DIR: /var/lib/telegram-bot-api-files
+      TELEGRAM_LOG_FILE: /var/lib/telegram-bot-api/botapi.log
+    volumes:
+      - type: bind
+        source: ./media
+        target: /var/lib/telegram-bot-api-files
+        bind:
+          create_host_path: false

@@ -13,6 +13,8 @@ a webhook User-Agent patch, and migration helpers.
 
 - [Getting started](getting-started.md) — install, build or pull an image, verify the service.
 - [Configuration](configuration.md) — ports, environment variables, files and access.
+- File access: split media + scoped RO volume, or the opt-in per-bot Bearer handler;
+  [setup and trust boundary](configuration.md#files-in-local-mode).
 - [Migration](migration.md) — cloud/local transitions and the current helper limitations.
 - [Maintenance](maintenance.md) — image updates, backups, diagnostics and documentation.
 
