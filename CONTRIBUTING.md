@@ -6,6 +6,14 @@ translation: /docs/ru/maintenance.html
 
 # Contributing
 
+For startup changes, run the POSIX `test_entrypoint.py` suite and shell syntax
+checks, then validate the candidate image on a Linux Docker Engine with isolated
+synthetic credentials and storage. Unit stubs do not prove filesystem access or
+the identity of the real server. Keep runtime evidence separate from CI and
+production observations; use bounded checks and clean up only resources created
+by the check. Docker Desktop, rootless engines and network filesystems need
+independent permission qualification.
+
 Bug reports and focused pull requests are welcome.
 [Check existing issues](https://github.com/ichinya/tg-selfhost-botapi/issues) first.
 Include the revision, image tag/digest, expected result, actual result and

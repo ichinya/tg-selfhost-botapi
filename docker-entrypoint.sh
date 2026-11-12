@@ -48,7 +48,6 @@ separate() {
 }
 validate_storage() {
     [ -n "$files" ] || return 0
-    umask 007
     canonical "$files"; canonical "$work"; canonical "$temp"
     separate "$files" "$work"; separate "$files" "$temp"
     if [ -n "$log" ]; then canonical "$log"; separate "$files" "$log"; fi
@@ -95,6 +94,97 @@ if [ "$#" -gt 0 ]; then
 fi
 
 validate_storage
+umask 0027
+: "${TELEGRAM_WORK_DIR:?TELEGRAM_WORK_DIR is required}"
+: "${TELEGRAM_TEMP_DIR:?TELEGRAM_TEMP_DIR is required}"
+
+# Reject aliases and symlink components before touching a configured root.
+check_path() {
+    path=$1
+    case "$path" in
+        /|''|*[!/]//*) echo "Invalid $2 directory; use a dedicated absolute path" >&2; exit 1 ;;
+        /*) ;;
+        *) echo "Invalid $2 directory; use a dedicated absolute path" >&2; exit 1 ;;
+    esac
+    case "/${path#/}/" in */./*|*/../*|*//* )
+        echo "Invalid $2 directory; use a dedicated absolute path" >&2; exit 1 ;;
+    esac
+    rest=${path#/}
+    component_path=
+    while [ -n "$rest" ]; do
+        component=${rest%%/*}
+        if [ "$rest" = "$component" ]; then rest=; else rest=${rest#*/}; fi
+        component_path="$component_path/$component"
+        if [ -L "$component_path" ]; then
+            echo "Invalid $2 directory; symlinks are not supported" >&2; exit 1
+        fi
+    done
+}
+
+prepare_root() {
+    path=$1
+    role=$2
+    check_path "$path" "$role"
+    if [ ! -e "$path" ]; then
+        mkdir -p -m 700 "$path" 2>/dev/null || { echo "Cannot create $role directory" >&2; exit 1; }
+    fi
+    [ -d "$path" ] || { echo "Invalid $role directory" >&2; exit 1; }
+    if [ "$(id -u)" = 0 ]; then
+        # Include dotfiles; never traverse or repair existing contents.
+        check_path "$path" "$role"
+        entries=$(find "$path" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null) || {
+            echo "Cannot inspect $role directory" >&2; exit 1;
+        }
+        if [ -z "$entries" ]; then
+            chown 101:101 "$path" 2>/dev/null && chmod 700 "$path" 2>/dev/null || {
+                echo "Cannot initialize $role directory" >&2; exit 1;
+            }
+        fi
+    fi
+}
+
+if [ -n "${TELEGRAM_FILES_DIR:-}" ]; then
+    check_path "$TELEGRAM_WORK_DIR" state
+    check_path "$TELEGRAM_TEMP_DIR" temp
+    check_path "$TELEGRAM_FILES_DIR" media
+    disjoint_roots() {
+        left=$1; right=$2
+        case "$left/" in "$right/"|"$right/"*) echo "Storage roots must be separate" >&2; exit 1 ;; esac
+        case "$right/" in "$left/"*) echo "Storage roots must be separate" >&2; exit 1 ;; esac
+    }
+    disjoint_roots "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"
+    disjoint_roots "$TELEGRAM_WORK_DIR" "$TELEGRAM_FILES_DIR"
+    disjoint_roots "$TELEGRAM_TEMP_DIR" "$TELEGRAM_FILES_DIR"
+    if [ "${BOTAPI_MEDIA_REQUIRE_NONROOT:-}" = 1 ]; then
+        if [ "$(id -u)" = 0 ] || [ "$(id -u)" != "${BOTAPI_MEDIA_EXPECTED_UID:-}" ] || [ "$(id -g)" != "${BOTAPI_MEDIA_EXPECTED_GID:-}" ]; then
+            echo "Media override requires the configured non-root Docker user and primary group" >&2; exit 1
+        fi
+    fi
+fi
+
+prepare_root "$TELEGRAM_WORK_DIR" state
+prepare_root "$TELEGRAM_TEMP_DIR" temp
+if [ -n "${TELEGRAM_FILES_DIR:-}" ]; then prepare_root "$TELEGRAM_FILES_DIR" media; fi
+if [ "$(id -u)" = 0 ]; then
+    exec su-exec 101:101 /docker-entrypoint.sh
+fi
+
+probe_root() {
+    path=$1
+    role=$2
+    # The probe is exclusive and only our own file is removed.
+    (cd "$path" && ls -a . >/dev/null) 2>/dev/null || {
+        echo "Cannot access $role directory; prepare it for the server identity" >&2; exit 1;
+    }
+    probe="$path/.botapi-write-probe-$$"
+    (set -C; : > "$probe") 2>/dev/null || {
+        echo "Cannot write $role directory; prepare it for the server identity" >&2; exit 1;
+    }
+    rm "$probe" 2>/dev/null || { echo "Cannot clean up $role directory probe" >&2; exit 1; }
+}
+probe_root "$TELEGRAM_WORK_DIR" state
+probe_root "$TELEGRAM_TEMP_DIR" temp
+if [ -n "${TELEGRAM_FILES_DIR:-}" ]; then probe_root "$TELEGRAM_FILES_DIR" media; fi
 
 load_secret() {
     secret_name="$1"
@@ -105,10 +195,9 @@ load_secret() {
         exit 1
     fi
     if [ -n "$secret_file" ]; then
-        if ! secret_value="$(cat "$secret_file" 2>/dev/null)"; then
-            echo "Cannot read $secret_name file" >&2
-            exit 1
-        fi
+        secret_value="$(cat "$secret_file" 2>/dev/null)" || {
+            echo "Cannot read ${secret_name}_FILE as the server user" >&2; exit 1;
+        }
     fi
     if [ -z "$secret_value" ]; then
         echo "$secret_name is required" >&2
@@ -127,19 +216,9 @@ esac
     echo 'Invalid HTTP port' >&2; exit 1;
 }
 
-: "${TELEGRAM_WORK_DIR:?TELEGRAM_WORK_DIR is required}"
-: "${TELEGRAM_TEMP_DIR:?TELEGRAM_TEMP_DIR is required}"
-mkdir -p "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"
-chown telegram-bot-api:telegram-bot-api "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"
-if [ -n "$files" ]; then
-    mkdir -p "$files"
-    chown telegram-bot-api:telegram-bot-api "$files"
-fi
-
 set -- "--dir=$TELEGRAM_WORK_DIR" "--temp-dir=$TELEGRAM_TEMP_DIR" \
-    --username=telegram-bot-api --groupname=telegram-bot-api \
     "--http-port=${TELEGRAM_HTTP_PORT:-8081}"
-if [ -n "$files" ]; then set -- "$@" "--files-dir=$files"; fi
+if [ -n "${TELEGRAM_FILES_DIR:-}" ]; then set -- "$@" "--files-dir=$TELEGRAM_FILES_DIR"; fi
 
 # Quoted argument arrays preserve spaces and never execute environment contents.
 for setting in \

@@ -10,6 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DiagnosticPublicationTest(unittest.TestCase):
+    def test_update_instructions_keep_nonroot_and_files_overrides(self):
+        for language, heading in (('en', '## Update an installation'), ('ru', '## Обновление установки')):
+            with self.subTest(language=language):
+                text = (ROOT / 'docs' / language / 'maintenance.md').read_text(encoding='utf-8')
+                section = text.split(heading, 1)[1].split('\n## ', 1)[0]
+                for value in ('docker-compose.nonroot.yml', 'docker-compose.files.yml', 'BOTAPI_STATE_SOURCE'):
+                    self.assertIn(value, section)
+
     def test_private_storage_stays_excluded_from_git_and_pages(self):
         self.assertIn('/logs', (ROOT / '.gitignore').read_text(encoding='utf-8').splitlines())
         config = (ROOT / '_config.yml').read_text(encoding='utf-8')

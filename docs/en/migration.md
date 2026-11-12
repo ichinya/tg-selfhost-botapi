@@ -6,6 +6,13 @@ translation: /docs/ru/migration.html
 
 # Migration
 
+Managed Docker readiness observes the Bot API server as PID 1, then checks that
+the credential and storage probes use the same UID, GID and supplementary groups.
+An identity mismatch or server restart during the probe blocks readiness. The
+v1 deployment evidence records UID/GID; it does not separately attest groups.
+Prepare the target state and temporary storage for the chosen server identity
+before migration; follow the offline identity-change procedure in maintenance.
+
 The retained HTML URL now loads a single ES module and uses the local helper.
 It makes no direct Bot API or arbitrary webhook HEAD requests. Browser refresh
 restores only the saved ID/digest and reads status. Form changes create a new
