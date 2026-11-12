@@ -1,5 +1,7 @@
 #!/bin/sh
 # Runs in the candidate image, after its unmodified production entrypoint.
+# Default bootstrap has already initialized empty roots and used su-exec to 101:101.
+# Existing contents are not chowned; retain the fixed 101:101 fixture assertions.
 set -eu
 if [ "$(id -u)" = 0 ]; then
     exec su -s /bin/sh telegram-bot-api -c 'exec /usr/local/bin/telegram-bot-api --fixture-child'

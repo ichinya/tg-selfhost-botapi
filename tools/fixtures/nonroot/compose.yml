@@ -1,0 +1,64 @@
+services:
+  reader:
+    image: ${NONROOT_IMAGE:?Set immutable candidate ID}
+    user: "2001:3000"
+    group_add: ["2000"]
+    network_mode: none
+    labels:
+      io.tg-selfhost.nonroot-check: ${NONROOT_OWNER:?Set unique owner}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        case " $$(id -G) " in *" 2000 "*) ;; *) exit 1 ;; esac
+        test "$$(cat /media/documents/sample)" = synthetic-media
+        test "$$(sha256sum /media/documents/sample | cut -d ' ' -f 1)" = 0962ba790a5a31c2f33fab17c0619e5a0fde88087d0332de54fb9d190c5d700b
+        ! touch /media/documents/denied
+        test ! -e /media/temp
+        test ! -e /media/other-bot
+        test ! -e /var/lib/telegram-bot-api/tqueue.binlog
+        test ! -e /tmp/telegram-bot-api/private-canary
+    volumes:
+      - type: volume
+        source: media
+        target: /media/documents
+        read_only: true
+        volume:
+          nocopy: true
+          subpath: synthetic-bot/documents
+  posix:
+    extends:
+      service: reader
+    command:
+      - |
+        test "$$(cat /media/documents/sample)" = synthetic-media
+        test "$$(stat -c %a /media/documents)" = 750
+        test "$$(stat -c %a /media/documents/sample)" = 640
+        ! touch /media/documents/denied-posix
+    volumes:
+      - type: volume
+        source: media
+        target: /media/documents
+        read_only: false
+        volume:
+          nocopy: true
+          subpath: synthetic-bot/documents
+  stranger:
+    image: ${NONROOT_IMAGE:?Set immutable candidate ID}
+    user: "2001:3000"
+    network_mode: none
+    labels:
+      io.tg-selfhost.nonroot-check: ${NONROOT_OWNER:?Set unique owner}
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["cat /media/documents/sample"]
+    volumes:
+      - type: volume
+        source: media
+        target: /media/documents
+        read_only: true
+        volume:
+          nocopy: true
+          subpath: synthetic-bot/documents
+volumes:
+  media:
+    external: true
+    name: ${NONROOT_MEDIA_VOLUME:?Set own temporary media volume}

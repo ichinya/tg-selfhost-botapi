@@ -5,6 +5,13 @@ translation: /docs/en/migration.html
 
 # Миграция
 
+Managed Docker readiness наблюдает Bot API как PID 1 и проверяет совпадение
+UID, GID и дополнительных групп probe при чтении секретов и проверке записи.
+Несовпадение или перезапуск сервера во время проверки блокирует готовность.
+Формат deployment evidence v1 хранит UID/GID, но отдельно не удостоверяет группы.
+До миграции подготовьте state и временное хранилище целевого сервера для его
+identity; процедуру offline-смены ID см. в разделе обслуживания.
+
 Прежний HTML URL загружает один ES-модуль и работает через локальный helper.
 Прямых Bot API и произвольных webhook HEAD запросов нет. После refresh браузер
 восстанавливает только ID/digest и читает status. Изменение полей создаёт новый
@@ -372,8 +379,7 @@ webhook-only допустима на подтверждённом target; пре
 долговременного состояния со страницей. Перед повтором PARTIAL или UNKNOWN
 требует сверки; истечение ожидания не перезапускает план автоматически.
 
-Сгенерированный Bash-план отдельно запрашивает URL webhook и не копирует его из
-формы в скрипт. Пустой ввод означает наследование URL исходного сервера.
+Сгенерированный план не копирует данные браузера. Задайте входные данные через окружение или защищённые файлы; пустой webhook наследует URL исходного сервера. Сохраните план и запустите `bash ./migration-plan.sh` отдельным процессом Bash 4+ в Linux или WSL. PowerShell, cmd, произвольный sh и sourcing не поддерживаются.
 
 [Открыть мигратор](../../tg_selfhost_botapi_migrator.html). Это статическая страница,
 а не серверный исполнитель миграции. Запросы идут из вашего браузера; API должен
@@ -402,33 +408,7 @@ CORS-ошибка может скрыть ответ уже выполненно
 завершения перехода между серверами вручную удалите webhook на **target** и
 проверьте, что `result.url` — строка, равная `""`:
 
-```sh
-set -euo pipefail
-export BOT_TOKEN_FILE=/secure/bot-token
-export SELF_BOT_URL=http://127.0.0.1:18080
-python3 - <<'PY'
-import json, os, re, sys, urllib.request
-sys.path.insert(0, 'tools')
-from migration_cli import private_text
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args): return None
-try:
-    token = re.sub(r'\r?\n$', '', private_text(os.environ['BOT_TOKEN_FILE']))
-    if not re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]+', token): raise ValueError()
-    client = urllib.request.build_opener(NoRedirect)
-    for method in ['deleteWebhook', 'getWebhookInfo']:
-        url = os.environ['SELF_BOT_URL'].rstrip('/') + '/bot' + token + '/' + method
-        data = b'drop_pending_updates=false' if method == 'deleteWebhook' else None
-        with client.open(urllib.request.Request(url, data=data), timeout=15) as response:
-            result = json.load(response)
-        if result.get('ok') is not True: raise ValueError()
-        if method == 'deleteWebhook' and result.get('result') is not True: raise ValueError()
-        if method == 'getWebhookInfo' and result['result']['url'] != '': raise ValueError()
-    print('api_checks_pass; delivery_not_verified')
-except Exception:
-    raise SystemExit('request_failed; reconcile before retry') from None
-PY
-```
+Используйте общий CLI с явным действием `polling` и защищёнными входными данными; проверьте receipt и ответ target.
 
 При ошибке любой проверки остановитесь. Собственный polling-клиент запускайте
 после сверки; примеры не потребляют обновления. URL readback не доказывает доставку
@@ -567,6 +547,19 @@ bash ./migrate_off_to_self.sh
 Браузер использует password/File controls и не сохраняет private inputs в storage. Preflight браузера проверяет только структуру X.509, а не криптографическую корректность; сертификат проверяется target API при принятии. Helper дополнительно проверяет X.509 через openssl. Экспорт требует повторного ввода private inputs при запуске и не содержит browser token, secret, URL, байты сертификата или настоящее имя private file. Ручной план содержит безусловный STOP/exit перед отдельным сохраняемым target-stage script; перенос state он не выполняет. Для target-stage нужны явные сохранённые URL, updates, connections и certificate mode. После source logOut не входите снова на прежний source для диагностики — сверяйте target. До подтверждённого logOut не авторизуйте обе стороны. UNKNOWN может означать применённую мутацию: слепого повтора, rollback или polling fallback нет.
 
 Exit 0 означает API acceptance и сверку читаемого профиля. Байты секрета/сертификата через readback не проверяются. Рост очереди — наблюдение, а не требование равенства счётчиков или доказательство потерь; исторические ошибки отличаются от новых delivery/synchronization errors. Нулевая очередь не доказывает доставку. Доставка остаётся unverified без нового коррелированного receiver receipt. Окно 10 секунд/два samples короче рекомендованного максимума 30 секунд; это не SLA. Не включайте debug/VLOG; logger/image qualification и реальная test-bot delivery — отдельные внешние гейты. Инструкции receiver, pinned-source и CI приведены в maintenance.
+
+Автономный экспорт выполняется в Bash 4+ в Linux или WSL. Значения из браузера не включаются в файл; повторно задайте входные данные при запуске. URL с пробелами или управляющими символами отклоняются без обрезки.
+
+URL исходного webhook с управляющими символами отклоняется до изменяющих запросов миграции.
+
+Проверки безопасности shell фиксируют аргументы curl с разделителем NUL и
+проверяют приватные scalar-файлы отдельно от shell-экранирования. Декодирование
+настоящим curl также проверяется через HTTP-сервер на loopback; успешный mock
+сам по себе не доказывает доставку webhook.
+
+Экспорт CLI требует существующего закрытого состояния и локально проверяет digest плана; он не создаёт и не импортирует authority.
+
+План Bash, созданный в браузере, выводит результат в stderr: `ERROR`, `PARTIAL`, `UNKNOWN` или `SUCCESS`, затем `phase=...` и `progress=0|1`. Прогресс отмечает подтверждённое изменение; при `UNKNOWN` необходима сверка, поскольку запрос без подтверждения мог выполниться. Для допустимой задержки HTTP 429 `retryNotBefore_epoch` означает самое раннее время повтора, но не разрешает повторять запрос без сверки. Успешная проверка наблюдаемого профиля не подтверждает доставку webhook.
 
 ### Политика защищённого ввода
 

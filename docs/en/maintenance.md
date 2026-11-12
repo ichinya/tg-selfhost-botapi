@@ -74,7 +74,30 @@ gateway transport; real Bot API, Telegram and VPS acceptance remain separate.
 See [contributor instructions](../../CONTRIBUTING.md) for clean candidate export,
 scoped unit tests, image overrides and emergency cleanup ownership.
 
+## Changing the server identity
+
+Stop the writer and its restart automation before changing IDs. Make a consistent
+backup that preserves numeric ownership and modes. Verify the dedicated absolute
+paths, symlinks and other mounts; prepare an offline copy for the new UID/GID and
+inspect nested binlog and session files, not just the root. Run a storage smoke
+test, then start one writer. Keep the old copy with its original IDs and a
+compatible image for rollback. Do not recursively change permissions on a live or
+shared database. Existing cached paths are not migrated automatically.
+
+Prepare both state and HTTP temp for the effective server identity. Bind mounts,
+named volumes and tmpfs each have their own ownership and permissions; ownership
+inside the image does not fix mounted storage. New files use the effective UID;
+without filesystem inheritance their GID is the primary GID, while setgid or ACL
+rules can alter inheritance. Umask `0027` limits new modes but does not add group
+read permissions or change existing files. Keep migration dossiers owner-only.
+Docker supplementary groups are retained in direct non-root launches. A different
+UID reading media needs the scoped read-only subtree described in Getting started.
+
 ## Split storage
+
+Before first enabling split storage, create a new empty host directory with
+`sudo install -d -m 0770 -o 101 -g 101 ./media`: Compose rejects a missing
+root directory. Do not apply this command recursively to an existing cache.
 
 Split storage requires a maintenance window: stop clients and writers, back up
 private state and configuration consistently, then enable the files override.
@@ -125,7 +148,14 @@ review, preserving the original journal; never erase confirmed history.
 The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
+The image workflow also runs the required migrator security tests; see
+[Contributing](../../CONTRIBUTING.md) for their dependencies.
 
+The build key covers the resolved revisions/digests and the recipe, entrypoint,
+patch and image tests. If the corresponding published build exists, compilation
+is skipped; the candidate is pulled by digest and qualified again. If registry
+inspection cannot confirm it, the pipeline rebuilds. Acceptance scripts, fixtures,
+both storage overlays and their tests are part of the build key.
 The Bot API build key covers the resolved revisions/digests and file-contract
 recipe/tests/configs. Downloads has its own key including the immutable Python
 base. If a Bot API build exists, compilation may be skipped, but the exact reused
@@ -137,12 +167,17 @@ For a new build it:
 1. Checks that the User-Agent patch applies to the selected official revision.
 2. Compiles the entire server.
 3. Runs `--version`, checks the header string in the binary and validates entrypoint syntax.
-4. Builds the downloads image, runs synthetic local/TLS/negative checks and
+4. Checks the selected source revision and TDLib submodule for download modes
+   `0640/0750`, internal media temp paths and rename semantics.
+5. Qualifies the exact image ID with the non-root storage matrix and the existing
+   migration volume gate.
+6. Builds the downloads image, runs synthetic local/TLS/negative checks and
    network-none actual Bot API startup for the exact image pair, recording IDs and
    source hashes. It also checks rendered Pages/private exclusions.
-5. Publishes tested `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and
+7. Publishes tested `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and
    `ghcr.io/ichinya/tg-selfhost-botapi-downloads:build-<downloads-key>`, then promotes
    their `latest` tags without rebuilding the tested pair.
+   Reused builds also pass the qualification gates before promotion.
 
 The standalone `files.yml` workflow runs full unit discovery on a clean checkout,
 Compose combinations, state isolation, exact-pair integration and docs checks.
@@ -156,6 +191,36 @@ The workflow needs to be on the default branch before the schedule/publication
 can work. GHCR writes use `GITHUB_TOKEN` with `packages: write`. Configure package
 visibility or client authentication after the first publication.
 
+## Non-root candidate qualification
+
+On a local rootful Linux Docker Engine with a POSIX filesystem, Python 3.11+
+and current Compose v2, run against an explicitly built candidate:
+
+```sh
+python3 tools/check_nonroot_compose.py --deadline 120
+python3 tools/check_nonroot.py --image <candidate> --deadline 1200
+python3 tools/check_migration_volumes.py --require-docker --image <candidate> --receipt /tmp/migration-volume-gate.json
+```
+
+The explicit runner uses random labelled resources, network isolation, synthetic
+credentials, bounded calls and ownership-checked cleanup. It covers root bootstrap
+to `101:101`, explicit `101:101`, `1000:1000` and `1000:2000` (without a passwd
+entry), supplementary groups, PID 1 and token-free HTTP, migration evidence,
+fresh/prepared bind and named volumes, restart/recreate, preserved canaries,
+denied/read-only state and temp, foreign ownership, group access and an unreadable
+binlog actually opened by the server. Compose checks use production files and
+reject missing inputs, backing aliases and `base+files` without the non-root layer.
+
+The media fixture checks inode/GID/modes across an internal temp-to-final rename,
+scoped read-only access by another UID, POSIX write denial independently of the
+read-only mount, and stranger denial. It rejects a download temp on another mount.
+This synthetic fixture demonstrates the permission recipe; source assertions are
+checked against the selected revision in CI. Neither proves a Telegram download.
+Unit tests run without Docker; real-image acceptance, CI and production are separate
+observations. Unavailable checks are NOTRUN: verification deferred to CI/gates.
+Docker Desktop, rootless/user namespaces and network filesystems require separate
+qualification. Never run this harness against production mounts.
+
 ## Update an installation
 
 ### Enable split storage / roll back
@@ -163,11 +228,11 @@ visibility or client authentication after the first publication.
 1. Stop clients, downloads, Bot API writers and any supervisors that restart them.
    Make a consistent backup of the private state, image identity, Compose/env,
    secret files and, for an existing split installation, media separately.
-2. In a maintenance window enable `docker-compose.files.yml`, retaining the exact
+2. In a maintenance window enable the non-root and `docker-compose.files.yml` overlays, retaining the exact
    qualified image/config. Never copy state/binlogs into media or edit TDLib DB
    paths by hand. The default transition starts a new media cache.
-   Prepare the new empty host directory with
-   `sudo install -d -m 0770 -o 101 -g 101 ./media`; Compose refuses a missing root.
+   Prepare the new media source for the configured UID/GID as described in Getting started;
+   Compose refuses a missing root.
 3. Re-run getFile for saved file IDs. Verify that each returned path lies in the
    new media bot subtree, verify bytes/digest, ownership and mount mapping before
    enabling consumers. If upstream returns an old private path, fail closed and
@@ -180,7 +245,7 @@ visibility or client authentication after the first publication.
    sync with state when moving between servers.
 
 Do not recursively chmod/chown the cache or grant world access. Check actual
-TDLib modes and UID/GID 101:101; give the reader that identity or a specifically
+TDLib modes and the configured writer UID/GID; give the reader that identity or a specifically
 validated read/traverse ACL. Each handler/reader gets one RO subtree, no parent,
 sibling, private temp/log/secret mounts or nested mounts. The local API and writer
 are trusted; mutually untrusted operators need separate instances/storage.
@@ -191,26 +256,40 @@ old credential gets 401 and the new one retrieves synthetic bytes. Cache evictio
 or retention SLA is promised. Never paste token-bearing paths into reports.
 
 Registry publication does not restart your VPS. Select a tested tag/digest with
-`BOTAPI_IMAGE` and the matching `OBSERVER_IMAGE` in `.env`, then:
+`BOTAPI_IMAGE` and matching `OBSERVER_IMAGE` in `.env`. Every update command must use exactly the same Compose
+files, in the same order, as the installation. Choose the matching `COMPOSE_FILES`:
 
 ```sh
-docker compose stop observer botapi
-# Make a consistent backup of ./data and private configuration here.
-docker compose pull botapi observer gateway
-docker compose up -d --force-recreate botapi observer gateway
-docker compose logs --tail=100 botapi
+# base
+COMPOSE_FILES='-f docker-compose.yml'
+# base + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.build.yml'
+# base + nonroot
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml'
+# base + nonroot + files
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml'
+# base + nonroot + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.build.yml'
+# base + nonroot + files + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml -f docker-compose.build.yml'
 ```
 
-For a locally built installation, use the build override consistently:
+Select only one line above. Omitting nonroot/files overrides changes the server
+identity back to `101:101`, reconnects state to `./data` and drops the media mount.
+For a registry installation:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml stop observer botapi
-# Back up ./data and private configuration before replacing the binary.
-docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi observer
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --force-recreate botapi observer gateway
+docker compose $COMPOSE_FILES stop observer botapi
+# Back up the actual state source and private configuration consistently.
+docker compose $COMPOSE_FILES pull botapi observer gateway
+docker compose $COMPOSE_FILES up -d --force-recreate botapi observer gateway
+docker compose $COMPOSE_FILES logs --tail=100 botapi
 ```
 
-Preserve `./data`, ownership `101:101`, the API endpoint and local-mode settings.
+For a local build, replace `pull` with `build` using the same selected files.
+Preserve the actual state source (`$BOTAPI_STATE_SOURCE` for nonroot, `./data`
+for the base model), ownership for the selected server identity (default `101:101`),
+the API endpoint and local-mode settings.
 Do not run two Bot API processes against one data directory. Restoring an old
 image may also require a compatible state backup; image rollback alone is not
 a guarantee.
@@ -607,3 +686,22 @@ Only sanitized manifests are uploaded. Linux permissions, full clean discovery,
 Docker/native image and Pages builds are separate checks. If unavailable locally,
 record NOTRUN: verification deferred to CI/gates; synthetic tests never deploy or
 contact a real Telegram bot. An external deployment needs separate authorization.
+
+
+## Shell export regression gate
+
+Run the issue #8 matrix on Linux/WSL as a non-root user with Bash 4+, Python
+3.11+, Node 24+, jq, curl and openssl:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_checkout.py
+python3 tools/check_migration_safety.py --require-posix
+```
+
+The suite uses synthetic `.invalid` inputs, an offline curl executable and a
+separate loopback HTTP peer. Captures remain in private temporary directories.
+The required gate fails on skips or missing runtimes. Windows skips and local
+NOTRUN results mean verification deferred to CI/gates. After merge, check the
+published root migrator URL and its byte equality separately; branch tests do
+not establish deployment or real-bot delivery.

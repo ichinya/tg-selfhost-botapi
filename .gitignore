@@ -2,6 +2,7 @@
 !/.github/
 /.env
 /data
+/scratch
 /media
 /secrets
 /files

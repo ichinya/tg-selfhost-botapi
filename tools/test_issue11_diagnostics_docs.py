@@ -22,9 +22,9 @@ class PublishedDiagnosticsTests(unittest.TestCase):
                 page.write_text('<html></html>')
             retained = root / 'tg_selfhost_botapi_migrator.html'
             shutil.copyfile(SCRIPT.parent / retained.name, retained)
-            client = root / 'assets/js/migration-client.mjs'
-            client.parent.mkdir(parents=True)
-            shutil.copyfile(SCRIPT.parent / 'assets/js/migration-client.mjs', client)
+            asset = root / 'assets/js/migration-client.mjs'
+            asset.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SCRIPT.parent / 'assets/js/migration-client.mjs', asset)
             with contextlib.redirect_stdout(io.StringIO()):
                 check(root)
             (root / 'logs/migration').mkdir(parents=True)

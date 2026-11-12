@@ -16,13 +16,14 @@ must fail closed; never fix a missing mount by exposing the whole private cache.
 For file-enabled installations, keep the same ordered files on every command:
 
 ```sh
-sudo install -d -m 0770 -o 101 -g 101 ./media
-docker compose -f docker-compose.yml -f docker-compose.files.yml up -d
+# Prepare BOTAPI_STATE_SOURCE, BOTAPI_TEMP_SOURCE and BOTAPI_MEDIA_SOURCE
+# for BOTAPI_UID:BOTAPI_GID as described below, then configure them in .env.
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml up -d
 # Local reader, after setting the private bindings described in the example:
-docker compose -f docker-compose.yml -f docker-compose.files.yml \
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml \
   -f examples/files/compose.local.yml run --rm reader '<FILE_ID>' > downloaded.bin
 # Remote per-bot handler (qualified DOWNLOADS_IMAGE and protected files required):
-docker compose -f docker-compose.yml -f docker-compose.files.yml \
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml \
   -f docker-compose.downloads.yml up -d
 ```
 
@@ -95,6 +96,56 @@ If remote clients, including a webhook receiver, must reach the Bot API, set
 `GATEWAY_BIND=0.0.0.0` in `.env` and provide HTTPS and network access controls.
 
 ## Start
+
+For a custom non-root identity, create dedicated empty bind directories outside
+the webroot and configure the optional override in `.env`:
+
+```sh
+sudo install -d -m 0700 -o 1000 -g 1000 /srv/botapi/data /srv/botapi/scratch
+```
+
+Set `BOTAPI_UID=1000`, `BOTAPI_GID=1000`,
+`BOTAPI_STATE_SOURCE=/srv/botapi/data` and `BOTAPI_TEMP_SOURCE=/srv/botapi/scratch`.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml up -d
+```
+
+For a local build append `-f docker-compose.build.yml` after the non-root
+override and add `--build`. Both bind sources must already exist. Named volumes
+require a separate Compose configuration. Initialize each fresh empty volume
+once with a root helper, replacing the example volume and IDs:
+
+```sh
+docker run --rm --user 0:0 -v botapi-state:/volume alpine:3.22 sh -c 'chown 1000:1000 /volume && chmod 700 /volume'
+```
+
+Repeat for a distinct temp volume. Do not apply this to existing data; image
+layer ownership does not prepare mounts.
+
+For limited media sharing, use a writer with primary group `2000`: prepare
+private state and scratch for `1000:2000`, and a separate media root owned by
+`1000:2000` with mode `0700`. Set `BOTAPI_UID=1000`, `BOTAPI_GID=2000`,
+`BOTAPI_MEDIA_SOURCE` to that absolute root, and append
+`-f docker-compose.files.yml` after the non-root overlay. The gateway receives no
+storage mount. Only share one final bot media subtree, never the bot root, its
+download temp, private state or neighbouring bots. Set `BOT_MEDIA_SUBDIR` privately
+to the host path of the selected bot subtree; its name may contain sensitive data.
+For an offline prepared `documents` subtree, directories must permit group search
+and read (at most `0750`) and files group read (at most `0640`); existing files
+need separate preparation with writers stopped. A synthetic reader test is:
+
+```sh
+docker run --rm --user 2001:3000 --group-add 2000 \
+  --mount "type=bind,src=$BOT_MEDIA_SUBDIR/documents,dst=/media,readonly" \
+  alpine:3.22 cat /media/synthetic.txt
+```
+
+Place a synthetic test file there first with the writer identity and group-read
+permissions. Do not print the private path in public logs. Download temporary
+files reside within the media backing, not `TELEGRAM_TEMP_DIR`; the writer's
+primary group survives a same-filesystem rename. The reader gets no Docker socket
+or mount privileges. This test does not prove an actual Telegram download.
 
 Before the first GHCR publication, build locally:
 
@@ -184,6 +235,8 @@ scope, [configuration](configuration.md) for Compose/storage inputs, and
 preconditions; it does not authorize a bot or perform a transfer.
 Optional file credentials: follow the [Compose secrets profile](configuration.md#docker-compose-file-secrets), store files outside checkout, and apply secrets after the build overlay.
 
+
+The standalone exported plan requires Bash 4+ on Linux/WSL; run the saved file with `bash ./migration-plan.sh`. It is not a PowerShell or cmd script.
 
 ## Token-free health
 

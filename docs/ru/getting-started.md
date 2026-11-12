@@ -14,13 +14,14 @@ translation: /docs/en/getting-started.html
 Во всех командах file-enabled установки сохраняйте порядок Compose-файлов:
 
 ```sh
-sudo install -d -m 0770 -o 101 -g 101 ./media
-docker compose -f docker-compose.yml -f docker-compose.files.yml up -d
+# Подготовьте BOTAPI_STATE_SOURCE, BOTAPI_TEMP_SOURCE и BOTAPI_MEDIA_SOURCE
+# для BOTAPI_UID:BOTAPI_GID по инструкции ниже и задайте их в .env.
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml up -d
 # Локальный reader после настройки private bindings из примера:
-docker compose -f docker-compose.yml -f docker-compose.files.yml \
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml \
   -f examples/files/compose.local.yml run --rm reader '<FILE_ID>' > downloaded.bin
 # Per-bot handler: нужны проверенный DOWNLOADS_IMAGE и защищённые файлы:
-docker compose -f docker-compose.yml -f docker-compose.files.yml \
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml \
   -f docker-compose.downloads.yml up -d
 ```
 
@@ -92,6 +93,55 @@ sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/cre
 задайте `GATEWAY_BIND=0.0.0.0` в `.env` и обеспечьте HTTPS и сетевые ограничения.
 
 ## Запуск
+
+Для произвольных UID/GID создайте отдельные пустые bind-каталоги вне webroot:
+
+```sh
+sudo install -d -m 0700 -o 1000 -g 1000 /srv/botapi/data /srv/botapi/scratch
+```
+
+В `.env` задайте `BOTAPI_UID=1000`, `BOTAPI_GID=1000`,
+`BOTAPI_STATE_SOURCE=/srv/botapi/data` и `BOTAPI_TEMP_SOURCE=/srv/botapi/scratch`.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml up -d
+```
+
+Для локальной сборки добавьте после override `-f docker-compose.build.yml` и
+`--build`. Оба bind-каталога должны существовать заранее. Для именованных томов
+нужна отдельная конфигурация Compose. Каждый новый пустой том можно один раз
+подготовить root-контейнером, подставив имя тома и ID:
+
+```sh
+docker run --rm --user 0:0 -v botapi-state:/volume alpine:3.22 sh -c 'chown 1000:1000 /volume && chmod 700 /volume'
+```
+
+Повторите для отдельного временного тома. Не применяйте команду к существующим
+данным; владелец в слое образа не подготавливает монтируемый том.
+
+Для ограниченного чтения media используйте writer с основной группой `2000`:
+подготовьте приватные state и scratch для `1000:2000`, отдельный media-каталог
+владельца `1000:2000` с правами `0700`. Задайте `BOTAPI_UID=1000`,
+`BOTAPI_GID=2000`, абсолютный `BOTAPI_MEDIA_SOURCE` и добавьте после non-root
+override файл `-f docker-compose.files.yml`. Gateway не получает storage.
+Передавайте reader только одно конечное поддерево media бота, не корень бота,
+download temp, приватный state или соседних ботов. Приватно задайте
+`BOT_MEDIA_SUBDIR` как путь к поддереву бота на хосте: имя может содержать
+чувствительные данные. Для подготовленного при остановленных writers поддерева
+`documents` каталоги должны разрешать группе чтение и поиск (не шире `0750`),
+файлы — чтение (не шире `0640`). Проверка на синтетическом файле:
+
+```sh
+docker run --rm --user 2001:3000 --group-add 2000 \
+  --mount "type=bind,src=$BOT_MEDIA_SUBDIR/documents,dst=/media,readonly" \
+  alpine:3.22 cat /media/synthetic.txt
+```
+
+Предварительно создайте там синтетический файл от writer с правом чтения для
+группы. Не выводите приватный путь в публичный журнал. Временные файлы загрузки
+находятся внутри media, не в `TELEGRAM_TEMP_DIR`; основная группа writer
+сохраняется при rename внутри файловой системы. Reader не получает Docker socket
+или права монтирования. Проверка не подтверждает реальную загрузку Telegram.
 
 До первой публикации в GHCR используйте локальную сборку:
 
@@ -182,6 +232,8 @@ state через alias, файловый сервер или монтирова�
 и не выполняет перенос.
 Для файловых credentials используйте [secrets-профиль Compose](configuration.md#файловые-секреты-docker-compose), храните файлы вне checkout и применяйте secrets после build overlay.
 
+
+Автономный экспортированный план требует Bash 4+ в Linux/WSL; сохранённый файл запускается командой `bash ./migration-plan.sh`. PowerShell и cmd не поддерживаются.
 
 ## Health без входа ботом
 

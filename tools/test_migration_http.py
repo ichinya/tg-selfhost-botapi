@@ -102,9 +102,10 @@ class HttpTests(unittest.TestCase):
                 def run(*args):
                     if args[0]=='inspect': return json.dumps([info])
                     if args[:2]==('image','inspect'): return json.dumps([{'RepoDigests':[]}])
-                    if args[2:]==('cat','/proc/1/cmdline'):
-                        return '\x00'.join(['/usr/local/bin/telegram-bot-api','--dir='+work,'--temp-dir='+temp]+(['--local'] if local_flag else []))
-                    if 'id' in args: return '1000'
+                    if args[-1].startswith('readlink /proc/1/exe'):
+                        argv='\x00'.join(['/usr/local/bin/telegram-bot-api','--dir='+work,'--temp-dir='+temp]+(['--local'] if local_flag else []))
+                        return '/usr/local/bin/telegram-bot-api\nUid:\t1000 1000 1000 1000\nGid:\t1000 1000 1000 1000\nGroups:\t1000\n\nBOTAPI_STAT\n1 (telegram-bot-api) '+('0 '*19)+'123\nBOTAPI_ARGV\n'+argv
+                    if args[-1] == 'id -u; id -g; id -G': return '1000\n1000\n1000\n'
                     return ''
                 adapter=DockerEvidence('fixture',self.endpoint,info['Image'],b'x'*32)
                 with mock.patch.object(adapter,'run',side_effect=run):

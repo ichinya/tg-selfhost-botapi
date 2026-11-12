@@ -5,13 +5,16 @@ from pathlib import Path
 import sys
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 PATTERNS=('test_migration_contract.py','test_migration_store.py','test_migration_state_privacy.py',
           'test_migration_http.py','test_migration_engine.py','test_migration_reconcile.py',
           'test_migration_cli.py','test_migration_integration.py','test_migration_volumes.py',
           'test_migration_helper.py','test_migration_export.py','test_migration_interfaces.py',
           'test_migration_faults.py','test_migration_transport.py','test_migration_preflight.py',
           'test_migration_readiness.py','test_docs_privacy.py','test_migrator_requests.py',
-          'test_migration_directions.py','test_issue17_security_inputs.py','test_issue17_security_exports.py')
+          'test_migration_directions.py','test_issue8_shell_safety.py',
+          'test_issue17_security_inputs.py','test_issue17_security_exports.py')
 
 
 def main():

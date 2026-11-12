@@ -22,9 +22,16 @@ class EntrypointTest(unittest.TestCase):
         binary.chmod(0o755)
         # Avoid real ownership changes; verify only the entrypoint's invocation contract.
         chown = self.root / "chown"
-        chown.write_text("#!/bin/sh\nexit 0\n")
+        chown.write_text("#!/bin/sh\necho chown >> \"$CALL_LOG\"\n[ \"${FAKE_UID:-1000}\" = 0 ]\n")
         chown.chmod(0o755)
+        identity = self.root / "id"
+        identity.write_text('#!/bin/sh\ncase "$1" in -u) echo "${FAKE_UID:-1000}";; -g) echo "${FAKE_GID:-1000}";; *) exit 1;; esac\n')
+        identity.chmod(0o755)
+        drop = self.root / "su-exec"
+        drop.write_text('#!/bin/sh\necho su-exec >> "$CALL_LOG"\n[ "${FAKE_UID:-1000}" = 0 ] && [ "$1" = 101:101 ] && [ "$2" = /docker-entrypoint.sh ] && [ "$#" = 2 ] || exit 1\nexport FAKE_UID=101 FAKE_GID=101\nexec sh "$ENTRYPOINT"\n')
+        drop.chmod(0o755)
         self.env = {**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}",
+                    "ENTRYPOINT": str(ENTRYPOINT), "CALL_LOG": str(self.root / "calls"),
                     "TELEGRAM_WORK_DIR": str(self.root / "state with spaces"),
                     "TELEGRAM_TEMP_DIR": str(self.root / "temp"),
                     "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "synthetic-secret",
@@ -45,6 +52,8 @@ class EntrypointTest(unittest.TestCase):
         self.assertNotIn("--http-stat-port=8082", actual["args"])
         self.assertIn(f"--log={value}", actual["args"])
         self.assertIn(f"--dir={self.env['TELEGRAM_WORK_DIR']}", actual["args"])
+        self.assertFalse(any(arg.startswith(("--username=", "--groupname=")) for arg in actual["args"]))
+        self.assertFalse((self.root / "calls").exists())
         self.assertFalse(marker.exists())
 
     def test_file_secret_is_read_without_logging_it(self):
@@ -89,6 +98,24 @@ class EntrypointTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["args"], ["--version"])
 
+    def test_root_reexec_and_existing_contents(self):
+        self.env['FAKE_UID'] = '0'
+        state = Path(self.env['TELEGRAM_WORK_DIR'])
+        state.mkdir()
+        (state / '.existing').write_text('keep')
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((state / '.existing').read_text(), 'keep')
+        self.assertEqual((self.root / 'calls').read_text().splitlines(), ['chown', 'su-exec'])
+
+    def test_files_dir_and_overlapping_roots(self):
+        media = str(self.root / 'media with spaces')
+        self.env['TELEGRAM_FILES_DIR'] = media
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--files-dir=' + media, json.loads(result.stdout)['args'])
+        self.env['TELEGRAM_FILES_DIR'] = self.env['TELEGRAM_WORK_DIR'] + '/nested'
+        self.assertNotEqual(self.run_script().returncode, 0)
     def test_statistics_loopback_and_port_conflicts(self):
         self.env['TELEGRAM_STAT'] = 'true'
         result = self.run_script()

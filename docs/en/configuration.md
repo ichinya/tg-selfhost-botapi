@@ -81,6 +81,10 @@ persistent work mount and writable separate temp path. A local-build image need
 not have a RepoDigest; temp storage need not be persistent. `_FILE` credentials
 are supported. Managed Docker diagnostics perform explicit tiny write probes as
 the runtime user; they are not read-only. The HTTP helper cannot select containers.
+Managed readiness observes the server at PID 1 and verifies the probe's UID,
+GID and normalized supplementary groups before reading secret files or writing.
+Identity mismatch or process drift blocks evidence. The external v1 evidence
+retains UID/GID and does not separately attest the group set.
 Local webhook mode must match deployment evidence: HTTP/private IP/any port is
 allowed in local mode; cloud requires HTTPS, a supported port and public IPv4.
 Unsupported profiles fail before source mutations. Transport has bounded DNS,
@@ -95,13 +99,34 @@ connect/read/total time and body size, no redirects, inherited proxy or retries.
 | Persistent state on the host | `./data` |
 | Gateway upload spool | Project-scoped `gateway_client_temp` volume at `/var/cache/nginx/client_temp` |
 | State directory inside the container | `/var/lib/telegram-bot-api` |
-| Container user/group IDs | `101:101` |
+| Default server user/group IDs | `101:101` |
 | Local mode | Enabled by Compose |
+
+By default the container starts as root only to initialize new or empty state and
+temp roots, then runs the server as `101:101`. Non-empty roots and their contents
+are not re-owned or recursively repaired. Alternatively, Docker `--user UID:GID`
+or Compose `user: "UID:GID"` runs directly as that identity; prepare both roots
+for it in advance. Paths must be dedicated absolute paths without symlink
+components. Startup checks access as the server user. New private roots are
+`0700` and the server uses umask `0027`; existing modes are unchanged. Secret
+files supplied with `_FILE` must be readable by the final server identity. Log
+file access is checked by the server. Explicit entrypoint arguments such as
+`--version` bypass normal startup and run as the container user.
 
 The Bot API endpoint receives method calls. The webhook URL belongs to your
 application and receives updates sent by the server. They are different addresses.
 
 ## Compose environment
+
+The optional `docker-compose.nonroot.yml` requires `BOTAPI_UID`, `BOTAPI_GID`,
+`BOTAPI_STATE_SOURCE` and `BOTAPI_TEMP_SOURCE`; these select Compose identity
+and prepared bind sources, not runtime remapping. See [Getting started](getting-started.md).
+
+`TELEGRAM_FILES_DIR` optionally selects a separate upstream `--files-dir`; when
+empty, the upstream working-directory default is retained. The work, HTTP temp
+and media roots must be separate absolute paths without symlink components.
+Changing this setting does not move existing files or cached paths. The media
+override requires the non-root overlay and a prepared `BOTAPI_MEDIA_SOURCE`.
 
 | Variable in `.env` | Purpose |
 | --- | --- |
@@ -160,18 +185,19 @@ headers or a header on `setWebhook` do not configure this outgoing header.
 
 ## Files in local mode
 
-Split storage is opt-in: add `-f docker-compose.files.yml` after the base Compose
-file. Bot API alone writes `./media` at `/var/lib/telegram-bot-api-files` via
+Split storage is opt-in: add `-f docker-compose.nonroot.yml` and then
+`-f docker-compose.files.yml` after the base Compose file. Bot API alone writes
+`BOTAPI_MEDIA_SOURCE` at `/var/lib/telegram-bot-api-files` via
 `TELEGRAM_FILES_DIR` / `--files-dir`. Without it the legacy combined layout stays
 private. State, absolute private temp, logs and credential files must not overlap
 media. Relative logs, noncanonical paths and symlink ancestors are rejected.
-New directories use umask `007`; the supported server identity is `101:101`.
+New directories use umask `0027`; the configured non-root UID/GID owns the media.
 Existing cache permissions are never changed recursively.
 
 `--help` / `--version` remain credential-free. Explicit server CLI arguments are
 not supplemented from environment variables: split CLI requires long-form
 `--files-dir`, `--dir`, `--temp-dir`, matching any configured directory/log env
-values. Duplicate directory flags fail. Use the default entrypoint for identity
+values. Duplicate directory flags fail. Use the supported non-root overlay for identity
 setup; arbitrary Compose `user:` overrides are not supported.
 The short `-f` files-directory option is rejected; use validated long-form flags.
 

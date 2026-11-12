@@ -74,6 +74,28 @@ image IDs/digests и hashes конфигурации; храните их вне
 Экспорт чистого candidate, scoped unit tests, image overrides и границы аварийной
 очистки описаны в [инструкции участника](../../CONTRIBUTING.md).
 
+## Смена identity сервера
+
+Перед сменой ID остановите writer и автоматические перезапуски. Создайте
+согласованную резервную копию с числовыми владельцами и правами. Проверьте
+отдельные абсолютные пути, символические ссылки и чужие mounts; подготовьте
+offline-копию под новые UID/GID и проверьте вложенные binlog и session, а не
+только корневой каталог. Проведите storage smoke и запустите одного writer.
+Для rollback сохраните старую копию с прежними ID и совместимым образом. Не
+меняйте рекурсивно права работающей или общей базы. Старые кешированные пути
+автоматически не переносятся.
+
+Подготовьте state и HTTP temp под фактическую identity сервера. Bind mount,
+именованный том и tmpfs имеют собственные владельца и права; права слоя образа
+не исправляют mount. Новые файлы получают effective UID; без наследования файловой
+системы GID берётся из основной группы, а setgid или ACL могут его изменить.
+Umask `0027` ограничивает новые права, но не добавляет групповое чтение и не
+меняет существующие файлы. Досье миграции остаются доступными только владельцу.
+При прямом non-root запуске Docker сохраняет дополнительные группы. Для другого
+UID используйте ограниченное RO-поддерево media из инструкции установки.
+
+## Раздельное хранилище
+
 Перед первым включением split storage создайте новый пустой host-каталог командой
 `sudo install -d -m 0770 -o 101 -g 101 ./media`: Compose отказывает при отсутствии
 root. Не применяйте эту команду рекурсивно к существующему cache.
@@ -138,9 +160,13 @@ combinations, state isolation, local/TLS/security integration и docs checks.
 Workflow проверяет официальный исходник tdlib и digest Alpine 3.22 каждую ночь
 около **04:37 Asia/Yekaterinburg** (23:37 UTC), при изменении основной ветки и
 вручную. GitHub может задерживать запуск по расписанию.
+Этот workflow также выполняет обязательные проверки безопасности мигратора;
+зависимости описаны в [Contributing](../../CONTRIBUTING.md).
 
 Ключ сборки учитывает ревизии/digest, рецепт, entrypoint, патч и проверки образа.
-Если соответствующий образ уже опубликован, компиляция пропускается.
+Если соответствующий образ уже опубликован, компиляция пропускается; candidate
+скачивается по digest и проходит проверку заново. Acceptance scripts, fixtures,
+оба storage override и их тесты включены в ключ сборки.
 Если проверка registry не подтвердила наличие образа, выполняется новая сборка.
 
 Для нового образа workflow:
@@ -148,10 +174,14 @@ Workflow проверяет официальный исходник tdlib и dig
 1. Проверяет применимость патча User-Agent к выбранной официальной ревизии.
 2. Компилирует весь сервер.
 3. Выполняет `--version`, проверяет строку заголовка в бинарнике и синтаксис entrypoint.
-4. Собирает downloads, проверяет точную пару через synthetic local/TLS/security
+4. Проверяет выбранную ревизию исходников и TDLib submodule: download modes
+   `0640/0750`, внутренний media temp и rename.
+5. Проверяет точный image ID матрицей non-root storage и существующим migration
+   volume gate.
+6. Собирает downloads, проверяет точную пару через synthetic local/TLS/security
    matrix и actual startup без сети, сохраняет IDs/source hashes и проверяет Pages.
-5. Публикует проверенные Bot API/downloads `build-<key>` и продвигает их `latest`
-   без пересборки.
+7. Публикует проверенные Bot API/downloads `build-<key>` и продвигает их `latest`
+   без пересборки. Повторно используемые сборки также проходят все проверки.
 
 Ошибка проверки оставляет прежний опубликованный `latest`. Из PR публикации нет.
 Наличие строки в бинарнике не заменяет проверку доставки реального webhook.
@@ -160,6 +190,36 @@ Workflow проверяет официальный исходник tdlib и dig
 использует `GITHUB_TOKEN` с `packages: write`. После первого выпуска настройте
 публичность пакета либо авторизацию клиентов.
 
+## Квалификация non-root candidate
+
+Для локального rootful Linux Docker Engine с POSIX filesystem, Python 3.11+
+и актуальным Compose v2 запустите проверки явно собранного candidate:
+
+```sh
+python3 tools/check_nonroot_compose.py --deadline 120
+python3 tools/check_nonroot.py --image <candidate> --deadline 1200
+python3 tools/check_migration_volumes.py --require-docker --image <candidate> --receipt /tmp/migration-volume-gate.json
+```
+
+Runner использует случайные ресурсы с labels, изоляцию сети, synthetic credentials,
+ограниченные сроки вызовов и проверку владельца перед очисткой. Матрица проверяет
+root bootstrap в `101:101`, явные `101:101`, `1000:1000`, `1000:2000` без passwd
+entry, дополнительные группы, PID 1 и token-free HTTP, migration evidence, новые
+и подготовленные bind/named volumes, restart/recreate, сохранность canary, denied
+и read-only state/temp, чужого владельца, групповой доступ и недоступный binlog,
+который сервер действительно открывает. Compose проверяется по production files:
+отсутствующие inputs, aliases backing и `base+files` без non-root слоя отклоняются.
+
+Media fixture проверяет inode/GID/modes при внутреннем temp-to-final rename,
+ограниченный RO-доступ другого UID, запрет POSIX-записи отдельно от RO mount и
+отказ чужой группе. Download temp на другом mount отклоняется. Synthetic fixture
+подтверждает рецепт прав; source assertions сверяются с выбранной ревизией в CI.
+Эти проверки не подтверждают реальную загрузку Telegram. Unit-тесты не запускают
+Docker; real-image acceptance, CI и production — отдельные наблюдения. Недоступные
+проверки — NOTRUN: verification deferred to CI/gates. Для Docker Desktop,
+rootless/user namespaces и сетевых filesystem нужна отдельная квалификация.
+Не запускайте harness с production mounts.
+
 ## Обновление установки
 
 ### Включение split storage и откат
@@ -167,9 +227,10 @@ Workflow проверяет официальный исходник tdlib и dig
 1. Остановите клиентов, downloads, writers Bot API и supervisors, которые их
    перезапускают. Согласованно сохраните private state, identity образа, Compose/env,
    secret files и отдельно media для уже разделённой установки.
-2. В окно обслуживания включите `docker-compose.files.yml` с проверенным образом
+2. В окно обслуживания включите non-root и `docker-compose.files.yml` с проверенным образом
    и конфигурацией. Не копируйте state/binlogs в media и не исправляйте пути TDLib
-   DB вручную. По умолчанию переход создаёт новый media cache.
+   DB вручную. По умолчанию переход создаёт новый media cache. Подготовьте media source
+   для настроенных UID/GID по инструкции установки; Compose требует существующий каталог.
 3. Повторите getFile по сохранённым file_id. Перед доступом consumers проверьте
    новую media subtree, bytes/digest, ownership и mapping. Если upstream вернул
    старый private path, оставьте отказ и разберитесь в причине; доступ к state
@@ -180,7 +241,7 @@ Workflow проверяет официальный исходник tdlib и dig
    отката образа недостаточно. При self-to-self снимки media и state согласуются.
 
 Не меняйте права cache рекурсивно и не открывайте его всем. Проверьте реальные
-TDLib modes и UID/GID 101:101; reader использует ту же identity либо отдельно
+TDLib modes и настроенные UID/GID writer; reader использует ту же identity либо отдельно
 проверенную read/traverse ACL. Каждому reader/handler — одна RO subtree, без parent,
 соседних ботов, private temp/log/secrets и nested mounts. Local API и writer
 доверенные; взаимно недоверенным операторам нужны отдельные instances/storage.
@@ -191,26 +252,40 @@ TDLib modes и UID/GID 101:101; reader использует ту же identity �
 не обещаются. Не вставляйте token-bearing paths в отчёты.
 
 Публикация в registry не перезапускает VPS. Выберите проверенный тег/digest через
-`BOTAPI_IMAGE` и соответствующий `OBSERVER_IMAGE` в `.env`, затем:
+`BOTAPI_IMAGE` ? ??????????????? `OBSERVER_IMAGE` в `.env`. Каждая команда обновления должна использовать ровно тот
+же набор файлов Compose в том же порядке, что и установка. Выберите `COMPOSE_FILES`:
 
 ```sh
-docker compose stop observer botapi
-# Здесь сделайте согласованную копию ./data и приватной конфигурации.
-docker compose pull botapi observer gateway
-docker compose up -d --force-recreate botapi observer gateway
-docker compose logs --tail=100 botapi
+# base
+COMPOSE_FILES='-f docker-compose.yml'
+# base + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.build.yml'
+# base + nonroot
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml'
+# base + nonroot + files
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml'
+# base + nonroot + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.build.yml'
+# base + nonroot + files + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml -f docker-compose.build.yml'
 ```
 
-Для локальной сборки последовательно используйте build override:
+Выберите только одну строку выше. Без слоёв nonroot/files identity сервера
+вернётся к `101:101`, состояние подключится из `./data`, а media mount исчезнет.
+Для установки из registry:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml stop observer botapi
-# До замены бинарника сохраните ./data и приватную конфигурацию.
-docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi observer
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --force-recreate botapi observer gateway
+docker compose $COMPOSE_FILES stop observer botapi
+# Сделайте согласованную копию фактического источника состояния и приватной конфигурации.
+docker compose $COMPOSE_FILES pull botapi observer gateway
+docker compose $COMPOSE_FILES up -d --force-recreate botapi observer gateway
+docker compose $COMPOSE_FILES logs --tail=100 botapi
 ```
 
-Сохраните `./data`, владельца `101:101`, endpoint и local mode.
+Для локальной сборки замените `pull` на `build` с теми же выбранными файлами.
+Сохраните фактический источник состояния (`$BOTAPI_STATE_SOURCE` для nonroot,
+`./data` для базовой модели), владельца выбранной identity сервера (по умолчанию `101:101`),
+endpoint и local mode.
 Не запускайте два процесса Bot API с одним каталогом данных. Для возврата старого
 образа может понадобиться совместимая резервная копия состояния: одного отката
 бинарника недостаточно для гарантии.
@@ -607,3 +682,22 @@ native image. Image workflow повторно квалифицирует сущ�
 отдельные проверки. Недоступный локальный запуск: NOTRUN, verification deferred
 to CI/gates. Synthetic tests не развёртывают сервис и не используют реального
 Telegram-бота. Внешнее развёртывание требует отдельного разрешения.
+
+
+## Проверка регрессий shell-экспорта
+
+Матрица issue #8 запускается в Linux/WSL от обычного пользователя с Bash 4+,
+Python 3.11+, Node 24+, jq, curl и openssl:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_checkout.py
+python3 tools/check_migration_safety.py --require-posix
+```
+
+Suite использует синтетические `.invalid` значения, curl без сети и отдельный
+HTTP-сервер на loopback. Снимки остаются в приватных временных каталогах.
+Обязательный gate отклоняет skips и отсутствие runtime. Пропуски на Windows и
+локальные NOTRUN означают verification deferred to CI/gates. После merge
+отдельно проверьте прежний URL мигратора и совпадение байтов опубликованного
+файла; проверки ветки не подтверждают деплой или доставку реальному боту.

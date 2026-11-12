@@ -75,7 +75,7 @@ class ProfileTransportTests(unittest.TestCase):
                     wrapper = bindir / "curl"
                     audit = self.private / f"argv-{int(exported)}-{int(cert)}"
                     self.assertFalse(audit.exists(), "Each scenario must have its own curl audit")
-                    wrapper.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$WP_CURL_AUDIT"\nexec "' + shutil.which("curl") + '" "$@"\n')
+                    wrapper.write_text('#!/bin/sh\nprintf "%s\\0" "$@" >> "$WP_CURL_AUDIT"\nexec "' + shutil.which("curl") + '" "$@"\n')
                     wrapper.chmod(0o700)
                     api = self.with_api()
                     result = self.run_surface(api, exported, **env, PATH=str(bindir) + os.pathsep + self.env["PATH"], WP_CURL_AUDIT=str(audit))
@@ -91,7 +91,7 @@ class ProfileTransportTests(unittest.TestCase):
                         self.assertNotIn(SECRET, content)
                         self.assertNotIn(TOKEN, content)
                         self.assertNotIn("BEGIN CERTIFICATE", content)
-                    argv = audit.read_text().splitlines()
+                    argv = [arg.decode() for arg in audit.read_bytes().split(b'\0')[:-1]]
                     for index, arg in enumerate(argv[:-1]):
                         if arg == "--config":
                             self.assertFalse(Path(argv[index + 1]).parent.exists(), "Private temp directory was not cleaned")
