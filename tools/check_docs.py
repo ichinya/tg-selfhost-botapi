@@ -17,23 +17,29 @@ def check_private_content(root):
             for name in PRIVATE_CONTENT if (root / name).exists()]
 
 
-def private_site_paths(root):
+def private_site_paths(root, sentinels=()):
     """Return relative private artifact paths accidentally copied into a site."""
     root = Path(root)
     for path in root.rglob("*"):
         relative = path.relative_to(root)
-        if any(part in (".migration-state", ".migration-private", "files", "secrets", "examples", "data", "scratch", "media") for part in relative.parts) or (
+        if any(part in (".migration-state", ".migration-private", "files", "secrets", "examples", "data", "scratch", "media", "logs", ".issue-flow") for part in relative.parts) or (
             path.name == ".env" or path.name.startswith(".env.") and path.name != ".env.example"
-        ) or path.name in ("binding.key", "migration-helper.env", "Dockerfile.downloads", "docker-compose.downloads.yml", "docker-compose.nonroot.yml", "docker-compose.files.yml") or (
+        ) or path.name in ("binding.key", "migration-helper.env", "Dockerfile.downloads", "docker-compose.downloads.yml", "docker-compose.nonroot.yml", "docker-compose.files.yml", "docker-compose.secrets.yml", "nginx-main.conf") or (
             path.name.startswith("downloads.config.")
         ):
             yield relative
-        elif path.is_file() and path.suffix == '.json':
+        elif path.is_file():
             # Recognize renamed private journal envelopes as well as paths.
             import json
             try:
                 if path.stat().st_size <= 4194304:
-                    value = json.loads(path.read_text(encoding='utf-8'))
+                    raw=path.read_bytes()
+                    if any(value.encode('utf-8') in raw for value in sentinels if value):
+                        yield relative
+                        continue
+                    if path.suffix != '.json':
+                        continue
+                    value = json.loads(raw.decode('utf-8'))
                     if isinstance(value, dict) and {'state', 'mac'} <= set(value):
                         yield relative
             except (ValueError, UnicodeError, OSError):
@@ -60,7 +66,9 @@ def check(root):
     root = root.resolve()
     pages = {path.resolve(): Page(path.read_text(encoding="utf-8")) for path in root.rglob("*.html")}
     errors = []
-    errors.extend(f"Private content published: {path}" for path in private_site_paths(root))
+    import os
+    sentinels=[os.environ.get('DOCS_PRIVACY_SENTINEL','')]
+    errors.extend(f"Private content published: {path}" for path in private_site_paths(root,sentinels))
     for path, page in pages.items():
         for link in page.links:
             parsed = urlsplit(link)

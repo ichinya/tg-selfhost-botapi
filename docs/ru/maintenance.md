@@ -368,7 +368,7 @@ CI получает точную ревизию, никогда master. Source a
 
 Запуск: `timeout 420 python3 -m unittest tools.test_webhook_profile_contract tools.test_webhook_profile_ui tools.test_webhook_profile_transport tools.test_webhook_profile_receiver -v`, `PYTHONPATH=.:tools`, Node 24+, Bash 4+, curl, jq, openssl и непривилегированный POSIX runner. 22 общих fixtures исполняют shipped inline resolver и Bash jq program; реальные HTTP-тесты разбирают urlencoded/multipart, запускают helper/export, отклоняют readback mismatch и проверяют receipts. Privacy canaries охватывают вывод, clipboard, public state, отражённые API errors и curl argv. Scoped workflow запускает ту же матрицу и регрессии #10; pinned-source sender выделен в отдельный job. Чужие untracked issue7 drafts и workflow с Node 20 не подключаются.
 
-Image/default upstream logger qualification, multipart через shipped nginx, C++ sender harness, Jekyll rendered checks и реальная Telegram delivery остаются явными внешними гейтами. Недоступный запуск — NOTRUN: verification deferred to CI/gates. Изменение не заявляет всеобщую upstream debug/VLOG redaction (#17); сохраняйте низкую verbosity и отдельно квалифицируйте default logs перед deployment.
+Image/default upstream logger qualification, multipart через shipped nginx, C++ sender harness, Jekyll rendered checks и реальная Telegram delivery остаются явными внешними гейтами. Недоступный запуск — NOTRUN: verification deferred to CI/gates. Собственные сборки используют issue17-v1 fixed log projection до file/memory storage; перед deployment проверьте точный image.
 
 ### Приватное досье миграции
 
@@ -555,7 +555,7 @@ server = Server(app, 8765)
 pairing = root / "pairing-code"
 write_bootstrap(pairing, server.bootstrap, [root / "state"])
 print("Synthetic fixture only:", server.origin, "private pairing file:", pairing, flush=True)
-print("Source:", source.endpoint, "Target:", endpoint, "Token:", TOKEN, "Direction:", direction, flush=True)
+print("Synthetic source/target ready; private inputs withheld", flush=True)
 print("Retained fixture authority:", root, flush=True)
 try:
     server.serve_forever()
@@ -591,3 +591,19 @@ target_fingerprint, token_fingerprint, observed_at. Quiescence также тре
 no_writers=true, endpoint/start — endpoint_fingerprint. Provider проверяет
 внешние факты до подписи. По умолчанию доверенных providers нет; fixture
 providers не могут подтверждать реальные операции.
+Из диагностики helper передавайте только `public-manifest.json`. Не архивируйте private dossier целиком; ошибка очистки требует закрытой сверки состояния.
+Диагностика gateway использует фиксированные записи status/timing access log. Ошибки запросов nginx отбрасываются; внешний proxy проверяется отдельно.
+Приёмка native privacy требует точного собственного build/digest, source-linked driver и проверки бинарника. Policy issue17-v1 заменяет текст native logs фиксированными severity до file/memory storage. Source driver не доказывает сквозную доставку webhook.
+
+### Гейты точного кандидата #17
+
+Запускайте `python3 tools/issue17_security_gate.py --unit` в чистом checkout
+закоммиченного кандидата. `--runtime` проверяет disposable Compose/entrypoint/
+gateway, а `--image botapi-candidate:check --expected-build-key BUILD_KEY` — точный
+native image. Image workflow повторно квалифицирует существующие immutable tags
+перед promotion. Отсутствие policy label, driver, положительного HTTP/log control
+или обязательного runner блокирует успех. Публикуются только sanitized manifests.
+Права Linux, полный discovery чистого кандидата, Docker/native image и Pages —
+отдельные проверки. Недоступный локальный запуск: NOTRUN, verification deferred
+to CI/gates. Synthetic tests не развёртывают сервис и не используют реального
+Telegram-бота. Внешнее развёртывание требует отдельного разрешения.

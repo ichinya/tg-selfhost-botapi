@@ -1,6 +1,24 @@
 #!/bin/sh
 set -eu
 
+# No core dump can be considered a public diagnostics artifact.
+ulimit -c 0
+privacy_verbosity() {
+    case "$1" in 0|1|2|3) ;; *) echo 'Unsupported diagnostic verbosity (expected 0..3)' >&2; exit 1 ;; esac
+}
+privacy_verbosity "${TELEGRAM_VERBOSITY:-0}"
+next_verbosity=false
+for argument in "$@"; do
+    if [ "$next_verbosity" = true ]; then privacy_verbosity "$argument"; next_verbosity=false; continue; fi
+    case "$argument" in
+        --verbosity|--memory-verbosity|-v) next_verbosity=true ;;
+        --verbosity=*|--memory-verbosity=*) privacy_verbosity "${argument#*=}" ;;
+        -v*) privacy_verbosity "${argument#-v}" ;;
+    esac
+done
+if [ "$next_verbosity" = true ]; then echo 'Missing diagnostic verbosity' >&2; exit 1; fi
+
+# Explicit CLI arguments (for example --version) do not require API credentials.
 # Informational invocations never need credentials or storage.
 if [ "$#" = 1 ]; then
     case "$1" in --version|--help|-h) exec telegram-bot-api "$@" ;; esac

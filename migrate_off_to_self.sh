@@ -97,19 +97,42 @@ wp_load() {
   if [[ ${BOT_TOKEN_FILE+x} ]]; then
     [[ ! ${BOT_TOKEN+x} ]] || wp_fail 'Conflicting bot token inputs'
     wp_private_file "$BOT_TOKEN_FILE" "$WP_TMP/token"
+    wp_jq -Rse 'sub("\r?\n$";"") | test("^[0-9]+:[A-Za-z0-9_-]+$") and (test("[\r\n\u0000]")|not)' "$WP_TMP/token" >/dev/null || wp_fail 'Invalid bot token'
     BOT_TOKEN=$(wp_jq -Rsrj 'sub("\r?\n$";"")' "$WP_TMP/token") || wp_fail 'Cannot read bot token'
+  fi
+  if [[ ! ${BOT_TOKEN+x} ]]; then
+    [[ -t 0 ]] || wp_fail 'Private token file or terminal required'
+    IFS= read -r -s -p 'Bot token: ' BOT_TOKEN || wp_fail 'Hidden token input unavailable'
+    printf '\n' >&2
   fi
   [[ ${BOT_TOKEN-} =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || wp_fail 'Invalid bot token'
 }
 wp_private_file() {
-  local input=$1 output=$2 resolved checkout
-  [[ -n $input && -f $input && -r $input && -s $input ]] || wp_fail 'Protected input file unavailable'
-  command -v realpath >/dev/null || wp_fail 'realpath required for protected input files'
-  resolved=$(realpath -- "$input") || wp_fail 'Cannot resolve protected input file'
-  checkout=$(realpath -- "$WP_SCRIPT_DIR") || wp_fail 'Cannot resolve helper directory'
-  case $resolved in "$checkout"|"$checkout"/*) wp_fail 'Protected inputs must be outside checkout/webroot' ;; esac
-  [[ $(wc -c < "$resolved") -le 1048576 ]] || wp_fail 'Protected input too large'
-  cat -- "$resolved" > "$output" || wp_fail 'Cannot snapshot protected input'
+  # A bounded child opens the original path, compares lstat with the opened FD,
+  # and checks both again after snapshotting. Never use realpath as the read path.
+  command -v timeout >/dev/null || wp_fail 'Protected input prerequisites unavailable'
+  timeout 5 bash -c '
+    set -euo pipefail
+    input=$1 output=$2 checkout=$3
+    [[ -n $input && ! -L $input && -f $input && -O $input && -r $input ]]
+    resolved=$(realpath -e -- "$input")
+    checkout=$(realpath -e -- "$checkout")
+    case $resolved in "$checkout"|"$checkout"/*) exit 1;; esac
+    before=$(stat -c "%d:%i:%f:%u:%h:%s:%y:%z" -- "$input")
+    mode=$(stat -c "%a" -- "$input")
+    [[ $mode == 400 || $mode == 600 ]]
+    [[ $(stat -c "%h" -- "$input") == 1 ]]
+    exec {fd}< "$input"
+    opened=/proc/$$/fd/$fd
+    [[ ! -L $input && -f $opened && -O $opened ]]
+    [[ $(stat -Lc "%d:%i:%f:%u:%h:%s:%y:%z" -- "$opened") == "$before" ]]
+    size=$(stat -Lc "%s" -- "$opened")
+    (( size > 0 && size <= 1048576 ))
+    head -c 1048577 <&$fd > "$output"
+    [[ $(wc -c < "$output") == "$size" ]]
+    [[ ! -L $input && $(stat -c "%d:%i:%f:%u:%h:%s:%y:%z" -- "$input") == "$before" ]]
+    [[ $(stat -Lc "%d:%i:%f:%u:%h:%s:%y:%z" -- "$opened") == "$before" ]]
+  ' _ "$1" "$2" "$WP_SCRIPT_DIR" 2>/dev/null || wp_fail 'Protected input rejected'
 }
 wp_snapshot_valid() {
   wp_jq -e '
@@ -446,6 +469,11 @@ cleanup() {
       elif ! emit_observation >/dev/null 2>&1; then
         echo 'Monitoring projection unavailable' >&2
       fi
+      if ! public_diagnostics; then
+        rm -f -- "$API_TMP/public-manifest.json" 2>/dev/null || :
+        echo 'Shareable diagnostics unavailable; private reconciliation required' >&2
+        (( original_exit != 0 )) || original_exit=1
+      fi
     fi
   fi
   if [[ -n "${WP_TMP-}" ]]; then rm -rf -- "$WP_TMP" || :; fi
@@ -453,6 +481,36 @@ cleanup() {
     rmdir -- "$STORAGE_ROOT/.lock" 2>/dev/null || :
   fi
   exit "$original_exit"
+}
+public_diagnostics() {
+  # This explicit projection is the only shareable artifact. Never archive the
+  # dossier, even if a file is named receipt.json or has a harmless extension.
+  rm -f -- "$API_TMP/public-manifest.json" 2>/dev/null || return 1
+  [[ "$RAW_RETAINED" == false && "$REQUEST_ACTIVE" == false ]] || return 1
+  local file
+  local -a receipts=()
+  for file in "$API_TMP"/request-*/receipt.json; do
+    [[ -e $file ]] || continue
+    private_record "$file" || return 1
+    receipts+=("$file")
+  done
+  if (( ${#receipts[@]} )); then
+    jq -s '
+      def safe_label($allowed): if type=="string" and IN($allowed[]) then . else "UNKNOWN" end;
+      map(if .raw_retained == true or .cleanup_error == true or .sanitization_status != "complete" then error("unsafe") else
+        {method:(.method|safe_label(["probe","getMe","getWebhookInfo","deleteWebhook","logOut","setWebhook"])),
+         role:(.endpoint_role|safe_label(["source","target"])),
+         outcome:(.outcome|safe_label(["CONFIRMED_SUCCESS","CONFIRMED_REJECTION","UNKNOWN","in_flight"])),
+         effect_possible:(.effect_possible==true),mutating:(.mutating==true),
+         http_status:(if (.http_status|type)=="number" and .http_status>=100 and .http_status<=599 then .http_status else null end)} end)
+    ' "${receipts[@]}" > "$API_TMP/.public-receipts" 2>/dev/null || return 1
+  else printf '[]' > "$API_TMP/.public-receipts" || return 1; fi
+  jq -n --slurpfile summary "$API_TMP/summary.json" --slurpfile receipts "$API_TMP/.public-receipts" '
+    {schema_version:1,operation:"current-operation",receipts:$receipts[0],
+     completed:($summary[0].completed==true),partial_migration:($summary[0].partial_migration==true),
+     continuation_requires_reconciliation:($summary[0].continuation_requires_reconciliation==true),
+     delivery_confirmed:false}
+  ' > "$API_TMP/.public.tmp" 2>/dev/null && mv -- "$API_TMP/.public.tmp" "$API_TMP/public-manifest.json"
 }
 check_previous_runs() {
   local previous request operation attempt effect mutating had_mutation complete
@@ -580,14 +638,7 @@ redact_file() {
   ' "$input" | jq -rj . > "$output"
 }
 endpoint_preview() {
-  local url="$1" authority scheme
-  scheme="${url%%://*}"
-  authority="${url#*://}"
-  authority="${authority%%[/?#]*}"
-  authority="${authority##*@}"
-  printf '%s' "${scheme}://${authority}" > "$API_TMP/.preview.raw" &&
-    redact_file "$API_TMP/.preview.raw" "$API_TMP/.preview.txt" true &&
-    jq -Rs -r '.[0:2048]|@json' "$API_TMP/.preview.txt"
+  printf 'private endpoint reference\n'
 }
 write_record() {
   local phase="$1" outcome="$2" reason="$3"
@@ -618,7 +669,7 @@ write_record() {
        api_error_code:(if ($body.error_code | type == "number" and
                            . >= -9007199254740991 and . <= 9007199254740991 and floor == .)
                        then $body.error_code else null end),
-       description:(if ($body.description|type) == "string" then $body.description else null end),
+       description:null,
        retry_after:(if ($retry|integer) then $retry else null end),
        retry_after_status:(if ($body|has("parameters")|not) then "absent"
          elif ($body.parameters|type) != "object" then "invalid"

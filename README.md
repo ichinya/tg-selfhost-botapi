@@ -35,3 +35,4 @@ authenticated handler: [English](docs/en/configuration.md#files-in-local-mode) �
 [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/ichinya/tg-selfhost-botapi/issues)
 
 See the [runtime identity contract](docs/en/configuration.md#addresses-and-storage) for non-root deployments.
+File secrets: [EN](docs/en/configuration.md#docker-compose-file-secrets) · [RU](docs/ru/configuration.md#файловые-секреты-docker-compose).

@@ -17,8 +17,8 @@ class EntrypointTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         binary = self.root / "telegram-bot-api"
         binary.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
-                          "print(json.dumps(dict(args=sys.argv[1:], api_id=os.getenv('TELEGRAM_API_ID'), "
-                          "api_hash=os.getenv('TELEGRAM_API_HASH'))))\n")
+                          "assert sys.argv[1:] == ['--version'] or (os.getenv('TELEGRAM_API_ID') == os.getenv('EXPECTED_ID') and os.getenv('TELEGRAM_API_HASH') == os.getenv('EXPECTED_HASH'))\n"
+                          "print(json.dumps(dict(args=sys.argv[1:], checked=True)))\n")
         binary.chmod(0o755)
         # Avoid real ownership changes; verify only the entrypoint's invocation contract.
         chown = self.root / "chown"
@@ -34,7 +34,8 @@ class EntrypointTest(unittest.TestCase):
                     "ENTRYPOINT": str(ENTRYPOINT), "CALL_LOG": str(self.root / "calls"),
                     "TELEGRAM_WORK_DIR": str(self.root / "state with spaces"),
                     "TELEGRAM_TEMP_DIR": str(self.root / "temp"),
-                    "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "synthetic-secret"}
+                    "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "synthetic-secret",
+                    "EXPECTED_ID": "12345", "EXPECTED_HASH": "synthetic-secret"}
 
     def run_script(self, *args):
         return subprocess.run(["sh", str(ENTRYPOINT), *args], env=self.env,
@@ -60,9 +61,11 @@ class EntrypointTest(unittest.TestCase):
         secret.write_text("secret from file\n")
         self.env.pop("TELEGRAM_API_HASH")
         self.env["TELEGRAM_API_HASH_FILE"] = str(secret)
+        self.env["EXPECTED_HASH"] = "secret from file"
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["api_hash"], "secret from file")
+        self.assertTrue(json.loads(result.stdout)["checked"])
+        self.assertNotIn("secret from file", result.stdout + result.stderr)
         self.assertEqual(result.stderr, "")
 
     def test_conflicting_secret_and_invalid_boolean_fail(self):
@@ -71,6 +74,22 @@ class EntrypointTest(unittest.TestCase):
         self.env.pop("TELEGRAM_API_HASH_FILE")
         self.env["TELEGRAM_LOCAL"] = "invalid"
         self.assertNotEqual(self.run_script().returncode, 0)
+
+    def test_both_files_and_file_errors(self):
+        for name, value in (("ID", "12345"), ("HASH", "synthetic-secret")):
+            path = self.root / name
+            path.write_text(value + "\n")
+            self.env.pop("TELEGRAM_API_" + name)
+            self.env["TELEGRAM_API_" + name + "_FILE"] = str(path)
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("synthetic-secret", result.stdout + result.stderr)
+        (self.root / "ID").write_text("")
+        self.assertNotEqual(self.run_script().returncode, 0)
+        self.env["TELEGRAM_API_ID_FILE"] = str(self.root / "missing-private-path")
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("missing-private-path", result.stderr)
 
     def test_version_runs_without_api_credentials(self):
         self.env.pop("TELEGRAM_API_HASH")

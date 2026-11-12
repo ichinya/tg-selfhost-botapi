@@ -1,0 +1,23 @@
+{
+  "markers": {
+    "api_id": "314159265",
+    "driver": "synthetic_issue17_private_marker",
+    "token": "123456789:synthetic_issue17_token_marker",
+    "secret": "synthetic_issue17_webhook_secret",
+    "api_hash": "synthetic_issue17_api_hash",
+    "endpoint": "synthetic_issue17_private_prefix",
+    "webhook": "synthetic_issue17_webhook_path?private=query_marker",
+    "certificate": "synthetic_issue17_certificate_bytes"
+  },
+  "paths": [
+    "/bot{token}/getMe",
+    "/file/bot{token}/private-file",
+    "/bot{token}/bot{token}/unknown",
+    "/unknown/{endpoint}?secret={secret}",
+    "/bot{encoded_token}/getMe",
+    "/unknown/{double_token}",
+    "/fail/{secret}",
+    "/reset/{endpoint}",
+    "/delay/{secret}"
+  ]
+}

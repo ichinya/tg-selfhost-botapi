@@ -5,6 +5,23 @@ translation: /docs/en/configuration.html
 
 # Настройки
 
+## Файловые секреты Docker Compose
+
+Для дополнительного secrets overlay нужен Compose версии 2.24.4 или новее.
+Храните API ID и hash в отдельных файлах вне репозитория, доступных entrypoint
+контейнера, с правами только владельца (0400 или 0600). Локальные файловые
+secrets Compose являются bind mount и сохраняют права файлов хоста; это не
+зашифрованное хранилище. Укажите пути в `TELEGRAM_API_ID_SECRET_PATH` и
+`TELEGRAM_API_HASH_SECRET_PATH`, затем выполните:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
+```
+
+Для локальной сборки добавьте `-f docker-compose.build.yml` перед secrets-файлом.
+Overlay удаляет значения credentials из итогового окружения контейнера.
+Прежняя конфигурация через переменные окружения сохраняется.
+
 ## Проверка конфигурации doctor
 
 Doctor передаёт подстановку переменных и объединение файлов команде
@@ -229,11 +246,9 @@ media/private backings и проверяет scoped RO mounts consumers. Сво�
 - По умолчанию gateway доступен только на localhost. Установите в `.env`
   `GATEWAY_BIND=0.0.0.0`, только если удалённым клиентам, например получателю
   webhook, нужен доступ; защитите внешний доступ с помощью HTTPS и сетевых ограничений.
-- Access log скрывает токены ботов и исключает query string. Для error log nginx
-  задан порог `crit`, чтобы исключить ошибки со строкой запроса; предупреждения и
-  ошибки уровня `error` при этом не записываются. Критические сообщения всё ещё
-  могут содержать секреты: фильтруйте журналы перед передачей и не публикуйте
-  необработанную диагностику.
+- Access log содержит фиксированные метки метода/маршрута и числовые
+  status/bytes/timing. Ошибки запросов отбрасываются через `/dev/null`;
+  подробные ошибки nginx недоступны. Внешнему proxy нужна отдельная политика.
 
 [Установка](getting-started.md) · [Обслуживание](maintenance.md)
 
@@ -243,7 +258,7 @@ media/private backings и проверяет scoped RO mounts consumers. Сво�
 
 Используйте ровно один из `WEBHOOK_SECRET_TOKEN` и `WEBHOOK_SECRET_TOKEN_FILE` для provided; none явно утверждает отсутствие секрета. В файле разрешён один конечный LF/CRLF; inline-секрет не обрезается. `WEBHOOK_CERTIFICATE_FILE` — публичный PEM, никогда private key. Protected files, включая `BOT_TOKEN_FILE`, должны находиться вне checkout/webroot с доступом только оператору. Process env перекрывает trusted `ENV_FILE` (по умолчанию `.env` рядом с helper), включая явные пустые значения; пары value/file выбираются на одном уровне. Positional URL имеют высший приоритет. Для polling профиль webhook не применяется.
 
-Передача полного профиля включена: urlencoded без сертификата, полностью multipart с сертификатом. Секрет и scalar-файлы — приватные снимки; токен/секрет/URL не попадают в curl argv и raw diagnostics. Helper отключает trace, применяет curl -q без redirects, проверяет HTTP/ok/result и не повторяет мутации. Для публичного PEM нужны Bash 4+, jq, curl, realpath и проверка openssl X.509; private key отклоняется. Временные файлы создаются с umask 077 и очищаются при выходе/сигналах.
+Передача полного профиля включена: urlencoded без сертификата, полностью multipart с сертификатом. Секрет и scalar-файлы — приватные снимки; токен/секрет/URL не попадают в curl argv и shareable diagnostics. Helper отключает trace, применяет curl -q без redirects, проверяет HTTP/ok/result и не повторяет мутации. Для публичного PEM нужны Bash 4+, jq, curl, realpath и проверка openssl X.509; private key отклоняется. Временные файлы создаются с umask 077 и очищаются при выходе/сигналах.
 
 ## Таймауты миграции на хосте
 
@@ -255,6 +270,28 @@ media/private backings и проверяет scoped RO mounts consumers. Сво�
 файлом окружения; значение по умолчанию используется только для незаданной
 переменной. В отличие от адресов, явно пустой таймаут недопустим. Настройки
 не передаются в контейнеры.
+
+### Журналы gateway
+
+Базовый Compose монтирует `nginx-main.conf` read-only во всех профилях. Access log
+содержит только фиксированные метки метода/маршрута, числовые статус/байты и время.
+Неизвестный метод получает OTHER, неизвестный путь — other. Ошибки запросов
+отбрасываются через `error_log /dev/null`, включая наследуемые контексты.
+Для диагностики используйте статусы и время; подробные ошибки nginx недоступны.
+Внешнему proxy нужна отдельная политика. Doctor распознаёт только точные maps
+с фиксированными метками, другая logging policy остаётся UNKNOWN.
+
+### Диагностика нативного Bot API
+
+Собственная сборка включает policy `issue17-v1`: Query log содержит счётчики,
+webhook log исключает private state, а log sink преобразует каждое событие
+native/TDLib в фиксированную метку severity до записи в файл и memory log.
+Подробные нативные сообщения недоступны. Поддерживаются file/memory verbosity
+0..3; большие значения при старте отклоняются, повышение во время работы ограничено.
+Crash diagnostics исключает actor tags и debugger locals; entrypoint отключает
+core dumps. Гарантия требует проверенного собственного image/digest, а не любого
+upstream образа через BOTAPI_IMAGE. Private webhook state и исходящие secret
+headers сохраняют исходные байты. Вывод версии остаётся доступен.
 
 ## Безопасная статистика
 

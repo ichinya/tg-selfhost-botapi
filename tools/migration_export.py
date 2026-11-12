@@ -1,10 +1,13 @@
 """Export the same sealed operation, never an independent curl executor."""
 import shlex
+import re
 from migration_contract import validate_plan
 
 
 def export_operation(state):
     plan = validate_plan(state['plan'])
+    if not isinstance(state.get('digest'), str) or not re.fullmatch('[0-9a-f]{64}', state['digest']):
+        raise ValueError('invalid export digest')
     operation = shlex.quote(plan['operation_id'])
     base = 'python3 tools/migration_cli.py'
     common = f' --operation {operation} --state-dir "$MIGRATION_STATE_DIR"'

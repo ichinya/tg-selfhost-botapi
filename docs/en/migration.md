@@ -1,4 +1,5 @@
 ---
+
 title: Migration
 translation: /docs/ru/migration.html
 ---
@@ -222,7 +223,7 @@ source, `SELF_BOT_URL` and `WEBHOOK_URL` take precedence over legacy
 `TELEGRAM_BOT_URL` and `WEB_HOOK`; process aliases override file values.
 Empty webhook values retain the legacy fallback described below. For example,
 from another directory use `ENV_FILE="/path/to/settings.env" bash
-/path/to/migrate_off_to_self.sh "$BOT_TOKEN"`.
+/path/to/migrate_off_to_self.sh`.
 
 Arguments are `BOT_TOKEN`, `SELF_BOT_URL`, then `WEBHOOK_URL`:
 
@@ -230,24 +231,24 @@ Arguments are `BOT_TOKEN`, `SELF_BOT_URL`, then `WEBHOOK_URL`:
 ```sh
 export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
-read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
+export BOT_TOKEN_FILE=/secure/bot-token
 SELF_BOT_URL="http://127.0.0.1:18080" \
 WEBHOOK_URL="https://example.com/telegram/webhook" \
-  bash ./migrate_off_to_self.sh "$BOT_TOKEN"
-unset BOT_TOKEN
+  bash ./migrate_off_to_self.sh
+unset BOT_TOKEN_FILE
 ```
 
-Alternatively pass all three positional arguments. Do not put the webhook URL in
-argument 2: that argument is the Bot API endpoint.
+The legacy positional interface remains compatible, but exposes arguments.
+Use file input and named environment references in new scripts:
 
 <!-- issue10-example:positional -->
 ```sh
 export WEBHOOK_SECRET_MODE=none WEBHOOK_IP_MODE=dns WEBHOOK_MAX_CONNECTIONS=40
 set -euo pipefail
-read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
-bash ./migrate_off_to_self.sh "$BOT_TOKEN" \
-  "http://127.0.0.1:18080" "https://example.com/telegram/webhook"
-unset BOT_TOKEN
+export BOT_TOKEN_FILE=/secure/bot-token
+SELF_BOT_URL=http://127.0.0.1:18080 WEBHOOK_URL=https://example.com/telegram/webhook \
+  bash ./migrate_off_to_self.sh
+unset BOT_TOKEN_FILE
 ```
 
 Both forms use external API port **18080**; nginx forwards to `botapi:8081`.
@@ -255,10 +256,10 @@ The webhook URL is an application address. These commands do not start a polling
 consumer. From another working directory, use an absolute helper path:
 
 ```sh
-read -rsp 'Bot token: ' BOT_TOKEN; printf '\n'
+export BOT_TOKEN_FILE=/secure/bot-token
 ENV_FILE="/path/to/settings.env" \
-  bash /path/to/migrate_off_to_self.sh "$BOT_TOKEN"
-unset BOT_TOKEN
+  bash /path/to/migrate_off_to_self.sh
+unset BOT_TOKEN_FILE
 ```
 
 `DROP_PENDING_UPDATES=true` discards pending updates. Its default is `false`.
@@ -344,7 +345,7 @@ issues. Retention lasts until deliberate manual removal after reconciliation.
 The journal uses atomic rename, not an fsync durability guarantee. Issue #2 needs
 an explicit adapter for this schema; other executors' journals are not interchangeable.
 This contract applies only to `migrate_off_to_self.sh`: browser execution,
-generated Bash and the raw-curl runbook below retain their separate contracts.
+generated Bash and the raw-curl private-input HTTP runbook below retain their separate contracts.
 The manual curl examples create no dossier and do not implement the guard.
 Obtain the updated helper from an up-to-date repository checkout. It runs on the
 host, is excluded from the server image and Pages, and requires no server redeploy.
@@ -408,14 +409,31 @@ For explicit polling, after completing the server transition, manually delete
 the **target** webhook and verify that `result.url` is a string equal to `""`:
 
 ```sh
-# BOT_TOKEN and SELF_BOT_URL refer to the chosen target, after migration.
 set -euo pipefail
-curl -q -fsS --connect-timeout 5 --max-time 30 -X POST \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/deleteWebhook" \
-  --data-urlencode 'drop_pending_updates=false' | jq -e '.ok == true and .result == true'
-curl -q -fsS --connect-timeout 5 --max-time 30 \
-  "$SELF_BOT_URL/bot$BOT_TOKEN/getWebhookInfo" | \
-  jq -e '.ok == true and (.result.url | type == "string") and .result.url == ""'
+export BOT_TOKEN_FILE=/secure/bot-token
+export SELF_BOT_URL=http://127.0.0.1:18080
+python3 - <<'PY'
+import json, os, re, sys, urllib.request
+sys.path.insert(0, 'tools')
+from migration_cli import private_text
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args): return None
+try:
+    token = re.sub(r'\r?\n$', '', private_text(os.environ['BOT_TOKEN_FILE']))
+    if not re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]+', token): raise ValueError()
+    client = urllib.request.build_opener(NoRedirect)
+    for method in ['deleteWebhook', 'getWebhookInfo']:
+        url = os.environ['SELF_BOT_URL'].rstrip('/') + '/bot' + token + '/' + method
+        data = b'drop_pending_updates=false' if method == 'deleteWebhook' else None
+        with client.open(urllib.request.Request(url, data=data), timeout=15) as response:
+            result = json.load(response)
+        if result.get('ok') is not True: raise ValueError()
+        if method == 'deleteWebhook' and result.get('result') is not True: raise ValueError()
+        if method == 'getWebhookInfo' and result['result']['url'] != '': raise ValueError()
+    print('api_checks_pass; delivery_not_verified')
+except Exception:
+    raise SystemExit('request_failed; reconcile before retry') from None
+PY
 ```
 
 Stop if either check fails. Start your own polling client only after verification;
@@ -526,7 +544,7 @@ Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`
 
 Use `WEBHOOK_SECRET_TOKEN` or `WEBHOOK_SECRET_TOKEN_FILE`, exactly one for provided mode; none asserts an intentionally unprotected webhook. Secret files allow one final LF/CRLF; inline secrets are never trimmed. Use `WEBHOOK_CERTIFICATE_FILE` for a public PEM, never a private key. Protected files (including `BOT_TOKEN_FILE`) must be outside checkout/webroot, with operator-only access. Values from the process override trusted `ENV_FILE` (default: helper directory `.env`), including explicitly empty values; value/file pairs are selected at one tier. Positional URLs remain highest priority. Polling has no webhook profile.
 
-Full profile transport is enabled: urlencoded without a certificate, entirely multipart with a certificate. Secret/scalar files are private snapshots; no token/secret/URL is placed in curl argv or raw diagnostics. The helper disables tracing, uses curl -q without redirects, guards HTTP/ok/result and never retries a mutation. Public PEM requires Bash 4+, jq, curl, realpath and openssl X.509 validation; no private key is accepted. Temporary files use umask 077 and are removed on exit/signals.
+Full profile transport is enabled: urlencoded without a certificate, entirely multipart with a certificate. Secret/scalar files are private snapshots; no token/secret/URL is placed in curl argv or shareable diagnostics. The helper disables tracing, uses curl -q without redirects, guards HTTP/ok/result and never retries a mutation. Public PEM requires Bash 4+, jq, curl, realpath and openssl X.509 validation; no private key is accepted. Temporary files use umask 077 and are removed on exit/signals.
 
 The standalone browser now has explicit secret/none, JSON updates, connections/local capability, DNS/fixed IPv4 and public certificate File controls. An incomplete profile blocks mutations. Files are captured before logout; uploads use FormData without a manually assigned boundary. Form changes invalidate snapshots and never clear UNKNOWN/completion locks. Local-to-local/cloud transitions remain separate manual stages.
 
@@ -555,5 +573,26 @@ bash ./migrate_off_to_self.sh
 The browser uses password/File controls and never persists private inputs in storage. Its certificate preflight checks X.509 structure only, not cryptographic validity; target API acceptance validates the certificate. The helper also checks X.509 with openssl. Exports require these private inputs again at runtime and contain no browser token, secret, URL, certificate bytes or actual private filename. The manual plan has an unconditional STOP/exit before a separately saved target-stage script; it never performs state transfer. For target-stage supply explicit saved URL, updates, connections and certificate mode. After source logOut, never diagnose by logging into the old source; reconcile on target. Before confirmed logOut, do not authorize both endpoints. UNKNOWN may mean the mutation applied: no blind retry, rollback or polling fallback.
 
 Exit 0 means API acceptance and readable profile readback. Secret/certificate bytes cannot be readback-verified. Queue growth is an observation, not a count-equality or loss assertion; historical errors are distinguished from new delivery/synchronization errors. A zero queue does not prove delivery. Delivery stays unverified without a new, correlated receiver receipt. The 10-second/two-sample observation is shorter than the recommended 30-second maximum; it is not an SLA. Keep debug/VLOG disabled; logger/image qualification and real test-bot delivery are separate external gates. See maintenance for receiver, pinned-source and CI instructions.
+
+### Protected input policy
+
+Use `BOT_TOKEN_FILE=/secure/bot-token` for the standalone helper, without a token
+positional argument. The Python CLI accepts `--token-file /secure/bot-token` or
+hidden terminal input. Group/other permissions, links, changed snapshots and
+invalid token lines are rejected. Files must be outside checkout/webroot and
+owned by the operator with mode 0400 or 0600. A single trailing LF/CRLF is allowed.
+Hidden input fails closed if terminal echo cannot be disabled. Legacy positional
+input remains compatible but exposes the original process arguments. Runtime
+HTTP URLs and webhook values travel through private curl files, not child argv.
+
+### Shareable exports
+
+Public browser history and summaries contain roles and fixed status labels;
+custom endpoint prefixes remain private while the original HTTP URL is used.
+Re-rendering older records projects them again. Bash exports require fresh
+private inputs. Only `public-manifest.json` from a completed diagnostics projection
+is shareable; the surrounding dossier, bodies, curl configs and raw captures are
+private. Sanitization or cleanup failure prevents this manifest from being ready.
+UNKNOWN still requires reconciliation before any retry.
 
 The browser-generated Bash plan reports its result on stderr as `ERROR`, `PARTIAL`, `UNKNOWN`, or `SUCCESS`, followed by `phase=...` and `progress=0|1`. Progress records a confirmed mutation; `UNKNOWN` requires reconciliation because an unacknowledged request may still have taken effect. For a valid HTTP 429 retry delay, `retryNotBefore_epoch` is the earliest retry time, not permission to retry without reconciliation. Successful observable profile verification does not confirm webhook delivery.

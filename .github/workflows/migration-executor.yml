@@ -46,10 +46,18 @@ jobs:
           bash -n tools/migration_executor.sh
           sh -n tools/fixtures/migration/fake-bot-api.sh
           git diff --check
-      - name: Validate both Compose models with a fixture environment
+      - name: Validate Compose models with fixture credentials and private files
         run: |
           fixture_env=$(mktemp)
           trap 'rm -f "$fixture_env"' EXIT
           printf '%s\n' 'API_ID=12345' 'API_HASH=test-placeholder' > "$fixture_env"
           docker compose --env-file "$fixture_env" config --quiet
           docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          secret_root=$(mktemp -d)
+          trap 'rm -f "$fixture_env" "$secret_root/id" "$secret_root/hash"; rmdir "$secret_root"' EXIT
+          printf '%s' '12345' > "$secret_root/id"
+          printf '%s' 'synthetic-hash' > "$secret_root/hash"
+          chmod 600 "$secret_root/id" "$secret_root/hash"
+          export TELEGRAM_API_ID_SECRET_PATH="$secret_root/id" TELEGRAM_API_HASH_SECRET_PATH="$secret_root/hash"
+          docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.secrets.yml config --quiet
+          docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.secrets.yml config --quiet
