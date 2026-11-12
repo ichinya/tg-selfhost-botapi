@@ -229,6 +229,8 @@ state через alias, файловый сервер или монтирова�
 Для файловых credentials используйте [secrets-профиль Compose](configuration.md#файловые-секреты-docker-compose), храните файлы вне checkout и применяйте secrets после build overlay.
 
 
+Автономный экспортированный план требует Bash 4+ в Linux/WSL; сохранённый файл запускается командой `bash ./migration-plan.sh`. PowerShell и cmd не поддерживаются.
+
 ## Health без входа ботом
 
 Management listener отдаёт точные GET/HEAD `/health/live` и `/health/ready`

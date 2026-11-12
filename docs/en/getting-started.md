@@ -232,6 +232,8 @@ preconditions; it does not authorize a bot or perform a transfer.
 Optional file credentials: follow the [Compose secrets profile](configuration.md#docker-compose-file-secrets), store files outside checkout, and apply secrets after the build overlay.
 
 
+The standalone exported plan requires Bash 4+ on Linux/WSL; run the saved file with `bash ./migration-plan.sh`. It is not a PowerShell or cmd script.
+
 ## Token-free health
 
 The management listener provides exact GET/HEAD `/health/live` and `/health/ready`

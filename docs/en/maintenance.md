@@ -75,6 +75,8 @@ review, preserving the original journal; never erase confirmed history.
 The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
+The image workflow also runs the required migrator security tests; see
+[Contributing](../../CONTRIBUTING.md) for their dependencies.
 
 The build key covers the resolved revisions/digests and the recipe, entrypoint,
 patch and image tests. If the corresponding published build exists, compilation
@@ -611,3 +613,22 @@ Only sanitized manifests are uploaded. Linux permissions, full clean discovery,
 Docker/native image and Pages builds are separate checks. If unavailable locally,
 record NOTRUN: verification deferred to CI/gates; synthetic tests never deploy or
 contact a real Telegram bot. An external deployment needs separate authorization.
+
+
+## Shell export regression gate
+
+Run the issue #8 matrix on Linux/WSL as a non-root user with Bash 4+, Python
+3.11+, Node 24+, jq, curl and openssl:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_checkout.py
+python3 tools/check_migration_safety.py --require-posix
+```
+
+The suite uses synthetic `.invalid` inputs, an offline curl executable and a
+separate loopback HTTP peer. Captures remain in private temporary directories.
+The required gate fails on skips or missing runtimes. Windows skips and local
+NOTRUN results mean verification deferred to CI/gates. After merge, check the
+published root migrator URL and its byte equality separately; branch tests do
+not establish deployment or real-bot delivery.

@@ -378,8 +378,7 @@ it compares bot IDs and the final URL. It is a separate process with no shared
 lock or durable state with the page. Reconcile PARTIAL or UNKNOWN before any
 repeat; a cooldown never restarts the plan automatically.
 
-The generated Bash plan prompts separately for the webhook URL; it does not
-copy the URL from the form into the script. Leave it empty to inherit the source URL.
+The generated plan does not copy browser inputs. Provide runtime inputs through the environment or protected files; an empty webhook input inherits the source URL. Save the plan and run `bash ./migration-plan.sh` in a separate Bash 4+ process on Linux or WSL. PowerShell, cmd, arbitrary sh and sourcing are not supported.
 
 [Open the migrator](../../tg_selfhost_botapi_migrator.html). The page is a static
 client, not a server-side migration executor. It uses requests from your browser;
@@ -408,33 +407,7 @@ Empty webhook input retains legacy inheritance; it is not a polling action.
 For explicit polling, after completing the server transition, manually delete
 the **target** webhook and verify that `result.url` is a string equal to `""`:
 
-```sh
-set -euo pipefail
-export BOT_TOKEN_FILE=/secure/bot-token
-export SELF_BOT_URL=http://127.0.0.1:18080
-python3 - <<'PY'
-import json, os, re, sys, urllib.request
-sys.path.insert(0, 'tools')
-from migration_cli import private_text
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args): return None
-try:
-    token = re.sub(r'\r?\n$', '', private_text(os.environ['BOT_TOKEN_FILE']))
-    if not re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]+', token): raise ValueError()
-    client = urllib.request.build_opener(NoRedirect)
-    for method in ['deleteWebhook', 'getWebhookInfo']:
-        url = os.environ['SELF_BOT_URL'].rstrip('/') + '/bot' + token + '/' + method
-        data = b'drop_pending_updates=false' if method == 'deleteWebhook' else None
-        with client.open(urllib.request.Request(url, data=data), timeout=15) as response:
-            result = json.load(response)
-        if result.get('ok') is not True: raise ValueError()
-        if method == 'deleteWebhook' and result.get('result') is not True: raise ValueError()
-        if method == 'getWebhookInfo' and result['result']['url'] != '': raise ValueError()
-    print('api_checks_pass; delivery_not_verified')
-except Exception:
-    raise SystemExit('request_failed; reconcile before retry') from None
-PY
-```
+Use the common CLI with the explicit `polling` action and protected runtime inputs; inspect its receipt and target readback.
 
 Stop if either check fails. Start your own polling client only after verification;
 the examples do not consume updates. URL readback does not prove webhook delivery.
@@ -573,6 +546,17 @@ bash ./migrate_off_to_self.sh
 The browser uses password/File controls and never persists private inputs in storage. Its certificate preflight checks X.509 structure only, not cryptographic validity; target API acceptance validates the certificate. The helper also checks X.509 with openssl. Exports require these private inputs again at runtime and contain no browser token, secret, URL, certificate bytes or actual private filename. The manual plan has an unconditional STOP/exit before a separately saved target-stage script; it never performs state transfer. For target-stage supply explicit saved URL, updates, connections and certificate mode. After source logOut, never diagnose by logging into the old source; reconcile on target. Before confirmed logOut, do not authorize both endpoints. UNKNOWN may mean the mutation applied: no blind retry, rollback or polling fallback.
 
 Exit 0 means API acceptance and readable profile readback. Secret/certificate bytes cannot be readback-verified. Queue growth is an observation, not a count-equality or loss assertion; historical errors are distinguished from new delivery/synchronization errors. A zero queue does not prove delivery. Delivery stays unverified without a new, correlated receiver receipt. The 10-second/two-sample observation is shorter than the recommended 30-second maximum; it is not an SLA. Keep debug/VLOG disabled; logger/image qualification and real test-bot delivery are separate external gates. See maintenance for receiver, pinned-source and CI instructions.
+
+The standalone export runs in Bash 4+ on Linux or WSL. Browser values are excluded; provide the runtime inputs again. URLs containing spaces or control characters are rejected without trimming.
+
+Source webhook URLs containing control characters are rejected before any migration mutation.
+
+The shell safety regression suite captures curl arguments with NUL framing and
+checks private scalar files separately from shell quoting. Real curl decoding is
+also checked against a loopback HTTP peer; a successful mock alone does not prove
+webhook delivery.
+
+CLI export requires the existing private state and validates the plan digest locally; it creates and imports no authority.
 
 ### Protected input policy
 

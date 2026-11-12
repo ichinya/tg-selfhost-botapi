@@ -87,6 +87,8 @@ combinations, state isolation, local/TLS/security integration и docs checks.
 Workflow проверяет официальный исходник tdlib и digest Alpine 3.22 каждую ночь
 около **04:37 Asia/Yekaterinburg** (23:37 UTC), при изменении основной ветки и
 вручную. GitHub может задерживать запуск по расписанию.
+Этот workflow также выполняет обязательные проверки безопасности мигратора;
+зависимости описаны в [Contributing](../../CONTRIBUTING.md).
 
 Ключ сборки учитывает ревизии/digest, рецепт, entrypoint, патч и проверки образа.
 Если соответствующий образ уже опубликован, компиляция пропускается; candidate
@@ -607,3 +609,22 @@ native image. Image workflow повторно квалифицирует сущ�
 отдельные проверки. Недоступный локальный запуск: NOTRUN, verification deferred
 to CI/gates. Synthetic tests не развёртывают сервис и не используют реального
 Telegram-бота. Внешнее развёртывание требует отдельного разрешения.
+
+
+## Проверка регрессий shell-экспорта
+
+Матрица issue #8 запускается в Linux/WSL от обычного пользователя с Bash 4+,
+Python 3.11+, Node 24+, jq, curl и openssl:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_checkout.py
+python3 tools/check_migration_safety.py --require-posix
+```
+
+Suite использует синтетические `.invalid` значения, curl без сети и отдельный
+HTTP-сервер на loopback. Снимки остаются в приватных временных каталогах.
+Обязательный gate отклоняет skips и отсутствие runtime. Пропуски на Windows и
+локальные NOTRUN означают verification deferred to CI/gates. После merge
+отдельно проверьте прежний URL мигратора и совпадение байтов опубликованного
+файла; проверки ветки не подтверждают деплой или доставку реальному боту.
