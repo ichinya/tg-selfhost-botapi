@@ -18,7 +18,7 @@ permissions:
 jobs:
   executor-acceptance:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       max-parallel: 1
       fail-fast: false

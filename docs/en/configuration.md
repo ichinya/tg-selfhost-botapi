@@ -219,11 +219,11 @@ or application mapping: those remain UNKNOWN until independently checked with
   Request-bearing error logs are discarded through `/dev/null`; detailed nginx
   request errors are unavailable. External proxy logs need a separate policy.
 
-[Getting started](getting-started.md) · [Maintenance](maintenance.md)
+[Getting started](getting-started.md) В· [Maintenance](maintenance.md)
 
 ## Complete webhook profile inputs
 
-Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON array of strings), `WEBHOOK_MAX_CONNECTIONS` and `WEBHOOK_TARGET_LOCAL=true|false`. Unknown secret/IP and unavailable custom certificates stop preflight. `fixed` is an alias for pinned canonical IPv4. Source `ip_address` does not reveal pinning intent. Explicit inputs override source; omitted optional updates become the documented `[]` default. `[]` excludes chat_member, message_reaction and message_reaction_count; it is not every update type. Null or invalid values fail. Per-bot max_connections is 1–100; up to 100000 requires explicit local-mode capability (`TELEGRAM_LOCAL`/`--local`), independently of server `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. A self-host URL does not establish this capability.
+Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON array of strings), `WEBHOOK_MAX_CONNECTIONS` and `WEBHOOK_TARGET_LOCAL=true|false`. Unknown secret/IP and unavailable custom certificates stop preflight. `fixed` is an alias for pinned canonical IPv4. Source `ip_address` does not reveal pinning intent. Explicit inputs override source; omitted optional updates become the documented `[]` default. `[]` excludes chat_member, message_reaction and message_reaction_count; it is not every update type. Null or invalid values fail. Per-bot max_connections is 1вЂ“100; up to 100000 requires explicit local-mode capability (`TELEGRAM_LOCAL`/`--local`), independently of server `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. A self-host URL does not establish this capability.
 
 Use `WEBHOOK_SECRET_TOKEN` or `WEBHOOK_SECRET_TOKEN_FILE`, exactly one for provided mode; none asserts an intentionally unprotected webhook. Secret files allow one final LF/CRLF; inline secrets are never trimmed. Use `WEBHOOK_CERTIFICATE_FILE` for a public PEM, never a private key. Protected files (including `BOT_TOKEN_FILE`) must be outside checkout/webroot, with operator-only access. Values from the process override trusted `ENV_FILE` (default: helper directory `.env`), including explicitly empty values; value/file pairs are selected at one tier. Positional URLs remain highest priority. Polling has no webhook profile.
 
@@ -239,6 +239,16 @@ seconds. Process settings take precedence over the trusted environment file;
 only an unset setting uses its default. Unlike the endpoint settings, an
 explicitly empty timeout is invalid. These settings are not passed to containers.
 
+## Local build inputs
+
+Local compilation needs Python 3.11+, Git and Docker Buildx. Resolve with
+`python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build`
+immediately before each new build. Pass both `--env-file .env --env-file .env.build`
+with the build override, including repeated `--env-file` options in doctor commands.
+The generated file holds only public inputs; runtime credentials stay in `.env`.
+Compose config/doctor work without generated inputs; a real build requires pinned
+source/base and refresh arguments. A stale file is never regenerated implicitly.
+Published-image pull/up do not use the build override or generated build file.
 ### Gateway logs
 
 The base Compose mounts `nginx-main.conf` read-only for every profile. Access logs
@@ -278,7 +288,8 @@ Before Compose up, prepare inputs on the Linux host:
 install -d -m 0700 .observability
 install -d -m 0755 .observability/runtime .observability/migration
 sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 The observer shares only Bot API's network namespace. It runs as 101:101 with a

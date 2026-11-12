@@ -180,6 +180,41 @@ build key and pass qualification before promotion. Never use real bot credential
 in fixtures or logs. Keep documentation paired in docs/en and docs/ru.
 
 
+## APK refresh regression (#23)
+
+Python 3.11+ is required for the image tooling. In a dirty checkout, run only the
+owned suites (set `PYTHONPATH=tools` for module runs):
+
+```sh
+python3 -m unittest tools.test_image_inputs tools.test_apk_docker_contract tools.test_image_metadata tools.test_apk_candidate tools.test_apk_refresh
+```
+
+On a clean candidate/CI run the full discovery with the existing outer timeout.
+The explicit Docker integration is separate from unittest discovery:
+
+```sh
+python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
+python3 tools/check_apk_refresh.py --inputs .build-inputs.json --output evidence/apk-refresh.json
+```
+
+The restored fixture uses the documented Dockerfile-copy fallback: production
+installation RUNs remain unchanged; an isolated context preinstalls the signed
+synthetic v1 package before refresh. This keeps test trust material out of the
+production Dockerfile. A/A must reuse both layers; after repository v2, the old-ID
+control remains v1 and a new generation upgrades both branches and consumers.
+Separate variants remove each stage's refresh consumption and must be detected.
+No global cache prune, `--allow-untrusted`, or cache bypass is used. The runner owns
+one bounded builder and temporary signing key; private keys never enter artifacts.
+Docker integration, actual-image smoke, Jekyll, CI and security gates unavailable
+locally are `verification deferred to CI/gates`, never PASS.
+
+Для #23 используйте Python 3.11+ и scoped-команду выше в dirty checkout; полный
+discovery — только на чистом candidate/CI с внешним timeout. Явная Docker-команда
+проверяет подписанный fixture, A/A/cache control/B и отдельные отрицательные
+варианты обеих стадий. Восстановлен fallback с копией Dockerfile во временном
+context: production RUN не изменяется, тестовый trust не входит в production.
+Недоступные integration/smoke/Jekyll/CI/security — `verification deferred to CI/gates`.
+
 Webhook profile #7 gates: Node 24+, Python 3.13, Bash 4+, curl/jq/openssl, non-root POSIX.
 Run the four explicit `tools.test_webhook_profile_*` modules listed in maintenance, then all tracked #10 tests and `test_webhook_user_agent`.
 `node tools/embed_webhook_profile.cjs --check` verifies standalone helper/browser/export sync.

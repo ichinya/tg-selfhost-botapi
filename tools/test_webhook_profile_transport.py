@@ -74,6 +74,7 @@ class ProfileTransportTests(unittest.TestCase):
                     bindir.mkdir(exist_ok=True)
                     wrapper = bindir / "curl"
                     audit = self.private / "argv"
+                    audit.unlink(missing_ok=True)
                     wrapper.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$WP_CURL_AUDIT"\nexec "' + shutil.which("curl") + '" "$@"\n')
                     wrapper.chmod(0o700)
                     api = self.with_api()

@@ -50,7 +50,7 @@ jobs:
           python3 -m unittest discover -s tools -p 'test_observability*.py' -v
           sh -n tools/doctor_fixtures/entrypoint.sh
       - name: Repository regression suite
-        run: timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
+        run: timeout 900 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Compose models
         env:
           API_ID: '12345'

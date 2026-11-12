@@ -1,8 +1,18 @@
-# Optional local build: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# Generate .env.build using tools/image_inputs.py before local compilation.
 services:
   botapi:
     image: tg-selfhost-botapi:local
-    build: .
+    platform: ${BUILD_PLATFORM:-linux/amd64}
+    build:
+      context: .
+      args:
+        BOT_API_REVISION: ${BOT_API_REVISION:-}
+        ALPINE_IMAGE: ${ALPINE_IMAGE:-}
+        BUILD_FINGERPRINT: ${BUILD_FINGERPRINT:-}
+        APK_REFRESH_ID: ${APK_REFRESH_ID:-}
+        APK_POLICY_VERSION: ${APK_POLICY_VERSION:-}
+        APK_REFRESH_WINDOW: ${APK_REFRESH_WINDOW:-}
+        APK_REFRESH_GENERATION: ${APK_REFRESH_GENERATION:-}
   observer:
     image: tg-selfhost-botapi-observer:local
     build:

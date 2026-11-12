@@ -2,6 +2,7 @@
 import subprocess
 import json
 import os
+import tempfile
 import socket
 import sys
 import threading

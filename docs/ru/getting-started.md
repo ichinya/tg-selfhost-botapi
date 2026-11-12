@@ -57,6 +57,7 @@ UI/API работают с одного origin. Pages только объясн�
 
 ## Требования
 
+- Для локальной компиляции: Python 3.11+, Git и Docker Buildx.
 - Docker с Compose v2.
 - Для doctor: Python 3.11+ на host (только stdlib). Полная runtime-проверка требует
   локального Linux Engine с доступом к bridge; pure-проверки работают и на Windows.
@@ -92,7 +93,8 @@ sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/cre
 До первой публикации в GHCR используйте локальную сборку:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Когда готовый образ опубликован:

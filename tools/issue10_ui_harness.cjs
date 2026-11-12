@@ -36,6 +36,10 @@ function page(options = {}) {
       const call = {role, method, url:address, request}; calls.push(call);
       if (method !== 'probe') assert(url.pathname.includes('/bot' + token + '/'));
       if (method === 'probe') assert(!address.includes(token));
+      if (options.refusal && method === options.refusal.method) {
+        const {code, retryAfter} = options.refusal;
+        return {ok:false, status:code, text:async () => JSON.stringify({ok:false,error_code:code,parameters:{retry_after:retryAfter}})};
+      }
       if(options.transport)return options.transport(call);
       const selector = role + ':' + method;
       const fail = selector === options.fail;

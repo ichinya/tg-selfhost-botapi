@@ -10,12 +10,13 @@ Includes a webhook User-Agent patch and migration tools.
 
 ## Quick start
 
-Requires Docker with Compose v2. Review the [networking limitations](docs/en/configuration.md#current-limitations)
+Requires Docker with Compose v2; local builds also need Python 3.11+, Git and Buildx. Review the [networking limitations](docs/en/configuration.md#current-limitations)
 before starting on a public host. Create `.env` and fill in `API_ID` / `API_HASH`:
 
 ```sh
 cp .env.example .env
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Local builds work before the first GHCR release. Once a published image is

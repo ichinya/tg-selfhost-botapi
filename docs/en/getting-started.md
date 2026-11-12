@@ -59,6 +59,7 @@ UI/API share this origin. Pages only explains this workflow. For a remote host:
 
 ## Requirements
 
+- For local compilation: Python 3.11+, Git and Docker Buildx.
 - Docker with Compose v2.
 - For doctor: host Python 3.11+ (stdlib only). Full runtime evidence requires a
   local Linux engine with bridge access; pure checks also work on Windows.
@@ -95,7 +96,8 @@ If remote clients, including a webhook receiver, must reach the Bot API, set
 Before the first GHCR publication, build locally:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Once a published image is available:

@@ -8,6 +8,8 @@ patches/*
 !patches/botapi-secrets-redaction.patch
 !tools/
 tools/*
+!tools/capture_apk_metadata.sh
+!tools/capture_link_metadata.py
 !tools/file_access.py
 !tools/file_contract.py
 !tools/download_server.py

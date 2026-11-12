@@ -70,15 +70,19 @@ Workflow проверяет официальный исходник tdlib и dig
 около **04:37 Asia/Yekaterinburg** (23:37 UTC), при изменении основной ветки и
 вручную. GitHub может задерживать запуск по расписанию.
 
-Ключ сборки учитывает ревизии/digest, рецепт, entrypoint, патч и проверки образа.
-Если соответствующий образ уже опубликован, компиляция пропускается.
-Если проверка registry не подтвердила наличие образа, выполняется новая сборка.
+Ключ сборки учитывает ревизии/digest, рецепт, entrypoint, патч, dependency policy,
+инструменты сбора/валидации и проверки образа. Существующая сборка скачивается по
+digest и снова проверяется перед reuse. Неоднозначный ответ registry останавливает
+запуск; только подтверждённое отсутствие разрешает новую компиляцию.
 
 Для нового образа workflow:
 
 1. Проверяет применимость патча User-Agent к выбранной официальной ревизии.
 2. Компилирует весь сервер.
 3. Выполняет `--version`, проверяет строку заголовка в бинарнике и синтаксис entrypoint.
+4. Проверяет package/compile evidence и warm-cache gate, сохраняет артефакты,
+   затем публикует и сверяет уникальный candidate digest до назначения
+   `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` и продвижения `latest`.
 4. Собирает downloads, проверяет точную пару через synthetic local/TLS/security
    matrix и actual startup без сети, сохраняет IDs/source hashes и проверяет Pages.
 5. Публикует проверенные Bot API/downloads `build-<key>` и продвигает их `latest`
@@ -135,6 +139,11 @@ docker compose logs --tail=100 botapi
 Для локальной сборки последовательно используйте build override:
 
 ```sh
+python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml stop botapi
+# До замены бинарника сохраните ./data и приватную конфигурацию.
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml build botapi
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
 docker compose -f docker-compose.yml -f docker-compose.build.yml stop observer botapi
 # До замены бинарника сохраните ./data и приватную конфигурацию.
 docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi observer
@@ -228,7 +237,7 @@ fixture перед отдельным synthetic Docker gate.
 
 ```sh
 python3 tools/doctor.py -f docker-compose.yml -f docker-compose.build.yml \
-  --env-file /private/installation.env --project-directory /private/stack \
+  --env-file /private/installation.env --env-file /private/stack/.env.build --project-directory /private/stack \
   -p installation --scenario official-to-self \
   --migration-input /private/decisions.json --format json
 ```
@@ -322,6 +331,102 @@ Image/default upstream logger qualification, multipart через shipped nginx,
 удалять lock ради повтора неизвестного запроса. Незавершённый probe без токена
 и сохранившегося lock не блокирует запуск; незавершённые запросы с токеном блокируют.
 
+
+### Идентичность обновления APK
+
+Resolver входных данных использует суточное UTC-окно обновления apk и поколение
+из `tools/apk_policy.json`. Для срочного обновления в те же сутки увеличьте
+поколение коммитом; уменьшать его нельзя. Это идентификатор сборки, а не снимок
+пакетов и не доказательство воспроизводимости. Окно меняется в 00:00 UTC и
+фиксируется один раз; переход через полночь во время компиляции не меняет inputs.
+
+### Стадии установки APK
+
+Оба независимых target `build-deps` и `runtime-deps` требуют `APK_REFRESH_ID`
+перед installation RUN. Сначала обновляются все установленные пакеты, затем
+устанавливаются зависимости из stable-ветки Alpine 3.22 с проверкой подписей.
+`apk --no-cache` не отключает Docker layer cache: refresh-аргумент инвалидирует
+обе установки. Исходная база пакетов, world, repositories, версия apk,
+архитектура, версия Alpine и refresh ID сохраняются в final image под
+`/usr/share/tg-selfhost-botapi/build/` и `runtime/`.
+
+
+### Доказательства состава бинарника
+
+Build evidence сохраняет фактические source/submodule revisions, версии compiler,
+CMake/linker и Release-настройки, команду и map финальной линковки, SHA256 до strip
+и установленного бинарника после strip, ELF NEEDED, hashes и package ownership
+static inputs и разрешённых dynamic libraries. Python/binutils нужны только builder.
+Извлечение и проверка без credentials:
+`python3 tools/image_metadata.py --image IMAGE --inputs inputs.json --output receipt.json`.
+Отсутствующие evidence, другой бинарник, refresh mismatch или неизвестный owner
+использованного архива блокируют qualification. Внешний receipt связывает inventories
+с config образа; внутренний compile record не включает собственный hash или digest.
+
+
+### Qualification и повторное использование кандидата
+
+CI разрешает один замороженный JSON-снимок. Ошибки авторизации/сети registry
+останавливают запуск; сборка выбирается только при подтверждённом отсутствии
+manifest. Reuse получает image по digest и повторяет metadata validation и smoke
+(`--version`, строка заголовка, shell syntax entrypoint). PR собирается локально
+без registry writes. Unit, Compose, metadata, smoke и отдельная cache regression
+должны иметь PASS до публикации. Build tag нельзя заменить другим содержимым.
+Уникальный candidate публикуется без повторной компиляции; проверяются registry
+config, загрузка артефактов и продвижение latest по digest с readback.
+Изменение default branch и более новый refresh latest блокируют старый rerun.
+Переход UTC-полуночи сохраняет замороженные inputs. Artifacts хранятся 30 дней,
+evidence внутри образа — весь срок хранения digest. Старые образы без evidence
+требуют нового окна/generation.
+
+
+### Подготовка каждой локальной пересборки
+
+Генерируйте `.env.build` и `.build-inputs.json` resolver-ом непосредственно перед
+каждой локальной сборкой; передавайте оба env-файла, как показано выше.
+`up --build` не обновляет файл. Для внеочередного обновления увеличьте `generation`
+в `tools/apk_policy.json`, закоммитьте и снова выполните resolver. Config/doctor
+не запускают сетевое разрешение inputs.
+
+
+### Подписанная regression с тёплым cache
+
+CI явно запускает `tools/check_apk_refresh.py` с frozen inputs; unit discovery
+никогда не вызывает Docker. Восстановленный runner использует изолированную
+копию Dockerfile (документированный fallback): production upgrade/add/capture RUN
+не меняются, перед refresh устанавливается подписанный synthetic v1 package.
+URL repository, source/base и bytes context фиксированы. A/A доказывает cache hit
+обеих установок; после появления v2 контроль со старым ID сохраняет v1, а новое
+generation обновляет обе ветки. Dynamic и пересобранный static consumer должны
+вернуть v2. Отдельные negative variants убирают refresh каждой установки и должны
+выявить устаревшие evidence. Собственный builder ограничен 2 CPU/3 GiB и удаляет
+только свои ресурсы. Cache purge/bypass не применяется. Logs, версии inventory,
+hashes и receipts доказывают synthetic regression, а не статус CVE или VPS.
+
+
+### Воспроизводимость и разбор scanner findings
+
+Mutable stable repositories могут измениться внутри одних UTC-суток. Build key
+обозначает выбранные inputs и refresh policy, registry digest — фактический образ.
+Совпадение ключа не гарантирует побайтовой воспроизводимости. Ошибка или задержка
+schedule откладывает обновление: исправление за 24 часа не гарантируется. Gateway
+`nginx:alpine` имеет независимую dependency policy; этот срез не подтверждает весь
+stack и не меняет совместимость состояния.
+
+Каждую находку scanner разбирайте по точному digest, package name/version/Alpine
+revision/architecture, advisory/backport status, фактической static/dynamic linkage,
+версии scanner и timestamp его базы. Фиксируйте affected, fixed, not-applicable
+или UNKNOWN со ссылкой на evidence. Одного runtime package scan недостаточно
+для исключения статически включённой уязвимости. Применимая подтверждённая находка
+требует update/rebuild и всех gates либо явно обоснованного исключения; неразобранная
+находка остаётся unresolved и блокирует promotion. Без scan статус NOTRUN;
+отсутствие вывода не считается clean scan. Универсальный scanner в #23 не вводится.
+
+При missing legacy evidence или коллизии build tag увеличьте generation и разрешите
+новый snapshot. Не перезаписывайте существующий build tag. UNKNOWN latest readback
+требует проверки registry; автоматический rollback не заявляется. Registry publication,
+synthetic regression, actual-image smoke и production — разные результаты.
+Dependency refresh не требует миграции бота или token-bearing вызовов.
 ## Схема операционного статуса v1
 
 Observer выдаёт независимые наблюдения `process`, `migration`, `webhook`, `queue`,
