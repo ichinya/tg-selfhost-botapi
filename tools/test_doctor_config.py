@@ -42,6 +42,8 @@ class ConfigTests(unittest.TestCase):
                                 ({"TELEGRAM_LOCAL": "yes"}, "invalid_boolean"),
                                 ({"TELEGRAM_API_ID": "3000..."}, "placeholder_setting")]:
             self.assertIn(reason, [c["reason_code"] for c in settings_checks(env | changes)])
+        for port in ('08082', '08090'):
+            self.assertIn('port_conflict', [c['reason_code'] for c in settings_checks(env | {'TELEGRAM_HTTP_PORT': port})])
 
     def test_file_and_explicit_command(self):
         env = self.env() | {"TELEGRAM_API_HASH": "", "TELEGRAM_API_HASH_FILE": "/secret"}

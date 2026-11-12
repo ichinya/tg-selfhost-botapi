@@ -99,10 +99,11 @@ class ResultContract(unittest.TestCase):
                                   capture_output=True, text=True, timeout=10).stdout
             self.assertNotIn(HOOK, plan)
             self.assertNotIn(TOKEN, plan)
-            env = {k: v for k, v in os.environ.items() if k in ('PATH', 'HOME', 'SYSTEMROOT', 'TEMP', 'TMP')}
-            env.update(BOT_TOKEN=TOKEN, SELF_BOT_URL=address + ('/target' if mode == 'official-to-self' else '/source'),
-                       OFFICIAL_BOT_URL=address + '/source', WEBHOOK_URL=runtime_hook,
-                       WEBHOOK_SECRET_MODE='none', WEBHOOK_IP_MODE='dns', WEBHOOK_CERTIFICATE_MODE='none',
+            env = {key: value for key, value in os.environ.items() if key.upper() in
+                   {'PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME'}}
+            env.update(BOT_TOKEN=TOKEN, OFFICIAL_BOT_URL=address + '/source',
+                       SELF_BOT_URL=address + ('/source' if mode == 'hook-only' else '/target'),
+                       WEBHOOK_URL=runtime_hook, WEBHOOK_SECRET_MODE='none', WEBHOOK_IP_MODE='dns', WEBHOOK_CERTIFICATE_MODE='none',
                        NO_PROXY='127.0.0.1', no_proxy='127.0.0.1')
             with tempfile.TemporaryDirectory() as temp:
                 script = Path(temp) / 'plan.sh'
@@ -143,7 +144,7 @@ class ResultContract(unittest.TestCase):
     def test_shell_lost_ack_retains_remote_effect(self):
         result, calls, effects, hooks, _ = self.run_shell('lost-ack')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'UNKNOWN: response unavailable; reconcile without retry', result.stderr)
+        self.assertIn(b'UNKNOWN phase=delivery_configured progress=0 response unavailable; reconcile without retry', result.stderr)
         self.assertEqual(calls[-1], ('source', 'setWebhook'))
         self.assertEqual(effects, [('source', 'setWebhook')])
         self.assertEqual(hooks['source'], HOOK)
@@ -159,7 +160,7 @@ class ResultContract(unittest.TestCase):
     def test_shell_target_id_mismatch_stops_before_webhook(self):
         result, calls, effects, _, _ = self.run_shell('id-mismatch', mode='official-to-self')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'Bot identity mismatch; source login forbidden', result.stderr)
+        self.assertIn(b'PARTIAL phase=target_authorized progress=1 target identity mismatch; source login forbidden', result.stderr)
         self.assertEqual(calls[-1], ('target', 'getMe'))
         self.assertEqual(effects, [('source', 'deleteWebhook'), ('source', 'logOut')])
 

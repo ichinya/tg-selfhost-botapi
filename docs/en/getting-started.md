@@ -80,6 +80,9 @@ from a bot token issued by BotFather.
 git clone https://github.com/ichinya/tg-selfhost-botapi.git
 cd tg-selfhost-botapi
 cp .env.example .env
+install -d -m 0700 .observability
+install -d -m 0755 .observability/runtime .observability/migration
+sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
 ```
 
 Fill in `API_ID` and `API_HASH` in `.env`. Keep that file private.
@@ -204,3 +207,13 @@ exposes state through an alias, file server, or gateway mount is BLOCKED. See
 scope, [configuration](configuration.md) for Compose/storage inputs, and
 [migration](migration.md) for the private input contract. READY is a snapshot of
 preconditions; it does not authorize a bot or perform a transfer.
+
+## Token-free health
+
+The management listener provides exact GET/HEAD `/health/live` and `/health/ready`
+from cached root probes. A valid Bot API JSON 404 is expected; HTML, redirects,
+timeouts and stale success fail closed. Stats off means `http_handler_only`;
+stats on adds a recognized manager response (`http_handler_and_manager`).
+Neither depth authenticates a bot or confirms Telegram connectivity/delivery.
+`/status` is a document, not an overall UP signal. Internal `/selfz` only checks
+the observer scheduler and is not available through the management gateway.

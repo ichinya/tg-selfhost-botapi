@@ -97,6 +97,14 @@ class EntrypointTest(unittest.TestCase):
         self.assertIn('--files-dir=' + media, json.loads(result.stdout)['args'])
         self.env['TELEGRAM_FILES_DIR'] = self.env['TELEGRAM_WORK_DIR'] + '/nested'
         self.assertNotEqual(self.run_script().returncode, 0)
+    def test_statistics_loopback_and_port_conflicts(self):
+        self.env['TELEGRAM_STAT'] = 'true'
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('--http-stat-ip-address=127.0.0.1', json.loads(result.stdout)['args'])
+        for port in ['8082', '8090', '08082', '08090', '65536', 'invalid']:
+            self.env['TELEGRAM_HTTP_PORT'] = port
+            self.assertNotEqual(self.run_script().returncode, 0)
     def test_split_storage_and_unsafe_overrides(self):
         media = str(self.root / "media with spaces")
         self.env["TELEGRAM_FILES_DIR"] = media

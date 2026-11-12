@@ -19,3 +19,4 @@ exercise mandatory failures but its direct bridge evidence stays UNKNOWN. The
 harness changes only its synthetic containers/volumes, checks sentinels, captures
 doctor commands and HTTP requests, and removes its project on errors/signals.
 It does not access real bots, production paths or other migration tools.
+Monitoring fixture includes an observer in the Bot API netns and separate loopback management binding. It is synthetic and does not verify a Telegram binary or delivery.

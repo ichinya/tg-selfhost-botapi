@@ -65,6 +65,10 @@ jobs:
           printf 'synthetic publication exclusion check\n' > media/issue21-sentinel.txt
           printf 'synthetic publication exclusion check\n' > data/issue21-sentinel.txt
           printf 'synthetic publication exclusion check\n' > scratch/issue21-sentinel.txt
+          mkdir -p .observability/runtime .observability/migration .observability/registry .observability/credentials
+          for directory in runtime migration registry credentials; do
+            printf 'OBS16_PUBLICATION_SENTINEL\n' > ".observability/$directory/sentinel.txt"
+          done
       - name: Build the GitHub Pages site
         uses: actions/jekyll-build-pages@v1
         with:
@@ -81,5 +85,6 @@ jobs:
           test ! -e .site-check/data
           test ! -e .site-check/media/issue21-sentinel.txt
           test ! -e .site-check/media
+          test ! -e .site-check/.observability
           timeout 60 python3 tools/check_docs.py .site-check
           timeout 30 python3 -m unittest discover -s tools -p 'test_issue11_docs.py' -v

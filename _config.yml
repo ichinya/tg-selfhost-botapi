@@ -35,6 +35,9 @@ exclude:
   - scratch
   - media
   - logs
+  - .observability
+  - .issue-flow
+  - .stats-source
   - .site-check
   - examples
   - Dockerfile.downloads

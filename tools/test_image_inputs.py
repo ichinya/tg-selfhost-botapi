@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from image_inputs import RECIPE, ROOT, build_key, digest, revision
+from image_inputs import RECIPE, ROOT, build_key, digest, revision, recipe_files
 
 
 class BuildInputsTest(unittest.TestCase):
@@ -20,6 +20,14 @@ class BuildInputsTest(unittest.TestCase):
         for name in required:
             with self.subTest(name=name):
                 self.assertNotEqual(original, build_key({}, {**files, name: files[name] + b"\nchanged"}))
+    def test_each_shipped_runtime_input_changes_key(self):
+        files = recipe_files()
+        baseline = build_key({}, files)
+        for name in files:
+            with self.subTest(name=name):
+                self.assertNotEqual(baseline, build_key({}, {**files, name:files[name]+b'changed'}))
+        self.assertIn('tools/observability/runtime.py', files)
+        self.assertIn('tools/botapi_healthcheck.sh', files)
     def test_split_recipe_is_fingerprinted(self):
         from image_inputs import RECIPE
         self.assertIn("docker-compose.files.yml", RECIPE)
