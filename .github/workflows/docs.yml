@@ -15,6 +15,7 @@ on:
       - 'tools/test_docs_privacy.py'
       - 'tools/test_issue11_docs.py'
       - 'docker-compose.nonroot.yml'
+      - 'docker-compose.files.yml'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
@@ -27,6 +28,7 @@ on:
       - 'tools/check_docs.py'
       - 'tools/test_docs_privacy.py'
       - 'docker-compose.nonroot.yml'
+      - 'docker-compose.files.yml'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -43,7 +45,8 @@ jobs:
         run: |
           mkdir -p logs/migration
           printf 'synthetic publication exclusion check\n' > logs/migration/issue11-sentinel.txt
-          mkdir -p data scratch
+          mkdir -p data scratch media
+          printf 'synthetic publication exclusion check\n' > media/issue21-sentinel.txt
           printf 'synthetic publication exclusion check\n' > data/issue21-sentinel.txt
           printf 'synthetic publication exclusion check\n' > scratch/issue21-sentinel.txt
       - name: Build the GitHub Pages site
@@ -60,5 +63,7 @@ jobs:
           test ! -e .site-check/scratch
           test ! -e .site-check/data/issue21-sentinel.txt
           test ! -e .site-check/data
+          test ! -e .site-check/media/issue21-sentinel.txt
+          test ! -e .site-check/media
           timeout 60 python3 tools/check_docs.py .site-check
           timeout 30 python3 -m unittest discover -s tools -p 'test_issue11_docs.py' -v

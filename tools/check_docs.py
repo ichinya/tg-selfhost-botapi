@@ -13,9 +13,9 @@ def private_site_paths(root):
     root = Path(root)
     for path in root.rglob("*"):
         relative = path.relative_to(root)
-        if any(part in (".migration-state", ".migration-private", "files", "secrets", "examples", "data", "scratch") for part in relative.parts) or (
+        if any(part in (".migration-state", ".migration-private", "files", "secrets", "examples", "data", "scratch", "media") for part in relative.parts) or (
             path.name == ".env" or path.name.startswith(".env.") and path.name != ".env.example"
-        ) or path.name in ("binding.key", "migration-helper.env", "Dockerfile.downloads", "docker-compose.downloads.yml", "docker-compose.nonroot.yml") or (
+        ) or path.name in ("binding.key", "migration-helper.env", "Dockerfile.downloads", "docker-compose.downloads.yml", "docker-compose.nonroot.yml", "docker-compose.files.yml") or (
             path.name.startswith("downloads.config.")
         ):
             yield relative

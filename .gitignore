@@ -3,6 +3,7 @@
 /.env
 /data
 /scratch
+/media
 /logs
 **/.migration-state/
 **/.migration-private/

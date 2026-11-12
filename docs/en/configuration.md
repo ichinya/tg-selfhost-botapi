@@ -100,6 +100,12 @@ The optional `docker-compose.nonroot.yml` requires `BOTAPI_UID`, `BOTAPI_GID`,
 `BOTAPI_STATE_SOURCE` and `BOTAPI_TEMP_SOURCE`; these select Compose identity
 and prepared bind sources, not runtime remapping. See [Getting started](getting-started.md).
 
+`TELEGRAM_FILES_DIR` optionally selects a separate upstream `--files-dir`; when
+empty, the upstream working-directory default is retained. The work, HTTP temp
+and media roots must be separate absolute paths without symlink components.
+Changing this setting does not move existing files or cached paths. The media
+override requires the non-root overlay and a prepared `BOTAPI_MEDIA_SOURCE`.
+
 | Variable in `.env` | Purpose |
 | --- | --- |
 | `API_ID` | Required application API ID |

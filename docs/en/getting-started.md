@@ -88,6 +88,30 @@ docker run --rm --user 0:0 -v botapi-state:/volume alpine:3.22 sh -c 'chown 1000
 Repeat for a distinct temp volume. Do not apply this to existing data; image
 layer ownership does not prepare mounts.
 
+For limited media sharing, use a writer with primary group `2000`: prepare
+private state and scratch for `1000:2000`, and a separate media root owned by
+`1000:2000` with mode `0700`. Set `BOTAPI_UID=1000`, `BOTAPI_GID=2000`,
+`BOTAPI_MEDIA_SOURCE` to that absolute root, and append
+`-f docker-compose.files.yml` after the non-root overlay. The gateway receives no
+storage mount. Only share one final bot media subtree, never the bot root, its
+download temp, private state or neighbouring bots. Set `BOT_MEDIA_SUBDIR` privately
+to the host path of the selected bot subtree; its name may contain sensitive data.
+For an offline prepared `documents` subtree, directories must permit group search
+and read (at most `0750`) and files group read (at most `0640`); existing files
+need separate preparation with writers stopped. A synthetic reader test is:
+
+```sh
+docker run --rm --user 2001:3000 --group-add 2000 \
+  --mount "type=bind,src=$BOT_MEDIA_SUBDIR/documents,dst=/media,readonly" \
+  alpine:3.22 cat /media/synthetic.txt
+```
+
+Place a synthetic test file there first with the writer identity and group-read
+permissions. Do not print the private path in public logs. Download temporary
+files reside within the media backing, not `TELEGRAM_TEMP_DIR`; the writer's
+primary group survives a same-filesystem rename. The reader gets no Docker socket
+or mount privileges. This test does not prove an actual Telegram download.
+
 Before the first GHCR publication, build locally:
 
 ```sh

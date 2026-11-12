@@ -1,0 +1,13 @@
+services:
+  botapi:
+    environment:
+      TELEGRAM_FILES_DIR: /var/lib/telegram-bot-api-files
+      BOTAPI_MEDIA_REQUIRE_NONROOT: "1"
+      BOTAPI_MEDIA_EXPECTED_GID: ${BOTAPI_GID:?Set BOTAPI_GID}
+      BOTAPI_MEDIA_EXPECTED_UID: ${BOTAPI_UID:?Set BOTAPI_UID}
+    volumes:
+      - type: bind
+        source: ${BOTAPI_MEDIA_SOURCE:?Set BOTAPI_MEDIA_SOURCE}
+        target: /var/lib/telegram-bot-api-files
+        bind:
+          create_host_path: false

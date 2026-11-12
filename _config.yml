@@ -25,6 +25,7 @@ exclude:
   - docker-compose.yml
   - docker-compose.build.yml
   - docker-compose.nonroot.yml
+  - docker-compose.files.yml
   - docker-entrypoint.sh
   - migrate_off_to_self.sh
   - nginx.conf
@@ -32,6 +33,7 @@ exclude:
   - tools
   - data
   - scratch
+  - media
   - logs
   - .site-check
   - .migration-state

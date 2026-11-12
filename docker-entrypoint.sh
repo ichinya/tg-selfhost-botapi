@@ -55,8 +55,28 @@ prepare_root() {
     fi
 }
 
+if [ -n "${TELEGRAM_FILES_DIR:-}" ]; then
+    check_path "$TELEGRAM_WORK_DIR" state
+    check_path "$TELEGRAM_TEMP_DIR" temp
+    check_path "$TELEGRAM_FILES_DIR" media
+    disjoint_roots() {
+        left=$1; right=$2
+        case "$left/" in "$right/"|"$right/"*) echo "Storage roots must be separate" >&2; exit 1 ;; esac
+        case "$right/" in "$left/"*) echo "Storage roots must be separate" >&2; exit 1 ;; esac
+    }
+    disjoint_roots "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"
+    disjoint_roots "$TELEGRAM_WORK_DIR" "$TELEGRAM_FILES_DIR"
+    disjoint_roots "$TELEGRAM_TEMP_DIR" "$TELEGRAM_FILES_DIR"
+    if [ "${BOTAPI_MEDIA_REQUIRE_NONROOT:-}" = 1 ]; then
+        if [ "$(id -u)" = 0 ] || [ "$(id -u)" != "${BOTAPI_MEDIA_EXPECTED_UID:-}" ] || [ "$(id -g)" != "${BOTAPI_MEDIA_EXPECTED_GID:-}" ]; then
+            echo "Media override requires the configured non-root Docker user and primary group" >&2; exit 1
+        fi
+    fi
+fi
+
 prepare_root "$TELEGRAM_WORK_DIR" state
 prepare_root "$TELEGRAM_TEMP_DIR" temp
+if [ -n "${TELEGRAM_FILES_DIR:-}" ]; then prepare_root "$TELEGRAM_FILES_DIR" media; fi
 if [ "$(id -u)" = 0 ]; then
     exec su-exec 101:101 /docker-entrypoint.sh
 fi
@@ -76,6 +96,7 @@ probe_root() {
 }
 probe_root "$TELEGRAM_WORK_DIR" state
 probe_root "$TELEGRAM_TEMP_DIR" temp
+if [ -n "${TELEGRAM_FILES_DIR:-}" ]; then probe_root "$TELEGRAM_FILES_DIR" media; fi
 
 load_secret() {
     secret_name="$1"
@@ -102,6 +123,7 @@ load_secret TELEGRAM_API_HASH
 
 set -- "--dir=$TELEGRAM_WORK_DIR" "--temp-dir=$TELEGRAM_TEMP_DIR" \
     "--http-port=${TELEGRAM_HTTP_PORT:-8081}"
+if [ -n "${TELEGRAM_FILES_DIR:-}" ]; then set -- "$@" "--files-dir=$TELEGRAM_FILES_DIR"; fi
 
 # Quoted argument arrays preserve spaces and never execute environment contents.
 for setting in \
