@@ -55,7 +55,7 @@ class DiagnosticPublicationTest(unittest.TestCase):
             (site / "tg_selfhost_botapi_migrator.html").write_bytes(
                 (ROOT / "tg_selfhost_botapi_migrator.html").read_bytes())
             client = site / "assets/js/migration-client.mjs"
-            client.parent.mkdir(parents=True)
+            client.parent.mkdir(parents=True, exist_ok=True)
             client.write_bytes((ROOT / "assets/js/migration-client.mjs").read_bytes())
             command = [sys.executable, str(ROOT / "tools/check_docs.py"), str(site)]
             result = subprocess.run(command, capture_output=True, text=True)

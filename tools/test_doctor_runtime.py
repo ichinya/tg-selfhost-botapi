@@ -8,6 +8,16 @@ from doctor_runtime import Installation, RunError
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_observed_files_dir_and_legacy_fallback(self):
+        from doctor_mock import StackRunner
+        for split in (False, True):
+            runner = StackRunner()
+            obj = Installation(parser().parse_args(['--scenario', 'official-to-self']), runner, None, [], [])
+            obj.configuration(); obj.runtime()
+            # Actual mocked argv lacks files-dir: environment must not fabricate it.
+            self.assertEqual(obj.process['work'], obj.process['files'])
+        self.assertEqual('/media', process_flags(['--files-dir=/media'])['files-dir'])
+
     def test_self_to_self_state_backing_identity(self):
         from unittest.mock import patch
         from doctor_runtime import collect
@@ -102,6 +112,11 @@ class RuntimeTests(unittest.TestCase):
         obj = self.installation()
         obj.containers["gateway"]["NetworkSettings"]["Ports"]["80/tcp"].append({"HostIp": "::", "HostPort": "18080"})
         self.assertEqual((None, None), obj.gateway_endpoint())
+
+    def test_management_binding_does_not_change_api_selection(self):
+        obj = self.installation()
+        obj.containers['gateway']['NetworkSettings']['Ports']['81/tcp'] = [{'HostIp':'127.0.0.1', 'HostPort':'18081'}]
+        self.assertEqual(('http://127.0.0.1:18080/', '80/tcp'), obj.gateway_endpoint())
 
     def test_capture_tokenless_http(self):
         class Transport:

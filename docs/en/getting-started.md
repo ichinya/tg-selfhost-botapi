@@ -5,6 +5,33 @@ translation: /docs/ru/getting-started.html
 
 # Getting started
 
+## File downloads
+
+File downloads require the explicit split-storage override and a scoped reader:
+see [configuration](configuration.md) and the
+[runnable examples](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+Do not append an absolute getFile path to an HTTP URL. Missing bot directories
+must fail closed; never fix a missing mount by exposing the whole private cache.
+
+For file-enabled installations, keep the same ordered files on every command:
+
+```sh
+sudo install -d -m 0770 -o 101 -g 101 ./media
+docker compose -f docker-compose.yml -f docker-compose.files.yml up -d
+# Local reader, after setting the private bindings described in the example:
+docker compose -f docker-compose.yml -f docker-compose.files.yml \
+  -f examples/files/compose.local.yml run --rm reader '<FILE_ID>' > downloaded.bin
+# Remote per-bot handler (qualified DOWNLOADS_IMAGE and protected files required):
+docker compose -f docker-compose.yml -f docker-compose.files.yml \
+  -f docker-compose.downloads.yml up -d
+```
+
+For a local Bot API build insert `-f docker-compose.build.yml` immediately after
+the base file and use `up -d --build`. Build the downloads image separately with
+`docker build -f Dockerfile.downloads -t downloads-candidate:check .`; set
+`DOWNLOADS_IMAGE` only to a candidate qualified by the file gate. API port is
+18080; downloads HTTP port is loopback 18082 behind the supplied TLS frontend.
+
 ## Local migration UI
 
 Use Linux/WSL, Python 3.11+ and a private Linux state directory. Create a
@@ -53,6 +80,9 @@ from a bot token issued by BotFather.
 git clone https://github.com/ichinya/tg-selfhost-botapi.git
 cd tg-selfhost-botapi
 cp .env.example .env
+install -d -m 0700 .observability
+install -d -m 0755 .observability/runtime .observability/migration
+sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
 ```
 
 Fill in `API_ID` and `API_HASH` in `.env`. Keep that file private.
@@ -128,3 +158,13 @@ exposes state through an alias, file server, or gateway mount is BLOCKED. See
 scope, [configuration](configuration.md) for Compose/storage inputs, and
 [migration](migration.md) for the private input contract. READY is a snapshot of
 preconditions; it does not authorize a bot or perform a transfer.
+
+## Token-free health
+
+The management listener provides exact GET/HEAD `/health/live` and `/health/ready`
+from cached root probes. A valid Bot API JSON 404 is expected; HTML, redirects,
+timeouts and stale success fail closed. Stats off means `http_handler_only`;
+stats on adds a recognized manager response (`http_handler_and_manager`).
+Neither depth authenticates a bot or confirms Telegram connectivity/delivery.
+`/status` is a document, not an overall UP signal. Internal `/selfz` only checks
+the observer scheduler and is not available through the management gateway.

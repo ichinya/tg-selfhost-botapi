@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from image_inputs import build_key, digest, revision, resolve, validate_policy, check_generation, main
+from image_inputs import build_key, digest, revision, resolve, validate_policy, check_generation, main, recipe_files
 
 
 class BuildInputsTest(unittest.TestCase):
@@ -20,7 +20,7 @@ class BuildInputsTest(unittest.TestCase):
         for key in ('APK_REFRESH_ID', 'BOT_API_REVISION', 'ALPINE_IMAGE', 'BUILD_FINGERPRINT', 'BUILD_PLATFORM'):
             self.assertIn('${' + key + ':-', override)
         self.assertNotIn('DEPENDENCY_EPOCH', override)
-        self.assertNotIn('alpine:3.22', override)
+        self.assertNotIn('ALPINE_IMAGE: ${ALPINE_IMAGE:-alpine:', override)
         self.assertNotIn('APK_REFRESH_ID', (root / 'docker-compose.yml').read_text())
         self.assertIn('/.env.build', (root / '.gitignore').read_text())
 
@@ -40,7 +40,7 @@ class BuildInputsTest(unittest.TestCase):
                        'APK_REFRESH_GENERATION':'generation', 'BUILD_PLATFORM':'platform'}
             self.assertEqual(values, {key: str(snapshot[value]) for key, value in mapping.items()})
             source.assert_called_once()
-            base.assert_called_once()
+            self.assertEqual(base.call_count, 3)
 
     def test_cli_failure_emits_no_snapshot(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -81,6 +81,29 @@ class BuildInputsTest(unittest.TestCase):
         check_generation(good, None)
         with self.assertRaises(ValueError):
             check_generation(good, {**good, "generation": 1})
+
+
+    def test_each_shipped_runtime_input_changes_key(self):
+        files = recipe_files()
+        baseline = build_key({}, files)
+        for name in files:
+            with self.subTest(name=name):
+                self.assertNotEqual(baseline, build_key({}, {**files, name:files[name]+b'changed'}))
+        self.assertIn('tools/observability/runtime.py', files)
+        self.assertIn('tools/botapi_healthcheck.sh', files)
+    def test_split_recipe_is_fingerprinted(self):
+        from image_inputs import RECIPE
+        self.assertIn("docker-compose.files.yml", RECIPE)
+
+    def test_downloads_and_qualification_inputs_are_covered(self):
+        from image_inputs import RECIPE, DOWNLOADS_RECIPE, ROOT
+        for name in ('tools/file_contract.py', 'tools/download_server.py',
+                     'tools/fixtures/files/runtime.py', '.github/workflows/files.yml'):
+            self.assertIn(name, DOWNLOADS_RECIPE)
+            self.assertIn(name, RECIPE)
+        self.assertEqual(len(RECIPE), len(set(RECIPE)))
+        for name in set(RECIPE + DOWNLOADS_RECIPE):
+            self.assertTrue((ROOT / name).is_file(), name)
 
     def test_any_upstream_change_invalidates_published_build(self):
         inputs = dict(source="a", base="b")

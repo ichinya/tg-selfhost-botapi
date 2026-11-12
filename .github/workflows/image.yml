@@ -82,6 +82,46 @@ jobs:
             APK_REFRESH_WINDOW=${{ steps.inputs.outputs.apk_refresh_window }}
             APK_REFRESH_GENERATION=${{ steps.inputs.outputs.generation }}
             BUILD_JOBS=2
+      - name: Check reviewed statistics source
+        env:
+          REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+        run: |
+          git init .stats-source
+          git -C .stats-source remote add origin https://github.com/tdlib/telegram-bot-api.git
+          git -C .stats-source fetch --depth 1 origin "$REVISION"
+          git -C .stats-source checkout --detach FETCH_HEAD
+          python3 tools/check_stats_source.py .stats-source
+      - name: Build observer candidate
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: tools/observability/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: observer-candidate:check
+          build-args: |
+            OBSERVER_BASE=${{ steps.inputs.outputs.observer_base }}
+            BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
+      - name: Qualify observer and downloads against exact Bot API candidate
+        env:
+          PYTHON_IMAGE: ${{ steps.inputs.outputs.python_image }}
+          KEY: ${{ steps.inputs.outputs.build_key }}
+        run: |
+          image=$(python3 -c 'import json; print(json.load(open("evidence/state.json"))["image"])')
+          docker tag "$image" botapi-candidate:check
+          for candidate in botapi-candidate:check observer-candidate:check; do
+            test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$candidate")" = "$KEY"
+          done
+          python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
+          docker build -f Dockerfile.downloads --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
+          python3 tools/check_file_contract.py --botapi-image botapi-candidate:check --downloads-image downloads-candidate:check --report evidence/file-report.json
+      - name: Build Pages before promotion
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./.site-check
+      - name: Check rendered docs and private exclusions
+        run: python3 tools/check_docs.py .site-check
       - name: Validate actual metadata and repeat smoke
         run: python3 tools/apk_candidate.py qualify
       - name: Save qualification before registry writes
@@ -102,6 +142,20 @@ jobs:
           path: evidence/receipt.json
           retention-days: 30
           if-no-files-found: error
+      - name: Publish qualified observer and downloads
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          KEY: ${{ steps.inputs.outputs.build_key }}
+          DOWNLOADS_KEY: ${{ steps.inputs.outputs.downloads_key }}
+        run: |
+          python3 -c 'import json; import sys; sys.path.insert(0, "tools"); from apk_candidate import assert_fresh; assert_fresh(json.load(open("evidence/inputs.json")))'
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker tag observer-candidate:check "$image:observer-build-$KEY"
+          docker push "$image:observer-build-$KEY"
+          docker tag downloads-candidate:check "$image-downloads:build-$DOWNLOADS_KEY"
+          docker push "$image-downloads:build-$DOWNLOADS_KEY"
+          docker buildx imagetools create --tag "$image:observer-latest" "$image:observer-build-$KEY"
+          docker buildx imagetools create --tag "$image-downloads:latest" "$image-downloads:build-$DOWNLOADS_KEY"
       - name: Assign immutable build tag and promote verified digest
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         run: python3 tools/apk_candidate.py promote

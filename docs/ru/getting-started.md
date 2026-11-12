@@ -5,6 +5,31 @@ translation: /docs/en/getting-started.html
 
 # Установка
 
+Для скачивания файлов нужен явный split-storage override и scoped reader:
+см. [настройки](configuration.md) и
+[исполняемые примеры](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+Не добавляйте абсолютный getFile-путь к HTTP URL. Отсутствующая bot subtree —
+ошибка; не устраняйте её монтированием всего private cache.
+
+Во всех командах file-enabled установки сохраняйте порядок Compose-файлов:
+
+```sh
+sudo install -d -m 0770 -o 101 -g 101 ./media
+docker compose -f docker-compose.yml -f docker-compose.files.yml up -d
+# Локальный reader после настройки private bindings из примера:
+docker compose -f docker-compose.yml -f docker-compose.files.yml \
+  -f examples/files/compose.local.yml run --rm reader '<FILE_ID>' > downloaded.bin
+# Per-bot handler: нужны проверенный DOWNLOADS_IMAGE и защищённые файлы:
+docker compose -f docker-compose.yml -f docker-compose.files.yml \
+  -f docker-compose.downloads.yml up -d
+```
+
+Для локальной сборки Bot API вставьте `-f docker-compose.build.yml` сразу после
+base и используйте `up -d --build`. Downloads-образ собирается отдельно:
+`docker build -f Dockerfile.downloads -t downloads-candidate:check .`.
+В `DOWNLOADS_IMAGE` задавайте candidate, прошедший file gate. API — порт 18080;
+downloads HTTP — loopback 18082 за TLS frontend из примера.
+
 ## Локальный UI миграции
 
 Нужны Linux/WSL, Python 3.11+ и приватное состояние на Linux ФС. Создайте
@@ -52,6 +77,9 @@ API ID/hash приложения и токен бота от BotFather — ра�
 git clone https://github.com/ichinya/tg-selfhost-botapi.git
 cd tg-selfhost-botapi
 cp .env.example .env
+install -d -m 0700 .observability
+install -d -m 0755 .observability/runtime .observability/migration
+sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
 ```
 
 Заполните `API_ID` и `API_HASH` в `.env`. Не публикуйте этот файл.
@@ -128,3 +156,13 @@ state через alias, файловый сервер или монтирова�
 в [настройках](configuration.md), контракт приватного входа —
 в [миграции](migration.md). READY — снимок предпосылок; он не авторизует бота
 и не выполняет перенос.
+
+## Health без входа ботом
+
+Management listener отдаёт точные GET/HEAD `/health/live` и `/health/ready`
+из кеша root probes. Ожидается JSON 404 Bot API; HTML, redirect, timeout и stale
+success дают отказ. При stats off глубина `http_handler_only`; при stats on
+добавляется распознанный manager response (`http_handler_and_manager`).
+Ни одна глубина не авторизует бота и не подтверждает связь с Telegram или доставку.
+`/status` — документ, а не общий UP. Внутренний `/selfz` проверяет scheduler
+observer и недоступен через management gateway.

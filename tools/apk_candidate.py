@@ -8,7 +8,7 @@ import re
 import subprocess
 import tempfile
 
-from image_inputs import ROOT, RECIPE, build_key, check_generation, read_policy
+from image_inputs import ROOT, RECIPE, build_key, check_generation, read_policy, recipe_files
 from image_metadata import receipt as metadata_receipt
 
 
@@ -123,7 +123,7 @@ def write_guard():
 def assert_fresh(inputs):
     branch = os.environ['DEFAULT_BRANCH']
     run('git', 'fetch', '--no-tags', 'origin', branch)
-    files = {name: subprocess.check_output(['git', 'show', 'FETCH_HEAD:' + name], timeout=120) for name in RECIPE}
+    files = {name: subprocess.check_output(['git', 'show', 'FETCH_HEAD:' + name], timeout=120) for name in recipe_files()}
     identity = {k: v for k, v in inputs.items() if k != 'build_key'}
     if build_key(identity, files) != inputs['build_key']:
         raise ValueError('Default-branch recipe changed; stale run')

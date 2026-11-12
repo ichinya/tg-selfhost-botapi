@@ -1,6 +1,8 @@
 ARG PYTHON_IMAGE=python:3.13.5-alpine3.22
 FROM ${PYTHON_IMAGE}
-LABEL io.tg-selfhost.doctor-fixture="synthetic"
+LABEL io.tg-selfhost.doctor-fixture="synthetic" \
+      io.tg-selfhost.build-key="local" \
+      org.opencontainers.image.source="https://github.com/ichinya/tg-selfhost-botapi"
 ENV TELEGRAM_WORK_DIR=/var/lib/telegram-bot-api TELEGRAM_TEMP_DIR=/tmp/telegram-bot-api
 RUN addgroup -g 101 -S telegram-bot-api \
  && adduser -u 101 -S -D -H -G telegram-bot-api telegram-bot-api \

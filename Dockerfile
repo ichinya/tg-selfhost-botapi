@@ -53,7 +53,7 @@ RUN --mount=type=bind,source=tools/capture_apk_metadata.sh,target=/tmp/capture_a
  && printf '%s\n' "$APK_REFRESH_ID" | grep -Eq '^v[0-9]+-[0-9]{4}-[0-9]{2}-[0-9]{2}-g[0-9]+$' \
  && printf '%s\n' "$ALPINE_IMAGE" | grep -Eq '^alpine:3[.]22@sha256:[0-9a-f]{64}$' \
  && apk upgrade --no-cache \
- && apk add --no-cache openssl libstdc++ \
+ && apk add --no-cache openssl libstdc++ curl jq \
  && sh /tmp/capture_apk_metadata.sh runtime "$APK_REFRESH_ID"
 
 FROM runtime-deps AS runtime
@@ -78,11 +78,13 @@ ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
     TELEGRAM_TEMP_DIR="/tmp/telegram-bot-api"
 RUN addgroup -g 101 -S telegram-bot-api \
  && adduser -S -D -H -u 101 -h /var/lib/telegram-bot-api -s /sbin/nologin -G telegram-bot-api telegram-bot-api \
- && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api \
- && chown telegram-bot-api:telegram-bot-api /var/lib/telegram-bot-api /tmp/telegram-bot-api
+ && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \
+ && chown telegram-bot-api:telegram-bot-api /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \
+ && chmod 770 /var/lib/telegram-bot-api-files
 COPY --from=build /usr/local/bin/telegram-bot-api /usr/local/bin/telegram-bot-api
 COPY --from=build /usr/share/tg-selfhost-botapi/build /usr/share/tg-selfhost-botapi/build
 COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
+COPY --chmod=755 tools/botapi_healthcheck.sh /usr/local/bin/botapi-healthcheck
 COPY --from=source /usr/src/telegram-bot-api/LICENSE_1_0.txt /usr/share/licenses/telegram-bot-api/LICENSE_1_0.txt
-EXPOSE 8081/tcp 8082/tcp
+EXPOSE 8081/tcp
 ENTRYPOINT ["/docker-entrypoint.sh"]

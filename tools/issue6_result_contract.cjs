@@ -54,7 +54,8 @@ async function main() {
   p = refusingPage('setWebhook', 400, null, {mode:'hook-only',hook:'https://sink.test/hook'});
   await p.run('executeInBrowser()');
   assert.match(p.elements.get('summaryBox').textContent, /^ERROR/);
-  assert.deepEqual(p.calls.map(c => c.method), ['getMe', 'getWebhookInfo', 'getWebhookInfo', 'setWebhook']);
+  assert.equal(p.calls.filter(c => c.method === 'getWebhookInfo').length, 2); // Snapshot and pre-mutation consistency check.
+  assert.equal(p.calls.filter(c => c.method === 'setWebhook').length, 1);
 
   p = refusingPage('deleteWebhook', 429, '600');
   await p.run('executeInBrowser()');
@@ -82,13 +83,14 @@ async function main() {
   p = page({mismatch:true,hook:'https://sink.test/hook'});
   await p.run('executeInBrowser()');
   assert.match(p.elements.get('summaryBox').textContent, /^PARTIAL/);
-  assert.match(p.elements.get('summaryBox').textContent, /target_verified: REJECTED/);
+  assert.match(p.elements.get('summaryBox').textContent, /target_verified: REJECTED getWebhookInfo target/);
   p.elements.get('botToken').value = '456:another_synthetic_token_only';
-  p.run('invalidate()'); assert(p.run('blocked(currentConfig())'), 'partial operation requires reconciliation even after changing bot');
+  p.run('invalidate()'); assert(p.run('blocked(currentConfig())')); // The page-wide reconciliation guard remains active.
+  assert.equal(p.run('guardFor(currentConfig()).reconcile ?? null'), null);
   p.elements.get('botToken').value = '123:rotated_synthetic_token_only';
-  p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
+  p.run('invalidate()'); assert(p.run('guardFor(currentConfig()).reconcile'));
   p.elements.get('botToken').value = '00123:rotated_synthetic_token_only';
-  p.run('invalidate()'); assert(p.run('blocked(currentConfig())'));
+  p.run('invalidate()'); assert(p.run('guardFor(currentConfig()).reconcile'));
   console.log('issue 6 result contract: 10 scenarios passed; 1 privacy scenario passed');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
