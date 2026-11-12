@@ -24,12 +24,14 @@ exclude:
   - Dockerfile
   - docker-compose.yml
   - docker-compose.build.yml
+  - docker-compose.nonroot.yml
   - docker-entrypoint.sh
   - migrate_off_to_self.sh
   - nginx.conf
   - patches
   - tools
   - data
+  - scratch
   - logs
   - .site-check
   - .migration-state

@@ -14,6 +14,7 @@ on:
       - 'tools/check_docs.py'
       - 'tools/test_docs_privacy.py'
       - 'tools/test_issue11_docs.py'
+      - 'docker-compose.nonroot.yml'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
@@ -25,6 +26,7 @@ on:
       - 'tg_selfhost_botapi_migrator.html'
       - 'tools/check_docs.py'
       - 'tools/test_docs_privacy.py'
+      - 'docker-compose.nonroot.yml'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -41,6 +43,9 @@ jobs:
         run: |
           mkdir -p logs/migration
           printf 'synthetic publication exclusion check\n' > logs/migration/issue11-sentinel.txt
+          mkdir -p data scratch
+          printf 'synthetic publication exclusion check\n' > data/issue21-sentinel.txt
+          printf 'synthetic publication exclusion check\n' > scratch/issue21-sentinel.txt
       - name: Build the GitHub Pages site
         uses: actions/jekyll-build-pages@v1
         with:
@@ -51,5 +56,9 @@ jobs:
         run: |
           test ! -e .site-check/logs/migration/issue11-sentinel.txt
           test ! -e .site-check/logs
+          test ! -e .site-check/scratch/issue21-sentinel.txt
+          test ! -e .site-check/scratch
+          test ! -e .site-check/data/issue21-sentinel.txt
+          test ! -e .site-check/data
           timeout 60 python3 tools/check_docs.py .site-check
           timeout 30 python3 -m unittest discover -s tools -p 'test_issue11_docs.py' -v

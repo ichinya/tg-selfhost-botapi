@@ -62,6 +62,32 @@ If remote clients, including a webhook receiver, must reach the Bot API, set
 
 ## Start
 
+For a custom non-root identity, create dedicated empty bind directories outside
+the webroot and configure the optional override in `.env`:
+
+```sh
+sudo install -d -m 0700 -o 1000 -g 1000 /srv/botapi/data /srv/botapi/scratch
+```
+
+Set `BOTAPI_UID=1000`, `BOTAPI_GID=1000`,
+`BOTAPI_STATE_SOURCE=/srv/botapi/data` and `BOTAPI_TEMP_SOURCE=/srv/botapi/scratch`.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml up -d
+```
+
+For a local build append `-f docker-compose.build.yml` after the non-root
+override and add `--build`. Both bind sources must already exist. Named volumes
+require a separate Compose configuration. Initialize each fresh empty volume
+once with a root helper, replacing the example volume and IDs:
+
+```sh
+docker run --rm --user 0:0 -v botapi-state:/volume alpine:3.22 sh -c 'chown 1000:1000 /volume && chmod 700 /volume'
+```
+
+Repeat for a distinct temp volume. Do not apply this to existing data; image
+layer ownership does not prepare mounts.
+
 Before the first GHCR publication, build locally:
 
 ```sh

@@ -99,6 +99,11 @@ Bot API endpoint принимает вызовы методов. Webhook URL н�
 
 ## Переменные Compose
 
+Необязательный `docker-compose.nonroot.yml` требует `BOTAPI_UID`, `BOTAPI_GID`,
+`BOTAPI_STATE_SOURCE` и `BOTAPI_TEMP_SOURCE`. Они задают пользователя Compose и
+подготовленные bind-каталоги, а не меняют учётные записи в образе. Порядок и
+подготовка описаны в разделе [установки](getting-started.md).
+
 | Переменная в `.env` | Назначение |
 | --- | --- |
 | `API_ID` | Обязательный API ID приложения |

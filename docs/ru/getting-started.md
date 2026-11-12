@@ -61,6 +61,31 @@ cp .env.example .env
 
 ## Запуск
 
+Для произвольных UID/GID создайте отдельные пустые bind-каталоги вне webroot:
+
+```sh
+sudo install -d -m 0700 -o 1000 -g 1000 /srv/botapi/data /srv/botapi/scratch
+```
+
+В `.env` задайте `BOTAPI_UID=1000`, `BOTAPI_GID=1000`,
+`BOTAPI_STATE_SOURCE=/srv/botapi/data` и `BOTAPI_TEMP_SOURCE=/srv/botapi/scratch`.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml up -d
+```
+
+Для локальной сборки добавьте после override `-f docker-compose.build.yml` и
+`--build`. Оба bind-каталога должны существовать заранее. Для именованных томов
+нужна отдельная конфигурация Compose. Каждый новый пустой том можно один раз
+подготовить root-контейнером, подставив имя тома и ID:
+
+```sh
+docker run --rm --user 0:0 -v botapi-state:/volume alpine:3.22 sh -c 'chown 1000:1000 /volume && chmod 700 /volume'
+```
+
+Повторите для отдельного временного тома. Не применяйте команду к существующим
+данным; владелец в слое образа не подготавливает монтируемый том.
+
 До первой публикации в GHCR используйте локальную сборку:
 
 ```sh

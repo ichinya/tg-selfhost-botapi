@@ -96,6 +96,10 @@ application and receives updates sent by the server. They are different addresse
 
 ## Compose environment
 
+The optional `docker-compose.nonroot.yml` requires `BOTAPI_UID`, `BOTAPI_GID`,
+`BOTAPI_STATE_SOURCE` and `BOTAPI_TEMP_SOURCE`; these select Compose identity
+and prepared bind sources, not runtime remapping. See [Getting started](getting-started.md).
+
 | Variable in `.env` | Purpose |
 | --- | --- |
 | `API_ID` | Required application API ID |

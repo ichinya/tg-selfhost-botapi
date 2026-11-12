@@ -2,6 +2,7 @@
 !/.github/
 /.env
 /data
+/scratch
 /logs
 **/.migration-state/
 **/.migration-private/
