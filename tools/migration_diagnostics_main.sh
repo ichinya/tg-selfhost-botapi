@@ -167,10 +167,10 @@ redact_file() {
         (.hex | hexnum | if . >= 55296 and . <= 57343 then 65533 else . end | [.] | implode)) |
       gsub("\\\\/"; "/") |
       gsub("%(?<hex>[0-7][0-9a-fA-F])"; (.hex | hexnum | [.] | implode));
-    ($secrets | split(" ") | map(select(length > 0))) as $values |
+    (reduce ($secrets | explode[]) as $c ([[]]; if $c == 0 then . + [[]] else .[-1] += [$c] end) | map(implode | select(length > 0))) as $values |
     def clean_text:
       decode_text |
-      gsub("[\\u0000-\\u0009\\u000b-\\u001f\\u007f]"; "") |
+      (explode | map(select(. == 10 or . >= 32 and . != 127)) | implode) |
       reduce $values[] as $secret (. ; replace($secret) | replace($secret|@uri) |
         replace($secret|@json|.[1:-1])) |
       (if $authority_preview then . else gsub("(?i)https?://[^\\s\"<>]+"; "[REDACTED_URL]") end) |

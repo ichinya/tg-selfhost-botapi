@@ -5,6 +5,20 @@ translation: /docs/ru/maintenance.html
 
 # Maintenance
 
+## Split storage
+
+Split storage requires a maintenance window: stop clients and writers, back up
+private state and configuration consistently, then enable the files override.
+It creates a new media cache; it does not move old downloads or rewrite stored
+absolute paths. Keep legacy storage private and re-run getFile for saved file IDs.
+Runtime identity and real TDLib file modes require qualification of the exact
+image; source/unit checks alone do not establish production permissions.
+
+
+Doctor checks split media persistence and private backing separation without
+downloading real files. Optional handlers and consumer mapping remain UNKNOWN;
+use the independent synthetic file gate and inspect the deployed mapping.
+
 ## Migration acceptance
 
 Use the required Linux/Node 24 mock gate documented in CONTRIBUTING. It covers
@@ -43,16 +57,28 @@ The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
 
-The build key covers the resolved revisions/digests and the recipe, entrypoint,
-patch and image tests. If the corresponding published build exists, compilation
-is skipped. If registry inspection cannot confirm it, the pipeline rebuilds.
+The Bot API build key covers the resolved revisions/digests and file-contract
+recipe/tests/configs. Downloads has its own key including the immutable Python
+base. If a Bot API build exists, compilation may be skipped, but the exact reused
+image and the downloads candidate must pass the current file gate again.
+Unconfirmed registry inspection rebuilds; it never establishes a passing gate.
 
 For a new build it:
 
 1. Checks that the User-Agent patch applies to the selected official revision.
 2. Compiles the entire server.
 3. Runs `--version`, checks the header string in the binary and validates entrypoint syntax.
-4. Publishes `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and promotes `latest`.
+4. Builds the downloads image, runs synthetic local/TLS/negative checks and
+   network-none actual Bot API startup for the exact image pair, recording IDs and
+   source hashes. It also checks rendered Pages/private exclusions.
+5. Publishes tested `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and
+   `ghcr.io/ichinya/tg-selfhost-botapi-downloads:build-<downloads-key>`, then promotes
+   their `latest` tags without rebuilding the tested pair.
+
+The standalone `files.yml` workflow runs full unit discovery on a clean checkout,
+Compose combinations, state isolation, exact-pair integration and docs checks.
+Unavailable local runtime checks are `verification deferred to CI/gates`; CI must
+pass them before image publication. This does not deploy or verify a VPS.
 
 Failed checks leave the previously published `latest` in place. Pull requests do
 not publish. A binary string check is not a live webhook-delivery test.
@@ -62,6 +88,38 @@ can work. GHCR writes use `GITHUB_TOKEN` with `packages: write`. Configure packa
 visibility or client authentication after the first publication.
 
 ## Update an installation
+
+### Enable split storage / roll back
+
+1. Stop clients, downloads, Bot API writers and any supervisors that restart them.
+   Make a consistent backup of the private state, image identity, Compose/env,
+   secret files and, for an existing split installation, media separately.
+2. In a maintenance window enable `docker-compose.files.yml`, retaining the exact
+   qualified image/config. Never copy state/binlogs into media or edit TDLib DB
+   paths by hand. The default transition starts a new media cache.
+   Prepare the new empty host directory with
+   `sudo install -d -m 0770 -o 101 -g 101 ./media`; Compose refuses a missing root.
+3. Re-run getFile for saved file IDs. Verify that each returned path lies in the
+   new media bot subtree, verify bytes/digest, ownership and mount mapping before
+   enabling consumers. If upstream returns an old private path, fail closed and
+   investigate; do not grant access to private state. Old cache/path continuity is
+   not guaranteed. A cold cache move preserving paths needs separate validation
+   for the selected upstream version.
+4. Rollback requires stopping new writers and restoring a mutually compatible
+   image, configuration, private state and old layout from the consistent backup.
+   Restoring an image alone is insufficient. Keep any split media snapshots in
+   sync with state when moving between servers.
+
+Do not recursively chmod/chown the cache or grant world access. Check actual
+TDLib modes and UID/GID 101:101; give the reader that identity or a specifically
+validated read/traverse ACL. Each handler/reader gets one RO subtree, no parent,
+sibling, private temp/log/secret mounts or nested mounts. The local API and writer
+are trusted; mutually untrusted operators need separate instances/storage.
+
+Rotation replaces the protected Bearer file and restarts downloads. Confirm the
+old credential gets 401 and the new one retrieves synthetic bytes. Cache eviction,
+30s I/O timeout and the total deadline can interrupt transfers; no Range/resume
+or retention SLA is promised. Never paste token-bearing paths into reports.
 
 Registry publication does not restart your VPS. Select a tested tag/digest with
 `BOTAPI_IMAGE` in `.env`, then:

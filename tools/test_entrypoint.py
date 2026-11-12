@@ -70,6 +70,32 @@ class EntrypointTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["args"], ["--version"])
 
+    def test_split_storage_and_unsafe_overrides(self):
+        media = str(self.root / "media with spaces")
+        self.env["TELEGRAM_FILES_DIR"] = media
+        result = self.run_script()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(1, json.loads(result.stdout)["args"].count("--files-dir=" + media))
+        for name, value in (("TELEGRAM_FILES_DIR", self.env["TELEGRAM_WORK_DIR"] + "/nested"),
+                            ("TELEGRAM_FILES_DIR", str(self.root) + "/../escape"),
+                            ("TELEGRAM_TEMP_DIR", media + "/temp"),
+                            ("TELEGRAM_LOG_FILE", "relative.log"),
+                            ("TELEGRAM_API_HASH_FILE", media + "/secret")):
+            before = self.env.copy(); self.env[name] = value
+            self.assertNotEqual(0, self.run_script().returncode, name)
+            self.env = before
+        self.assertNotEqual(0, self.run_script("--local").returncode)
+        self.assertNotEqual(0, self.run_script("--files-dir=" + media, "--files-dir=" + media).returncode)
+        self.assertEqual(0, self.run_script("--version").returncode)
+        self.env.pop("TELEGRAM_FILES_DIR")
+        self.assertNotEqual(0, self.run_script("-f", media).returncode)
+        self.assertNotEqual(0, self.run_script("-f" + media).returncode)
+
+    def test_split_rejects_symlink_ancestor(self):
+        link = self.root / "link"; link.symlink_to(self.root, target_is_directory=True)
+        self.env["TELEGRAM_FILES_DIR"] = str(link / "media")
+        self.assertNotEqual(0, self.run_script().returncode)
+
 
 if __name__ == "__main__":
     unittest.main()
