@@ -97,6 +97,7 @@ class Harness:
         self.runner = Runner(timeout=240, deadline=1200, max_output=16 * 1024 * 1024)
         self.bases = {}
         self.built = False
+        self.stage = "initialization"
 
     def command(self, argv):
         code, output = self.runner.run(argv)
@@ -128,7 +129,7 @@ class Harness:
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            timeout=60, check=True)
             if self.built:
-                subprocess.run(["docker", "image", "rm", self.project + ":synthetic"],
+                subprocess.run(["docker", "image", "rm", self.project + ":synthetic", self.project + ':observer'],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                timeout=30, check=True)
         except (OSError, subprocess.SubprocessError):
@@ -137,16 +138,19 @@ class Harness:
     def run(self):
         self.command(["docker", "version", "--format", "{{.Server.Version}}"])
         cases = []
-        env_keys = ("DOCTOR_FIXTURE_IMAGE", "DOCTOR_PYTHON_IMAGE", "DOCTOR_NGINX_IMAGE")
+        env_keys = ("DOCTOR_FIXTURE_IMAGE", "DOCTOR_PYTHON_IMAGE", "DOCTOR_NGINX_IMAGE", 'DOCTOR_OBSERVER_IMAGE')
         previous = {k: os.environ.get(k) for k in env_keys}
         signals = {}
         for signum in (signal.SIGINT, signal.SIGTERM):
             signals[signum] = signal.signal(signum, lambda *args: (_ for _ in ()).throw(KeyboardInterrupt()))
         try:
+            self.stage = "fixture-images"
             self.bases = {"python": self.pin(os.environ.get("DOCTOR_PYTHON_IMAGE", "python:3.13.5-alpine3.22")),
                           "nginx": self.pin(os.environ.get("DOCTOR_NGINX_IMAGE", "nginx:1.28.0-alpine3.21"))}
             os.environ.update(DOCTOR_FIXTURE_IMAGE=self.project + ":synthetic", DOCTOR_PYTHON_IMAGE=self.bases["python"], DOCTOR_NGINX_IMAGE=self.bases["nginx"])
-            self.command(self.compose + ["build", "botapi"])
+            os.environ['DOCTOR_OBSERVER_IMAGE'] = self.project + ':observer'
+            self.stage = "fixture-build"
+            self.command(self.compose + ["build", "botapi", 'observer'])
             self.built = True
             with tempfile.TemporaryDirectory(prefix="doctor-integration-") as temporary:
                 private = Path(temporary)
@@ -157,6 +161,7 @@ class Harness:
                 common = ["--scenario", "official-to-self", "--migration-input", str(inputs), "--format", "json",
                           "--min-free-bytes", "1024", "--min-free-inodes", "8", "--deadline", "90"]
                 def check(name, override=None, extra=(), expected=None):
+                    self.stage = "case-" + name
                     files = [str(FIXTURES / "compose.yml")]
                     compose = list(self.compose)
                     if override:
@@ -194,6 +199,7 @@ class Harness:
                 wrong.write_text((FIXTURES.parent.parent / "nginx.conf").read_text().replace(":8081", ":8089"), encoding="utf-8")
                 check("wrong-port", {"services": {"gateway": {"volumes": [{"type": "bind", "source": str(wrong), "target": "/etc/nginx/conf.d/default.conf", "read_only": True}]}}}, expected=1)
                 check("read-only", {"services": {"botapi": {"volumes": [{"type": "volume", "source": "state", "target": "/var/lib/telegram-bot-api", "read_only": True}]}}}, expected=1)
+                self.stage = "case-uid-denied"
                 self.command(self.compose + ["up", "-d", "--wait", "--wait-timeout", "30"])
                 self.command(self.compose + ["exec", "-T", "--user", "0:0", "botapi", "sh", "-c",
                     'chown 0:0 /tmp/telegram-bot-api; chmod 700 /tmp/telegram-bot-api; touch /tmp/telegram-bot-api/.root-capability; rm /tmp/telegram-bot-api/.root-capability'])
@@ -202,11 +208,13 @@ class Harness:
                     raise AssertionError("runtime UID write denial was not a blocker")
                 cases.append({"name": "uid-denied", "exit_code": denied})
                 self.command(self.compose + ["exec", "-T", "--user", "0:0", "botapi", "sh", "-c", 'chown 101:101 /tmp/telegram-bot-api; chmod 755 /tmp/telegram-bot-api'])
+                self.stage = "case-stopped"
                 self.command(self.compose + ["stop", "gateway"])
                 _, stopped = run_case(argv + common)
                 if stopped != 1:
                     raise AssertionError("stopped service was not blocked")
                 cases.append({"name": "stopped", "exit_code": stopped})
+                self.stage = "case-invalid-input"
                 invalid = inputs.with_name("invalid.json")
                 invalid.write_text('{"bot_token":"synthetic-rejected"}', encoding="utf-8")
                 invalid.chmod(0o600)
@@ -239,8 +247,9 @@ class Harness:
 
 
 if __name__ == "__main__":
+    harness = Harness()
     try:
-        print(json.dumps(Harness().run(), indent=2))
+        print(json.dumps(harness.run(), indent=2))
     except (Exception, KeyboardInterrupt):
-        print("Synthetic doctor integration failed; inspect CI step and private fixture state.", file=sys.stderr)
+        print("Synthetic doctor integration failed at " + harness.stage, file=sys.stderr)
         sys.exit(1)

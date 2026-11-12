@@ -497,6 +497,22 @@ Doctor does not run migration, helpers, bot methods, cloud probes, journals or
 locks. READY means readiness to begin the prepared procedure; it does not certify
 helpers, completed transfer, authorization or delivery.
 
+## Optional migration observation
+
+Before any migration, disable the observer registry worker and wait for in-flight
+requests to finish. A snapshot is not a lock and browser state is unobserved.
+Run the Bash helper from the checkout root containing `migrate_off_to_self.sh`.
+It can emit a sanitized final projection without changing its workflow:
+set process environment `MIGRATION_STATUS_DIR="$PWD/.observability/migration"` and
+`MIGRATION_STATUS_ALIAS=public_label` (not in the helper .env). Prepare that owned
+non-symlink directory as 0755; output is atomic 0644 `status.json`, with no private
+receipts, URLs or tokens. The v1 projection contains UTC observed_at and at most
+100 operations: UUID operation_id, public alias, stage, outcome, UTC observed_at,
+and delivery_evidence. See `tools/observability/status.schema.json` for the operation
+schema. The producer runs only after summary finalization; live operations need a
+separate heartbeat producer. Missing, invalid or stale configured input blocks
+authenticated observation. Old terminal results remain historical evidence only.
+
 ## Complete webhook profile inputs
 
 Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON array of strings), `WEBHOOK_MAX_CONNECTIONS` and `WEBHOOK_TARGET_LOCAL=true|false`. Unknown secret/IP and unavailable custom certificates stop preflight. `fixed` is an alias for pinned canonical IPv4. Source `ip_address` does not reveal pinning intent. Explicit inputs override source; omitted optional updates become the documented `[]` default. `[]` excludes chat_member, message_reaction and message_reaction_count; it is not every update type. Null or invalid values fail. Per-bot max_connections is 1–100; up to 100000 requires explicit local-mode capability (`TELEGRAM_LOCAL`/`--local`), independently of server `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. A self-host URL does not establish this capability.
@@ -532,3 +548,5 @@ bash ./migrate_off_to_self.sh
 The browser uses password/File controls and never persists private inputs in storage. Its certificate preflight checks X.509 structure only, not cryptographic validity; target API acceptance validates the certificate. The helper also checks X.509 with openssl. Exports require these private inputs again at runtime and contain no browser token, secret, URL, certificate bytes or actual private filename. The manual plan has an unconditional STOP/exit before a separately saved target-stage script; it never performs state transfer. For target-stage supply explicit saved URL, updates, connections and certificate mode. After source logOut, never diagnose by logging into the old source; reconcile on target. Before confirmed logOut, do not authorize both endpoints. UNKNOWN may mean the mutation applied: no blind retry, rollback or polling fallback.
 
 Exit 0 means API acceptance and readable profile readback. Secret/certificate bytes cannot be readback-verified. Queue growth is an observation, not a count-equality or loss assertion; historical errors are distinguished from new delivery/synchronization errors. A zero queue does not prove delivery. Delivery stays unverified without a new, correlated receiver receipt. The 10-second/two-sample observation is shorter than the recommended 30-second maximum; it is not an SLA. Keep debug/VLOG disabled; logger/image qualification and real test-bot delivery are separate external gates. See maintenance for receiver, pinned-source and CI instructions.
+
+The browser-generated Bash plan reports its result on stderr as `ERROR`, `PARTIAL`, `UNKNOWN`, or `SUCCESS`, followed by `phase=...` and `progress=0|1`. Progress records a confirmed mutation; `UNKNOWN` requires reconciliation because an unacknowledged request may still have taken effect. For a valid HTTP 429 retry delay, `retryNotBefore_epoch` is the earliest retry time, not permission to retry without reconciliation. Successful observable profile verification does not confirm webhook delivery.

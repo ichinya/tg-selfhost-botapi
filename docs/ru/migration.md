@@ -499,6 +499,22 @@ Doctor не запускает миграцию, helpers, методы бота,
 READY означает готовность начать подготовленную процедуру и не подтверждает
 helpers, завершённый перенос, авторизацию или доставку.
 
+## Опциональное наблюдение миграции
+
+Перед любой миграцией отключите registry worker observer и дождитесь завершения
+текущих запросов. Snapshot не является lock; состояние браузера не наблюдается.
+Запускайте Bash helper из корня checkout, где находится `migrate_off_to_self.sh`.
+Он может выдать безопасную финальную проекцию без изменения сценария:
+задайте в окружении процесса `MIGRATION_STATUS_DIR="$PWD/.observability/migration"`
+и `MIGRATION_STATUS_ALIAS=public_label` (не в .env helper). Подготовьте принадлежащий
+оператору каталог без symlink с правами 0755; атомарный `status.json` имеет 0644,
+не содержит private receipts, URL или токенов. Проекция v1 содержит UTC observed_at
+и до 100 операций: UUID operation_id, публичный alias, stage, outcome, UTC observed_at,
+delivery_evidence. Схема операции: `tools/observability/status.schema.json`.
+Producer запускается только после финализации summary; текущим операциям нужен
+отдельный heartbeat producer. Отсутствующий, неверный или stale настроенный вход
+блокирует запросы с токеном. Старые terminal результаты — только исторические данные.
+
 ## Полный профиль webhook
 
 До изменения source helper разрешает `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON-массив строк), `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL=true|false`. Неизвестный секрет/IP и отсутствующий custom certificate останавливают preflight. `fixed` — алиас pinned для canonical IPv4. Source `ip_address` не раскрывает намерение pinning. Явные параметры перекрывают source; отсутствие optional updates означает документированный default `[]`. `[]` исключает chat_member, message_reaction и message_reaction_count, а не включает все типы. Null и неверные типы отклоняются. Per-bot max_connections: 1–100; до 100000 только при явном подтверждении local mode (`TELEGRAM_LOCAL`/`--local`), независимо от серверного `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. Self-host URL этого не доказывает.
@@ -534,3 +550,5 @@ bash ./migrate_off_to_self.sh
 Браузер использует password/File controls и не сохраняет private inputs в storage. Preflight браузера проверяет только структуру X.509, а не криптографическую корректность; сертификат проверяется target API при принятии. Helper дополнительно проверяет X.509 через openssl. Экспорт требует повторного ввода private inputs при запуске и не содержит browser token, secret, URL, байты сертификата или настоящее имя private file. Ручной план содержит безусловный STOP/exit перед отдельным сохраняемым target-stage script; перенос state он не выполняет. Для target-stage нужны явные сохранённые URL, updates, connections и certificate mode. После source logOut не входите снова на прежний source для диагностики — сверяйте target. До подтверждённого logOut не авторизуйте обе стороны. UNKNOWN может означать применённую мутацию: слепого повтора, rollback или polling fallback нет.
 
 Exit 0 означает API acceptance и сверку читаемого профиля. Байты секрета/сертификата через readback не проверяются. Рост очереди — наблюдение, а не требование равенства счётчиков или доказательство потерь; исторические ошибки отличаются от новых delivery/synchronization errors. Нулевая очередь не доказывает доставку. Доставка остаётся unverified без нового коррелированного receiver receipt. Окно 10 секунд/два samples короче рекомендованного максимума 30 секунд; это не SLA. Не включайте debug/VLOG; logger/image qualification и реальная test-bot delivery — отдельные внешние гейты. Инструкции receiver, pinned-source и CI приведены в maintenance.
+
+Bash-????, ????????? ? ????????, ??????? ????????? ? stderr: `ERROR`, `PARTIAL`, `UNKNOWN` ??? `SUCCESS`, ????? `phase=...` ? `progress=0|1`. ???????? ???????? ?????????????? ?????????? ????????; ??? `UNKNOWN` ????? ??????, ????????? ?????? ??? ????????????? ??? ???????????. ??? ?????????? ???????? HTTP 429 ???? `retryNotBefore_epoch` ?????? ????? ?????? ????? ???????, ?? ?? ????????? ?????? ??? ??????. ???????? ???????? ???????????? ??????? ?? ???????????? ???????? webhook.

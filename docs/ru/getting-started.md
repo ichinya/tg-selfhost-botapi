@@ -76,6 +76,9 @@ API ID/hash приложения и токен бота от BotFather — ра�
 git clone https://github.com/ichinya/tg-selfhost-botapi.git
 cd tg-selfhost-botapi
 cp .env.example .env
+install -d -m 0700 .observability
+install -d -m 0755 .observability/runtime .observability/migration
+sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
 ```
 
 Заполните `API_ID` и `API_HASH` в `.env`. Не публикуйте этот файл.
@@ -151,3 +154,13 @@ state через alias, файловый сервер или монтирова�
 в [настройках](configuration.md), контракт приватного входа —
 в [миграции](migration.md). READY — снимок предпосылок; он не авторизует бота
 и не выполняет перенос.
+
+## Health без входа ботом
+
+Management listener отдаёт точные GET/HEAD `/health/live` и `/health/ready`
+из кеша root probes. Ожидается JSON 404 Bot API; HTML, redirect, timeout и stale
+success дают отказ. При stats off глубина `http_handler_only`; при stats on
+добавляется распознанный manager response (`http_handler_and_manager`).
+Ни одна глубина не авторизует бота и не подтверждает связь с Telegram или доставку.
+`/status` — документ, а не общий UP. Внутренний `/selfz` проверяет scheduler
+observer и недоступен через management gateway.

@@ -8,6 +8,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProfileContractTests(unittest.TestCase):
+    def test_shell_sources_do_not_contain_literal_nul(self):
+        for name in ('migrate_off_to_self.sh', 'tools/migration_diagnostics_main.sh'):
+            with self.subTest(path=name):
+                self.assertNotIn(b'\x00', (ROOT / name).read_bytes())
+
     def test_same_fixtures_in_actual_inline_js_and_bash_jq_resolver(self):
         cases = json.loads((ROOT / "tools/fixtures/webhook-profile-v1.json").read_text())["cases"]
         js = subprocess.run(["node", "tools/webhook_profile_ui_harness.cjs", "--resolve"], cwd=ROOT,

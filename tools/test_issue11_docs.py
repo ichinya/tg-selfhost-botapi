@@ -58,7 +58,8 @@ class DiagnosticPublicationTest(unittest.TestCase):
             client.parent.mkdir(parents=True, exist_ok=True)
             client.write_bytes((ROOT / "assets/js/migration-client.mjs").read_bytes())
             command = [sys.executable, str(ROOT / "tools/check_docs.py"), str(site)]
-            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
             sentinel = site / "logs/migration/issue11-sentinel.txt"
             sentinel.parent.mkdir(parents=True)
             sentinel.write_text("synthetic", encoding="utf-8")
