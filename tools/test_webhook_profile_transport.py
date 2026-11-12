@@ -30,7 +30,9 @@ class ProfileTransportTests(unittest.TestCase):
                         WEBHOOK_MAX_CONNECTIONS="7", WEBHOOK_CERTIFICATE_MODE="none", NO_PROXY="127.0.0.1", no_proxy="127.0.0.1")
 
     def run_surface(self, api, export=False, **env):
-        run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=self.private))
+        # The helper keeps a persistent reconciliation lock next to itself.
+        # Independent scenarios must not share that diagnostic root.
+        run_dir = Path(tempfile.mkdtemp(prefix="surface-", dir=self.private))
         script = run_dir / "helper.sh"
         if export:
             result = subprocess.run(["node", "tools/webhook_profile_ui_harness.cjs", "--export"], cwd=ROOT,

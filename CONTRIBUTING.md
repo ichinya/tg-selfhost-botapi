@@ -95,6 +95,29 @@ Update [English](docs/en/README.md) and [Russian](docs/ru/README.md) documentati
 together. Keep the root README short. Documentation changes get a Jekyll build
 and internal-link check in CI; the existing migrator URL must keep working.
 
+File-contract changes must preserve both direct/scoped RO reads and the per-bot
+`POST /v1/files/download` boundary. Run scoped units for `test_file_access.py`,
+`test_download_server.py`, `test_check_file_contract.py`, `test_check_docs.py`,
+`test_entrypoint.py`, image inputs and doctor before the full clean-candidate suite.
+Build `botapi-candidate:check` and `downloads-candidate:check`, then run:
+
+```sh
+python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
+  --downloads-image downloads-candidate:check --report file-report.json
+```
+
+The full runtime gate uses only disposable synthetic storage and requires Linux
+amd64/openat2. It records exact source hashes/image IDs. A denied/unavailable
+Docker, kernel or Jekyll gate is NOTRUN (`verification deferred to CI/gates`), not
+PASS. Never use production volumes or import unrelated untracked helpers to make
+the gate pass. Retain the original migrator HTML bytes and exclude examples,
+fixtures, media, secrets and runtime configuration from Pages.
+
+`files.yml` runs the complete suite only on a clean checkout. `image.yml` qualifies
+the exact Bot API/downloads IDs and current source hashes on both build and reuse
+paths; publication follows the file and rendered-docs gates. `DOWNLOADS_RECIPE`
+and the main recipe must include new runtime or qualification inputs before use.
+
 ## По-русски
 
 В Windows выполняйте `python3 tools/test_entrypoint.py` в WSL или CI: нативный

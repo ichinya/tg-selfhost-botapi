@@ -36,8 +36,9 @@ ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
 RUN apk add --no-cache openssl libstdc++ curl jq \
  && addgroup -g 101 -S telegram-bot-api \
  && adduser -S -D -H -u 101 -h /var/lib/telegram-bot-api -s /sbin/nologin -G telegram-bot-api telegram-bot-api \
- && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api \
- && chown telegram-bot-api:telegram-bot-api /var/lib/telegram-bot-api /tmp/telegram-bot-api
+ && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \
+ && chown telegram-bot-api:telegram-bot-api /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \
+ && chmod 770 /var/lib/telegram-bot-api-files
 COPY --from=build /usr/local/bin/telegram-bot-api /usr/local/bin/telegram-bot-api
 COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
 COPY --chmod=755 tools/botapi_healthcheck.sh /usr/local/bin/botapi-healthcheck
