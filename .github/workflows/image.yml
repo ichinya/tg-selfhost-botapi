@@ -61,8 +61,10 @@ jobs:
         run: |
           image="ghcr.io/${REPOSITORY,,}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
-          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT" > /dev/null 2>registry-error.txt; then
+          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT" --format '{{json .Manifest}}' > registry-manifest.json 2>registry-error.txt; then
+            digest="$(python3 -c 'import json,re; value=json.load(open("registry-manifest.json"))["digest"]; assert re.fullmatch("sha256:[0-9a-f]{64}", value); print(value)')"
             echo 'exists=true' >> "$GITHUB_OUTPUT"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
           else
             # A missing/private package also fails inspection on the first build.
             # Never treat an unconfirmed registry response as a successful build.
@@ -89,16 +91,15 @@ jobs:
         if: steps.existing.outputs.exists == 'true' && github.event_name != 'pull_request'
         env:
           IMAGE: ${{ steps.existing.outputs.image }}
-          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+          DIGEST: ${{ steps.existing.outputs.digest }}
         run: |
-          digest=$(docker buildx imagetools inspect "$IMAGE:build-$BUILD_FINGERPRINT" --format '{{json .Manifest}}' |
-            python3 -c 'import json,re,sys; d=json.load(sys.stdin)["digest"]; assert re.fullmatch(r"sha256:[0-9a-f]{64}",d); print(d)')
-          docker pull "$IMAGE@$digest"
-          docker tag "$IMAGE@$digest" botapi-candidate:check
+          docker pull --platform linux/amd64 "$IMAGE@$DIGEST"
+          docker tag "$IMAGE@$DIGEST" botapi-candidate:check
       - name: Smoke-test built binary
         run: |
-          docker run --rm botapi-candidate:check --version
-          docker run --rm --entrypoint sh botapi-candidate:check -ec \
+          docker run --rm --network none botapi-candidate:check --version
+          docker run --rm --network none botapi-candidate:check --help
+          docker run --rm --network none --entrypoint sh botapi-candidate:check -ec \
             'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
       - name: Check selected source media semantics
         timeout-minutes: 10
@@ -147,19 +148,27 @@ jobs:
           IMAGE: ${{ steps.existing.outputs.image }}
           BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
           EXISTS: ${{ steps.existing.outputs.exists }}
+          REUSED_DIGEST: ${{ steps.existing.outputs.digest }}
           DOWNLOADS_FINGERPRINT: ${{ steps.inputs.outputs.downloads_key }}
         run: |
+          tested_image_id="$(cat qualified-image-id.txt)"
+          test "$(docker image inspect --format '{{.Id}}' botapi-candidate:check)" = "$tested_image_id"
           if [ "$EXISTS" != true ]; then
-            docker tag "$(cat qualified-image-id.txt)" "$IMAGE:build-$BUILD_FINGERPRINT"
+            docker tag "$tested_image_id" "$IMAGE:build-$BUILD_FINGERPRINT"
             docker push "$IMAGE:build-$BUILD_FINGERPRINT"
+            docker buildx imagetools inspect "$IMAGE:build-$BUILD_FINGERPRINT" --format '{{json .Manifest}}' > published-manifest.json
+            digest="$(python3 -c 'import json,re; value=json.load(open("published-manifest.json"))["digest"]; assert re.fullmatch("sha256:[0-9a-f]{64}", value); print(value)')"
+          else
+            digest="$REUSED_DIGEST"
           fi
+          docker pull --platform linux/amd64 "$IMAGE@$digest"
+          test "$(docker image inspect --format '{{.Id}}' "$IMAGE@$digest")" = "$tested_image_id"
           # Both new and reused candidates passed this run's exact-pair gates.
           docker tag downloads-candidate:check "$IMAGE-downloads:build-$DOWNLOADS_FINGERPRINT"
           docker push "$IMAGE-downloads:build-$DOWNLOADS_FINGERPRINT"
           docker buildx imagetools create --tag "$IMAGE-downloads:latest" "$IMAGE-downloads:build-$DOWNLOADS_FINGERPRINT"
-          docker tag "$(cat qualified-image-id.txt)" "$IMAGE:latest"
-          docker push "$IMAGE:latest"
-          echo "Published $IMAGE:build-$BUILD_FINGERPRINT" >> "$GITHUB_STEP_SUMMARY"
+          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$digest"
+          echo "Published tested $IMAGE@$digest (build-$BUILD_FINGERPRINT)" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

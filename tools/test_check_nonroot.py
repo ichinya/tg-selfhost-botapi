@@ -21,7 +21,10 @@ class RunnerTests(unittest.TestCase):
         section = workflow[gate:publish]
         self.assertLess(section.index('chmod +x tools/fixtures/migration/fake-bot-api.sh'),
                         section.index('python3 tools/check_migration_volumes.py'))
-        self.assertIn('docker tag "$(cat qualified-image-id.txt)" "$IMAGE:latest"', workflow[publish:])
+        publication = workflow[publish:]
+        self.assertIn('tested_image_id="$(cat qualified-image-id.txt)"', publication)
+        self.assertIn('"$IMAGE@$digest")" = "$tested_image_id"', publication)
+        self.assertIn('docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$digest"', publication)
 
     def test_numeric_identity_is_required(self):
         self.assertEqual((1000, 2000), identity("1000:2000"))

@@ -33,3 +33,5 @@ authenticated handler: [English](docs/en/configuration.md#files-in-local-mode) �
 [Русский](docs/ru/configuration.md#файлы-в-local-mode).
 
 [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/ichinya/tg-selfhost-botapi/issues)
+
+See the [runtime identity contract](docs/en/configuration.md#addresses-and-storage) for non-root deployments.
