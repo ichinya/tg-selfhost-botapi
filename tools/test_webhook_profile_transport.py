@@ -70,7 +70,8 @@ class ProfileTransportTests(unittest.TestCase):
                     bindir = self.private / "bin"
                     bindir.mkdir(exist_ok=True)
                     wrapper = bindir / "curl"
-                    audit = self.private / "argv"
+                    audit = self.private / f"argv-{int(exported)}-{int(cert)}"
+                    self.assertFalse(audit.exists(), "Each scenario must have its own curl audit")
                     wrapper.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$WP_CURL_AUDIT"\nexec "' + shutil.which("curl") + '" "$@"\n')
                     wrapper.chmod(0o700)
                     api = self.with_api()
