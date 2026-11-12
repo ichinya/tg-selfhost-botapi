@@ -77,8 +77,19 @@ connect/read/total time and body size, no redirects, inherited proxy or retries.
 | Internal Bot API endpoint | `http://botapi:8081` |
 | Persistent state on the host | `./data` |
 | State directory inside the container | `/var/lib/telegram-bot-api` |
-| Container user/group IDs | `101:101` |
+| Default server user/group IDs | `101:101` |
 | Local mode | Enabled by Compose |
+
+By default the container starts as root only to initialize new or empty state and
+temp roots, then runs the server as `101:101`. Non-empty roots and their contents
+are not re-owned or recursively repaired. Alternatively, Docker `--user UID:GID`
+or Compose `user: "UID:GID"` runs directly as that identity; prepare both roots
+for it in advance. Paths must be dedicated absolute paths without symlink
+components. Startup checks access as the server user. New private roots are
+`0700` and the server uses umask `0027`; existing modes are unchanged. Secret
+files supplied with `_FILE` must be readable by the final server identity. Log
+file access is checked by the server. Explicit entrypoint arguments such as
+`--version` bypass normal startup and run as the container user.
 
 The Bot API endpoint receives method calls. The webhook URL belongs to your
 application and receives updates sent by the server. They are different addresses.

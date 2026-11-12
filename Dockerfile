@@ -33,7 +33,7 @@ LABEL org.opencontainers.image.source="https://github.com/ichinya/tg-selfhost-bo
       io.tg-selfhost.build-key="${BUILD_FINGERPRINT}"
 ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
     TELEGRAM_TEMP_DIR="/tmp/telegram-bot-api"
-RUN apk add --no-cache openssl libstdc++ \
+RUN apk add --no-cache openssl libstdc++ su-exec \
  && addgroup -g 101 -S telegram-bot-api \
  && adduser -S -D -H -u 101 -h /var/lib/telegram-bot-api -s /sbin/nologin -G telegram-bot-api telegram-bot-api \
  && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api \

@@ -6,6 +6,77 @@ if [ "$#" -gt 0 ]; then
     exec telegram-bot-api "$@"
 fi
 
+umask 0027
+: "${TELEGRAM_WORK_DIR:?TELEGRAM_WORK_DIR is required}"
+: "${TELEGRAM_TEMP_DIR:?TELEGRAM_TEMP_DIR is required}"
+
+# Reject aliases and symlink components before touching a configured root.
+check_path() {
+    path=$1
+    case "$path" in
+        /|''|*[!/]//*) echo "Invalid $2 directory; use a dedicated absolute path" >&2; exit 1 ;;
+        /*) ;;
+        *) echo "Invalid $2 directory; use a dedicated absolute path" >&2; exit 1 ;;
+    esac
+    case "/${path#/}/" in */./*|*/../*|*//* )
+        echo "Invalid $2 directory; use a dedicated absolute path" >&2; exit 1 ;;
+    esac
+    rest=${path#/}
+    component_path=
+    while [ -n "$rest" ]; do
+        component=${rest%%/*}
+        if [ "$rest" = "$component" ]; then rest=; else rest=${rest#*/}; fi
+        component_path="$component_path/$component"
+        if [ -L "$component_path" ]; then
+            echo "Invalid $2 directory; symlinks are not supported" >&2; exit 1
+        fi
+    done
+}
+
+prepare_root() {
+    path=$1
+    role=$2
+    check_path "$path" "$role"
+    if [ ! -e "$path" ]; then
+        mkdir -p -m 700 "$path" 2>/dev/null || { echo "Cannot create $role directory" >&2; exit 1; }
+    fi
+    [ -d "$path" ] || { echo "Invalid $role directory" >&2; exit 1; }
+    if [ "$(id -u)" = 0 ]; then
+        # Include dotfiles; never traverse or repair existing contents.
+        check_path "$path" "$role"
+        entries=$(find "$path" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null) || {
+            echo "Cannot inspect $role directory" >&2; exit 1;
+        }
+        if [ -z "$entries" ]; then
+            chown 101:101 "$path" 2>/dev/null && chmod 700 "$path" 2>/dev/null || {
+                echo "Cannot initialize $role directory" >&2; exit 1;
+            }
+        fi
+    fi
+}
+
+prepare_root "$TELEGRAM_WORK_DIR" state
+prepare_root "$TELEGRAM_TEMP_DIR" temp
+if [ "$(id -u)" = 0 ]; then
+    exec su-exec 101:101 /docker-entrypoint.sh
+fi
+
+probe_root() {
+    path=$1
+    role=$2
+    # The probe is exclusive and only our own file is removed.
+    (cd "$path" && ls -a . >/dev/null) 2>/dev/null || {
+        echo "Cannot access $role directory; prepare it for the server identity" >&2; exit 1;
+    }
+    probe="$path/.botapi-write-probe-$$"
+    (set -C; : > "$probe") 2>/dev/null || {
+        echo "Cannot write $role directory; prepare it for the server identity" >&2; exit 1;
+    }
+    rm "$probe" 2>/dev/null || { echo "Cannot clean up $role directory probe" >&2; exit 1; }
+}
+probe_root "$TELEGRAM_WORK_DIR" state
+probe_root "$TELEGRAM_TEMP_DIR" temp
+
 load_secret() {
     secret_name="$1"
     secret_value="$(printenv "$secret_name" || true)"
@@ -15,7 +86,9 @@ load_secret() {
         exit 1
     fi
     if [ -n "$secret_file" ]; then
-        secret_value="$(cat "$secret_file")"
+        secret_value="$(cat "$secret_file" 2>/dev/null)" || {
+            echo "Cannot read ${secret_name}_FILE as the server user" >&2; exit 1;
+        }
     fi
     if [ -z "$secret_value" ]; then
         echo "$secret_name is required" >&2
@@ -27,13 +100,7 @@ load_secret() {
 load_secret TELEGRAM_API_ID
 load_secret TELEGRAM_API_HASH
 
-: "${TELEGRAM_WORK_DIR:?TELEGRAM_WORK_DIR is required}"
-: "${TELEGRAM_TEMP_DIR:?TELEGRAM_TEMP_DIR is required}"
-mkdir -p "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"
-chown telegram-bot-api:telegram-bot-api "$TELEGRAM_WORK_DIR" "$TELEGRAM_TEMP_DIR"
-
 set -- "--dir=$TELEGRAM_WORK_DIR" "--temp-dir=$TELEGRAM_TEMP_DIR" \
-    --username=telegram-bot-api --groupname=telegram-bot-api \
     "--http-port=${TELEGRAM_HTTP_PORT:-8081}"
 
 # Quoted argument arrays preserve spaces and never execute environment contents.
