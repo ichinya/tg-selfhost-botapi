@@ -20,6 +20,19 @@ class BuildInputsTest(unittest.TestCase):
         for name in required:
             with self.subTest(name=name):
                 self.assertNotEqual(original, build_key({}, {**files, name: files[name] + b"\nchanged"}))
+    def test_split_recipe_is_fingerprinted(self):
+        from image_inputs import RECIPE
+        self.assertIn("docker-compose.files.yml", RECIPE)
+
+    def test_downloads_and_qualification_inputs_are_covered(self):
+        from image_inputs import RECIPE, DOWNLOADS_RECIPE, ROOT
+        for name in ('tools/file_contract.py', 'tools/download_server.py',
+                     'tools/fixtures/files/runtime.py', '.github/workflows/files.yml'):
+            self.assertIn(name, DOWNLOADS_RECIPE)
+            self.assertIn(name, RECIPE)
+        self.assertEqual(len(RECIPE), len(set(RECIPE)))
+        for name in set(RECIPE + DOWNLOADS_RECIPE):
+            self.assertTrue((ROOT / name).is_file(), name)
 
     def test_any_upstream_change_invalidates_published_build(self):
         inputs = dict(source="a", base="b")

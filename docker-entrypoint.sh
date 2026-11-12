@@ -1,11 +1,81 @@
 #!/bin/sh
 set -eu
 
-# Explicit CLI arguments (for example --version) do not require API credentials.
+# Informational invocations never need credentials or storage.
+if [ "$#" = 1 ]; then
+    case "$1" in --version|--help|-h) exec telegram-bot-api "$@" ;; esac
+fi
+
+storage_error() { echo 'Unsafe or conflicting split storage configuration' >&2; exit 1; }
+canonical() {
+    if printf '%s' "$1" | LC_ALL=C grep -q '[[:cntrl:]]'; then storage_error; fi
+    case "$1" in /*) ;; *) storage_error ;; esac
+    case "$1" in *\\*) storage_error ;; esac
+    case "$1/" in /|//*|*//*|*/./*|*/../*) storage_error ;; esac
+    [ "$1" != / ] || storage_error
+    # Reject symlink ancestors, including for a not-yet-created leaf.
+    candidate="$1"
+    while [ "$candidate" != / ]; do
+        [ ! -L "$candidate" ] || storage_error
+        if [ -e "$candidate" ]; then
+            [ "$(realpath "$candidate")" = "$candidate" ] || storage_error
+        fi
+        candidate="${candidate%/*}"
+        [ -n "$candidate" ] || candidate=/
+    done
+}
+separate() {
+    case "$1/" in "$2/"*) storage_error ;; esac
+    case "$2/" in "$1/"*) storage_error ;; esac
+}
+validate_storage() {
+    [ -n "$files" ] || return 0
+    canonical "$files"; canonical "$work"; canonical "$temp"
+    separate "$files" "$work"; separate "$files" "$temp"
+    if [ -n "$log" ]; then canonical "$log"; separate "$files" "$log"; fi
+    for secret in "${TELEGRAM_API_ID_FILE:-}" "${TELEGRAM_API_HASH_FILE:-}"; do
+        if [ -n "$secret" ]; then canonical "$secret"; separate "$files" "$secret"; fi
+    done
+}
+
+files=${TELEGRAM_FILES_DIR:-}
+work=${TELEGRAM_WORK_DIR:-}
+temp=${TELEGRAM_TEMP_DIR:-}
+log=${TELEGRAM_LOG_FILE:-}
 if [ "$#" -gt 0 ]; then
+    # Only directory/log flags are parsed. Long-form flags are required in split mode.
+    cli_files= cli_work= cli_temp= cli_log= seen=' '
+    pending=
+    for argument in "$@"; do
+        if [ -n "$pending" ]; then flag=$pending; value=$argument; pending=
+        else
+            case "$argument" in
+                --files-dir|--dir|--temp-dir|--log) pending=$argument; continue ;;
+                --files-dir=*|--dir=*|--temp-dir=*|--log=*) flag=${argument%%=*}; value=${argument#*=} ;;
+                -f|-f?*) storage_error ;;
+                *) continue ;;
+            esac
+        fi
+        case "$seen" in *" $flag "*) storage_error ;; esac
+        seen="$seen$flag "; [ -n "$value" ] || storage_error
+        case "$flag" in --files-dir) cli_files=$value ;; --dir) cli_work=$value ;;
+            --temp-dir) cli_temp=$value ;; --log) cli_log=$value ;; esac
+    done
+    [ -z "$pending" ] || storage_error
+    if [ -n "$files$cli_files" ]; then
+        [ -n "$cli_files" ] && [ -n "$cli_work" ] && [ -n "$cli_temp" ] || storage_error
+        for argument in "$@"; do case "$argument" in --*) ;; -*) storage_error ;; esac; done
+        [ -z "$files" ] || [ "$files" = "$cli_files" ] || storage_error
+        [ -z "$work" ] || [ "$work" = "$cli_work" ] || storage_error
+        [ -z "$temp" ] || [ "$temp" = "$cli_temp" ] || storage_error
+        [ -z "$log" ] || [ "$log" = "$cli_log" ] || storage_error
+        files=$cli_files; work=$cli_work; temp=$cli_temp; log=$cli_log
+        validate_storage
+    fi
     exec telegram-bot-api "$@"
 fi
 
+validate_storage
 umask 0027
 : "${TELEGRAM_WORK_DIR:?TELEGRAM_WORK_DIR is required}"
 : "${TELEGRAM_TEMP_DIR:?TELEGRAM_TEMP_DIR is required}"

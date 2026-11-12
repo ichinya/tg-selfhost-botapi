@@ -4,6 +4,8 @@
 /data
 /scratch
 /media
+/secrets
+/files
 /logs
 **/.migration-state/
 **/.migration-private/
