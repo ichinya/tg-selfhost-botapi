@@ -22,5 +22,5 @@ code=$(curl --silent --noproxy '*' --connect-timeout 1 --max-time 2 --max-filesi
 [ "$code" = 404 ] || exit 1
 [ "$(wc -c < "$work/body")" -le 16384 ] || exit 1
 tr -d '\r' < "$work/headers" | grep -Eiq '^content-type:[[:space:]]*application/json([;[:space:]]|$)' || exit 1
-jq -e 'type == "object" and .ok == false and (.error_code | type == "number") and .error_code == 404' \
+jq -s -e 'length == 1 and (.[0] | type == "object" and .ok == false and (.error_code | type == "number") and .error_code == 404)' \
     "$work/body" >/dev/null 2>&1

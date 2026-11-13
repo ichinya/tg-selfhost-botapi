@@ -23,6 +23,11 @@ The overlay removes inline credentials from the effective container environment.
 Credential files must be nonempty regular files readable by the server user;
 directories and FIFOs are rejected without reading them. `docker compose config`
 checks the merged structure; the entrypoint checks credentials at startup.
+
+The gateway and optional downloads service wait for Bot API HTTP readiness.
+This does not test bot authorization or guarantee recovery after an unhealthy status.
+Bot API has a 120-second stop grace period; measure shutdown with your own data
+and override it if needed before taking a stopped backup.
 The existing environment-only configuration remains available.
 
 ## Doctor configuration checks

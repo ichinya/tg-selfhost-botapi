@@ -43,4 +43,6 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    depends_on: [botapi]
+    depends_on:
+      botapi:
+        condition: service_healthy
