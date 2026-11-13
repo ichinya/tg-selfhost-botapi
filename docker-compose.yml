@@ -5,8 +5,8 @@ services:
     restart: always
     stop_grace_period: 120s
     environment:
-      TELEGRAM_API_ID: ${API_ID}
-      TELEGRAM_API_HASH: ${API_HASH}
+      TELEGRAM_API_ID: ${API_ID:-}
+      TELEGRAM_API_HASH: ${API_HASH:-}
       TELEGRAM_LOCAL: "true"
       TELEGRAM_STAT: ${TELEGRAM_STAT:-false}
       TELEGRAM_HTTP_IP_ADDRESS: ${TELEGRAM_HTTP_IP_ADDRESS:-0.0.0.0}

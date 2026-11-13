@@ -28,3 +28,9 @@ examples/files/*
 !tools/observability/Dockerfile
 **/__pycache__
 **/*.pyc
+
+!tools/image_inputs.py
+!tools/webhook_sender/
+tools/webhook_sender/*
+!tools/webhook_sender/CMakeLists.txt
+!tools/webhook_sender/webhook_sender_test.cpp

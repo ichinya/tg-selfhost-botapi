@@ -18,7 +18,7 @@ def command(argv, timeout=60, input=None, combined=False):
     return result.stdout+result.stderr if combined else result.stdout
 
 
-def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
+def smoke(botapi_image, observer_image, nginx_image):
     prefix = 'obs16-' + uuid.uuid4().hex[:12]
     network = prefix+'-network'
     names=[]
@@ -130,7 +130,7 @@ def smoke(botapi_image, observer_image, nginx_image='nginx:alpine'):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--botapi-image',required=True); parser.add_argument('--observer-image',required=True)
-    parser.add_argument('--nginx-image',default='nginx:alpine')
+    parser.add_argument('--nginx-image', required=True)
     args=parser.parse_args()
     try: print(json.dumps(smoke(args.botapi_image,args.observer_image,args.nginx_image)))
     except RuntimeError as error:

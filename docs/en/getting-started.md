@@ -88,6 +88,9 @@ sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/cre
 ```
 
 Fill in `API_ID` and `API_HASH` in `.env`. Keep that file private.
+Compose validates structure; the entrypoint rejects unset or empty credentials
+before starting the server. File secrets are checked as the server user; apply
+`docker-compose.secrets.yml` last, including after any local build overlay.
 
 The gateway binds to `127.0.0.1` by default and does not expose the state directory.
 
@@ -152,14 +155,15 @@ or mount privileges. This test does not prove an actual Telegram download.
 Before the first GHCR publication, build locally:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+python3 tools/image_inputs.py --build-env .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Once a published image is available:
 
 ```sh
-docker compose pull
-docker compose up -d
+docker compose --env-file .env --env-file selected.env pull
+docker compose --env-file .env --env-file selected.env up -d --no-build
 ```
 
 For a private GHCR package, authenticate with an account that has package access;
@@ -249,3 +253,7 @@ stats on adds a recognized manager response (`http_handler_and_manager`).
 Neither depth authenticates a bot or confirms Telegram connectivity/delivery.
 `/status` is a document, not an overall UP signal. Internal `/selfz` only checks
 the observer scheduler and is not available through the management gateway.
+
+Registry startup requires a qualified complete `selected.env` and its archived receipt;
+`selected_release: null` means no release is accepted. These startup examples are not an update procedure;
+use the [maintenance runbook](maintenance.md#cold-backup-update-and-data-aware-rollback) for an existing installation.

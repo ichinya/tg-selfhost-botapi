@@ -1,10 +1,14 @@
 # Merge after base + nonroot + files overrides. One instance per bot.
 services:
   downloads:
+    platform: linux/amd64
     image: ${DOWNLOADS_IMAGE:?Set a qualified immutable downloads image}
     build:
       context: .
       dockerfile: Dockerfile.downloads
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:?Generate .env.build from the snapshot}
+        BUILD_FINGERPRINT: ${DOWNLOADS_FINGERPRINT:?Generate .env.build from the snapshot}
     user: "101:101"
     read_only: true
     cap_drop: [ALL]

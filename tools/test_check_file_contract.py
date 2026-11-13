@@ -51,9 +51,9 @@ class CheckerTests(unittest.TestCase):
     def test_nginx_fixture_must_have_immutable_identity(self):
         digest = 'nginx@sha256:' + 'a' * 64
         with mock.patch.object(checker, 'command', side_effect=['', '[{"RepoDigests":["' + digest + '"]}]']):
-            self.assertEqual(digest, checker.pin_nginx({}))
+            self.assertEqual(digest, checker.pin_nginx({'FILE_NGINX_IMAGE': digest}))
         with mock.patch.object(checker, 'command', side_effect=['', '[{"RepoDigests":[]}]']):
-            with self.assertRaises(ValueError): checker.pin_nginx({})
+            with self.assertRaises(ValueError): checker.pin_nginx({'FILE_NGINX_IMAGE': digest})
         with self.assertRaises(ValueError): checker.pin_nginx({'FILE_NGINX_IMAGE': 'other.invalid/nginx:latest'})
 
     def test_unsafe_mount_and_alias_are_rejected(self):

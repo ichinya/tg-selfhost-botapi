@@ -357,7 +357,8 @@ unknown, сумма выборки — нижняя граница, а не гл
 install -d -m 0700 .observability
 install -d -m 0755 .observability/runtime .observability/migration
 sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+python3 tools/image_inputs.py --build-env .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Observer делит только network namespace Bot API, работает как 101:101 с read-only
@@ -384,3 +385,21 @@ OBSERVER_BASE с approved Python image digest. Supervision host producer,
 права registry/credentials и ownership/rotation описаны в
 [обслуживании](maintenance.md). Ready секции описывает её источник наблюдения;
 исходы миграции проверяются отдельно от готовности процесса.
+
+## Сохранённые входы сборки
+
+`image-inputs.lock.json` — датированный снимок обнаруженных source/base, ещё без квалификации.
+Повторение работает без сети: `python3 tools/image_inputs.py --build-env .env.build --json-file /private/resolved.json`.
+Сборка: `docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+Храните сгенерированные входы закрыто. Observer использует одинаковую базу Alpine локально и в CI;
+необязательный downloads — сохранённую базу Python. Discovery запускается явно (`--save-discovery /private/candidate.json`),
+сохраняя выбранную ревизию сервера до отдельного review обновления исходников. PR повторяет сохранённый снимок.
+Ключ сборки исключает deployment digests и документацию; у квалификации отдельный ключ.
+Local build overlay и downloads явно выбирают `linux/amd64`; эмуляция не
+квалифицирует native ARM64 release.
+Исторические digest требуют повторной проверки registry/platform/support в CI до выбора выпуска.
+
+Test-only sender artifact сохраняется по digest вместе с runtime; reuse скачивает
+его без повторной компиляции. Отсутствие парного test artifact запрещает reuse до восстановления evidence.
+После commit изменений упаковки выполните `--capture-wrapper /private/source-inputs.json`,
+затем повторите файл через `--inputs-file`, чтобы записать фактический commit обёртки.

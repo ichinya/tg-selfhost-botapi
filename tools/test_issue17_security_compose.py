@@ -10,6 +10,15 @@ ROOT = Path(__file__).resolve().parents[1]
 class ComposeSecretsTest(unittest.TestCase):
     def model(self, *files):
         env = dict(os.environ, API_ID="id-canary", API_HASH="hash-canary",
+                   BOTAPI_IMAGE="example/botapi@sha256:" + "0" * 64,
+                   OBSERVER_IMAGE="example/observer@sha256:" + "0" * 64,
+                   GATEWAY_IMAGE="example/gateway@sha256:" + "0" * 64,
+                   ALPINE_IMAGE="example/alpine@sha256:" + "0" * 64,
+                   OBSERVER_BASE="example/alpine@sha256:" + "0" * 64,
+                   APK_REFRESH_ID="test", BOT_API_REVISION="0" * 40,
+                   BOT_API_VERSION="test", BUILD_FINGERPRINT="0" * 64,
+                   BUILD_JOBS="1", SUBMODULES="test", TDLIB_REVISION="0" * 40,
+                   WRAPPER_REVISION="0" * 40,
                    TELEGRAM_API_ID_SECRET_PATH="/tmp/issue17-id",
                    TELEGRAM_API_HASH_SECRET_PATH="/tmp/issue17-hash")
         command = ["docker", "compose"]

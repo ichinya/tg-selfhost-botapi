@@ -145,51 +145,9 @@ review, preserving the original journal; never erase confirmed history.
 
 ## Image pipeline
 
-The image workflow checks official tdlib source and the Alpine 3.22 digest every
-night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
-and on manual runs. GitHub may delay scheduled runs.
-The image workflow also runs the required migrator security tests; see
-[Contributing](../../CONTRIBUTING.md) for their dependencies.
-
-The build key covers the resolved revisions/digests and the recipe, entrypoint,
-patch and image tests. If the corresponding published build exists, compilation
-is skipped; the candidate is pulled by digest and qualified again. If registry
-inspection cannot confirm it, the pipeline rebuilds. Acceptance scripts, fixtures,
-both storage overlays and their tests are part of the build key.
-The Bot API build key covers the resolved revisions/digests and file-contract
-recipe/tests/configs. Downloads has its own key including the immutable Python
-base. If a Bot API build exists, compilation may be skipped, but the exact reused
-image and the downloads candidate must pass the current file gate again.
-Unconfirmed registry inspection rebuilds; it never establishes a passing gate.
-
-For a new build it:
-
-1. Checks that the User-Agent patch applies to the selected official revision.
-2. Compiles the entire server.
-3. Runs `--version`, checks the header string in the binary and validates entrypoint syntax.
-4. Checks the selected source revision and TDLib submodule for download modes
-   `0640/0750`, internal media temp paths and rename semantics.
-5. Qualifies the exact image ID with the non-root storage matrix and the existing
-   migration volume gate.
-6. Builds the downloads image, runs synthetic local/TLS/negative checks and
-   network-none actual Bot API startup for the exact image pair, recording IDs and
-   source hashes. It also checks rendered Pages/private exclusions.
-7. Publishes tested `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and
-   `ghcr.io/ichinya/tg-selfhost-botapi-downloads:build-<downloads-key>`, then promotes
-   their `latest` tags without rebuilding the tested pair.
-   Reused builds also pass the qualification gates before promotion.
-
-The standalone `files.yml` workflow runs full unit discovery on a clean checkout,
-Compose combinations, state isolation, exact-pair integration and docs checks.
-Unavailable local runtime checks are `verification deferred to CI/gates`; CI must
-pass them before image publication. This does not deploy or verify a VPS.
-
-Failed checks leave the previously published `latest` in place. Pull requests do
-not publish. A binary string check is not a live webhook-delivery test.
-
-The workflow needs to be on the default branch before the schedule/publication
-can work. GHCR writes use `GITHUB_TOKEN` with `packages: write`. Configure package
-visibility or client authentication after the first publication.
+The workflow replays the saved snapshot for PR/push and discovers candidates on schedule/dispatch.
+Fresh and reused immutable artifacts pass the same fail-closed bundle qualification.
+See [qualified release bundle](#qualified-release-bundle) for receipt retention and selection.
 
 ## Non-root candidate qualification
 
@@ -228,8 +186,8 @@ qualification. Never run this harness against production mounts.
 1. Stop clients, downloads, Bot API writers and any supervisors that restart them.
    Make a consistent backup of the private state, image identity, Compose/env,
    secret files and, for an existing split installation, media separately.
-2. In a maintenance window enable the non-root and `docker-compose.files.yml` overlays, retaining the exact
-   qualified image/config. Never copy state/binlogs into media or edit TDLib DB
+2. In a maintenance window enable the `docker-compose.nonroot.yml` and `docker-compose.files.yml` overlays, retaining the exact
+   qualified image/config and existing `BOTAPI_STATE_SOURCE`. Never copy state/binlogs into media or edit TDLib DB
    paths by hand. The default transition starts a new media cache.
    Prepare the new media source for the configured UID/GID as described in Getting started;
    Compose refuses a missing root.
@@ -255,48 +213,8 @@ old credential gets 401 and the new one retrieves synthetic bytes. Cache evictio
 30s I/O timeout and the total deadline can interrupt transfers; no Range/resume
 or retention SLA is promised. Never paste token-bearing paths into reports.
 
-Registry publication does not restart your VPS. Select a tested tag/digest with
-`BOTAPI_IMAGE` and matching `OBSERVER_IMAGE` in `.env`. Every update command must use exactly the same Compose
-files, in the same order, as the installation. Choose the matching `COMPOSE_FILES`:
-
-```sh
-# base
-COMPOSE_FILES='-f docker-compose.yml'
-# base + build
-COMPOSE_FILES='-f docker-compose.yml -f docker-compose.build.yml'
-# base + nonroot
-COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml'
-# base + nonroot + files
-COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml'
-# base + nonroot + build
-COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.build.yml'
-# base + nonroot + files + build
-COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml -f docker-compose.build.yml'
-```
-
-Select only one line above. Omitting nonroot/files overrides changes the server
-identity back to `101:101`, reconnects state to `./data` and drops the media mount.
-For a registry installation:
-
-```sh
-docker compose $COMPOSE_FILES stop observer botapi
-# Back up the actual state source and private configuration consistently.
-docker compose $COMPOSE_FILES pull botapi observer gateway
-docker compose $COMPOSE_FILES up -d --force-recreate botapi observer gateway
-docker compose $COMPOSE_FILES logs --tail=100 botapi
-```
-
-For a local build, replace `pull` with `build` using the same selected files.
-Preserve the actual state source (`$BOTAPI_STATE_SOURCE` for nonroot, `./data`
-for the base model), ownership for the selected server identity (default `101:101`),
-the API endpoint and local-mode settings.
-Do not run two Bot API processes against one data directory. Restoring an old
-image may also require a compatible state backup; image rollback alone is not
-a guarantee.
-
-After an update, check service logs and send a test message to a bot already
-assigned to the server. Confirm the actual webhook URL, delivery status and
-User-Agent in the receiving service's logs.
+Registry publication does not restart a VPS. Select the complete immutable bundle, preserve the exact
+project/overlays and use the [cold backup and rollback runbook](#cold-backup-update-and-data-aware-rollback).
 
 ## Diagnostics
 
@@ -514,7 +432,7 @@ Docker/Compose/nginx recipe. CI resolves a digest-pinned Python observer base,
 loads both exact candidates and checks their shared build-key labels. Reuse still
 requires a fresh pair qualification; a missing image is built and the complete
 pair is tested before publication. PRs never publish. `build-<key>` and
-`observer-build-<key>` are immutable deployment inputs; latest aliases are promoted
+`observer-build-<key>` are historical tag names; deployment now uses qualified component digests. No latest alias is promoted
 only after gates and their promotion is not atomic.
 
 Run the isolated gate explicitly with `python3 tools/check_observability.py
@@ -590,20 +508,8 @@ distinguish its failure. This manual Kuma acceptance is NOTRUN in this pass.
 
 ## Updating and rollback of the pair
 
-Pin BOTAPI_IMAGE to `build-<key>` and OBSERVER_IMAGE to `observer-build-<same-key>`
-or their exact digests. Keep the same project and Compose overrides throughout:
-
-```sh
-docker compose pull botapi observer gateway
-docker compose up -d --force-recreate botapi observer gateway
-```
-
-For local builds use both `-f docker-compose.yml -f docker-compose.build.yml` on
-build/up. Recreate observer whenever its namespace owner changes; recreate gateway
-to refresh routing. Rollback selects the previous compatible pair and follows the
-same procedure, with a compatible state backup when needed. A botapi-only
---no-deps update is incomplete. Docker unhealthy is a signal, not automatic restart
-or recovery. Recheck health, source freshness and ownership after every replacement.
+Use the complete [cold backup, update and rollback procedure](#cold-backup-update-and-data-aware-rollback).
+Recreate the observer with its namespace owner, preserve state and media together, and repeat private health/doctor checks.
 
 ## Isolated mock walkthrough
 
@@ -705,3 +611,146 @@ The required gate fails on skips or missing runtimes. Windows skips and local
 NOTRUN results mean verification deferred to CI/gates. After merge, check the
 published root migrator URL and its byte equality separately; branch tests do
 not establish deployment or real-bot delivery.
+
+## Image identity and dependency evidence
+
+Readiness accepts one bounded 404 JSON response from the root handler and never
+authorizes a bot. Startup dependencies apply at creation time. Measure SIGTERM
+shutdown on representative state; 120 seconds is an initial budget. SIGKILL,
+OOM, a stop timeout or unobserved termination prevents a consistent-backup claim.
+
+OCI `version` and `revision` identify the official server version and commit.
+The build verifies the unpatched CMake version, checkout SHA and recursive gitlinks.
+Wrapper and TDLib revisions are separate labels. Runtime evidence under
+`/usr/share/tg-selfhost-botapi/` records the actual build/runtime package inventories,
+refresh ID, patch/source identity, binary hash, link command and linked libraries.
+The observer consumes the same APK refresh ID and records its own inventory.
+This is a bounded #23 interface; full dependency refresh qualification remains a CI gate.
+`apk --no-cache` alone does not invalidate Docker layers. Mutable package repositories
+mean rebuilding an old key does not promise byte-identical output: retain the actual artifacts.
+
+## Qualified release bundle
+
+`image-release.lock.json` deliberately has `selected_release: null` until all gates
+produce evidence. Discovery does not select or qualify a release. Runtime image
+qualification, registry checks, Pages, native platform and restore checks are
+**verification deferred to CI/gates** when unavailable locally. Code completion
+does not establish a PASS. Native ARM64 and a controlled live Telegram smoke remain NOTRUN.
+
+The existing workflow resolves once, builds or pulls Bot API/observer by immutable
+digest, checks both through the same current qualification gates, and publishes
+the inspected config without rebuilding. Registry auth/timeout/outage stops the
+run; only an explicit manifest-not-found permits a new artifact. Downloads uses
+its own recipe key. Every component is pulled back after publication and its
+config/rootfs is compared; the Bot API binary, labels and inventories are checked again.
+Partial publication never selects a release, and no latest alias is promoted.
+
+`tools/qualify_release.py qualify --inputs /private/resolved.json --directory /private/evidence`
+requires the native Linux test-only sender target, runtime/restore tests, APK
+refresh tests, observer/downloads and gateway checks. The C++ adapter executes
+production WebhookActor objects shared with the server; a nonce, one exact
+User-Agent, queue acknowledgement and wrong-UA/error/timeout controls are required.
+The adapter is absent from the final production image. Root readiness tests no bot.
+
+After successful publication, archive the complete source snapshot, resolved inputs,
+receipt and referenced evidence outside checkout/webroot for the rollback retention
+period. Actions artifacts are a transfer mechanism, not the durable archive.
+Explicit selection uses `tools/release_contract.py --inputs-file /private/source-inputs.json
+--select-receipt /private/receipt.json --botapi-image <qualified-image@sha256:digest>`
+(on one shell line). It verifies receipt identity, required gate records and component identities and exports
+`selected.env`; deployment remains a separate operator action. Keep previous
+images and evidence until restoration is rehearsed and a following release is accepted.
+
+## Cold backup, update and data-aware rollback
+
+Prepare the candidate and retain the previous immutable bundle and its complete
+evidence **before** downtime. Preserve the installation's project name, project
+directory, env files, profiles and ordered overlays. Every pull/config/stop/up
+command must use that exact invocation. For example, in Bash:
+
+```sh
+umask 077
+CHECKOUT=/srv/tg-selfhost-botapi
+PRIVATE=/secure/botapi-update
+# Use this installation's saved values; append its actual nonroot/files/downloads
+# and secrets overlays in their original order. Do not include a build overlay.
+OVERLAYS=(-f "$CHECKOUT/docker-compose.yml")
+dc() {
+  local selection=$1; shift
+  docker compose -p saved-project --project-directory "$CHECKOUT" \
+    --env-file "$PRIVATE/installation.env" --env-file "$selection" "${OVERLAYS[@]}" "$@"
+}
+dc "$PRIVATE/old.env" config --format json > "$PRIVATE/old-compose.json"
+dc "$PRIVATE/new.env" pull botapi observer gateway
+# Pull downloads as well when installed; never put bot tokens in argv.
+```
+
+`old.env` and `new.env` contain exact bundle refs from archived receipts. Save
+private env/secrets/config, migration authority and `binding.key`, observer
+registry/runtime inputs, image IDs and all source/qualification receipts.
+Inventory actual container mounts and named volumes: base `./data` is only one
+layout. Nonroot uses configured state/temp sources; files adds a separate media
+root and per-bot downloads mounts. Record numeric UID/GID, modes and storage
+mapping. Temp/cache is disposable only after proving it contains no durable
+state; do not discard a work/temp directory that is actually shared.
+
+Quiesce API clients, pollers, schedulers, migration jobs and external writers;
+close ingress and wait for in-flight uploads/downloads. Stop gateway, optional
+downloads, observer and finally Bot API with the saved invocation. Observe Docker
+SIGTERM/die events and inspect exit/OOM state; measure elapsed shutdown against
+`stop_grace_period`. SIGKILL, OOM, timeout or missing evidence means UNKNOWN,
+not a consistent backup. Do not create a cold-backup claim after forced stop.
+
+Only while every writer is stopped, take one snapshot of **all** durable roots
+and private configuration, with one snapshot ID. Example for each actual root:
+
+```sh
+sudo tar --numeric-owner --acls --xattrs -cpf "$PRIVATE/state.tar" -C "$STATE_SOURCE" .
+sha256sum "$PRIVATE/state.tar" > "$PRIVATE/state.tar.sha256"
+sha256sum -c "$PRIVATE/state.tar.sha256"
+```
+
+Repeat for media and private journals/config/secrets; include hidden files,
+`tqueue.binlog` and `webhooks_db.binlog` when present. Store archives outside
+checkout/Pages/webroot. Check free space, archive readability, checksums and
+numeric ownership. `tools/check_issue12_restore.py` validates a private manifest
+with one snapshot ID, storage mapping, release/config hashes and checksums for
+state/private plus media for nonroot-split. It rejects incomplete or mixed sets;
+a synthetic manifest test is not proof of production database compatibility.
+Do not tar a running database or combine snapshots from different times.
+
+Start the new bundle using the same configuration, identity, local mode and
+mounts. Use `--no-build`, recreate Bot API and observer together, wait for backend
+health, then recreate gateway and any downloads. A botapi-only `--no-deps` update
+leaves observer attached to the old network namespace and is insufficient.
+
+```sh
+dc "$PRIVATE/new.env" up -d --no-build --force-recreate --wait --wait-timeout 180 botapi observer
+dc "$PRIVATE/new.env" up -d --no-build --force-recreate gateway
+# Recreate installed downloads with the same --no-build invocation.
+```
+
+Before ingress opens, compare running IDs/digests, OCI/source/binary version,
+mounts/UID/GID, Docker health, token-free root directly and through gateway, private
+management live/ready and fresh doctor deployment evidence. Re-run the controlled
+test-bot/receiver smoke for availability, update delivery, one actual User-Agent
+and acknowledgement. Root health does not establish Telegram authorization.
+Never automatically alter a production webhook or erase migration history.
+
+On failure, quiesce and stop again, retain the failed new state separately, and
+restore the **previous bundle/config plus the entire pre-update snapshot** into
+fresh prepared paths with original numeric ownership/modes. Verify checksums and
+full tree contents before startup; do not overlay old files on a new database.
+Recreate the previous complete service set and repeat identity/health/doctor and
+controlled availability/UA smoke. An old image on new state is unsafe without
+separate compatibility evidence. Forward recovery requires its own evidence.
+
+Restore loses changes after the backup and cannot undo external Telegram
+acknowledgements. Record RPO, downtime and measured shutdown/restore durations;
+exactly-once, external-queue restoration and zero downtime are not promised.
+Do not use drop-pending to repair a failed update. Rehearse both base and
+nonroot+split-media layouts on separate disposable resources, including stale
+evidence, insufficient space, interrupted stop/backup and mixed snapshots.
+The supplied no-bot runtime rehearsal exercises a base snapshot; production and
+split-layout rehearsal, representative timings and live bot smoke remain
+**verification deferred to CI/gates** or a manual deployment gate until executed.

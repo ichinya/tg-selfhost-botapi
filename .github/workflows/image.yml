@@ -38,6 +38,19 @@ jobs:
           python3 --version
           node --version
           python3 -c 'import os, pty; master, slave = pty.openpty(); os.close(master); os.close(slave)'
+      - name: Consume one saved snapshot for this run
+        id: inputs
+        env:
+          DISCOVERY: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        run: |
+          snapshot=image-inputs.lock.json
+          if [ "$DISCOVERY" = true ]; then
+            snapshot="$RUNNER_TEMP/discovered-inputs.json"
+            python3 tools/image_inputs.py --save-discovery "$snapshot"
+          fi
+          python3 tools/image_inputs.py --inputs-file "$snapshot" --capture-wrapper "$RUNNER_TEMP/source-inputs.json"
+          python3 tools/image_inputs.py --inputs-file "$RUNNER_TEMP/source-inputs.json" --json-file "$RUNNER_TEMP/resolved-inputs.json" --build-env .env.build >> "$GITHUB_OUTPUT"
+          cat .env.build >> "$GITHUB_ENV"
       - name: Test build input handling
         timeout-minutes: 11
         run: timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
@@ -46,8 +59,8 @@ jobs:
           API_ID: '12345'
           API_HASH: test-placeholder
         run: |
-          docker compose config --quiet
-          docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          docker compose --env-file .env.build config --quiet
+          docker compose --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml config --quiet
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
@@ -55,32 +68,42 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Resolve immutable upstream inputs
-        id: inputs
-        run: python3 tools/image_inputs.py >> "$GITHUB_OUTPUT"
       - name: Check previously published build
         id: existing
         env:
           BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
           REPOSITORY: ${{ github.repository }}
+          DOWNLOADS_KEY: ${{ steps.inputs.outputs.downloads_key }}
         run: |
           image="ghcr.io/${REPOSITORY,,}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
-          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT" --format '{{json .Manifest}}' > registry-manifest.json 2>registry-error.txt; then
-            digest="$(python3 -c 'import json,re; value=json.load(open("registry-manifest.json"))["digest"]; assert re.fullmatch("sha256:[0-9a-f]{64}", value); print(value)')"
+          digest="$(python3 tools/check_release.py --lookup "$image:build-$BUILD_FINGERPRINT")"
+          if [ "$digest" = NOT_FOUND ]; then
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          else
             echo 'exists=true' >> "$GITHUB_OUTPUT"
             echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          else
-            # A missing/private package also fails inspection on the first build.
-            # Never treat an unconfirmed registry response as a successful build.
-            cat registry-error.txt >&2
-            echo 'exists=false' >> "$GITHUB_OUTPUT"
           fi
-          if docker buildx imagetools inspect "$image:observer-build-$BUILD_FINGERPRINT" >/dev/null 2>/dev/null; then
-            echo 'observer_exists=true' >> "$GITHUB_OUTPUT"
-          else
+          observer_digest="$(python3 tools/check_release.py --lookup "$image-observer:build-$BUILD_FINGERPRINT")"
+          if [ "$observer_digest" = NOT_FOUND ]; then
             echo 'observer_exists=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'observer_exists=true' >> "$GITHUB_OUTPUT"
+            echo "observer_digest=$observer_digest" >> "$GITHUB_OUTPUT"
           fi
+          sender_digest="$(python3 tools/check_release.py --lookup "$image-sender:build-$BUILD_FINGERPRINT")"
+          if [ "$sender_digest" = NOT_FOUND ]; then
+            echo 'sender_exists=false' >> "$GITHUB_OUTPUT"
+            if [ "$digest" != NOT_FOUND ]; then
+              echo 'Existing runtime lacks its retained test artifact; restore release evidence before reuse' >&2
+              exit 1
+            fi
+          else
+            echo 'sender_exists=true' >> "$GITHUB_OUTPUT"
+            echo "sender_digest=$sender_digest" >> "$GITHUB_OUTPUT"
+          fi
+          downloads_digest="$(python3 tools/check_release.py --lookup "$image-downloads:build-$DOWNLOADS_KEY")"
+          echo "downloads_digest=$downloads_digest" >> "$GITHUB_OUTPUT"
       - name: Check reviewed statistics source for candidate revision
         env:
           REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
@@ -106,6 +129,11 @@ jobs:
             ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
             BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
             BUILD_JOBS=1
+            BOT_API_VERSION=${{ steps.inputs.outputs.bot_api_version }}
+            SUBMODULES=${{ steps.inputs.outputs.submodules_arg }}
+            TDLIB_REVISION=${{ fromJSON(steps.inputs.outputs.submodules).td }}
+            WRAPPER_REVISION=${{ steps.inputs.outputs.wrapper_revision }}
+            APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
       - name: Load existing immutable candidate
         if: steps.existing.outputs.exists == 'true' && github.event_name != 'pull_request'
         env:
@@ -126,17 +154,19 @@ jobs:
           tags: observer-candidate:check
           build-args: |
             OBSERVER_BASE=${{ steps.inputs.outputs.observer_base }}
+            APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
             BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
       - name: Load reusable candidates and verify pair labels
         env:
           IMAGE: ${{ steps.existing.outputs.image }}
           KEY: ${{ steps.inputs.outputs.build_key }}
+          OBS_DIGEST: ${{ steps.existing.outputs.observer_digest }}
           OBS_EXISTS: ${{ steps.existing.outputs.observer_exists }}
           EVENT: ${{ github.event_name }}
         run: |
           if [ "$EVENT" != pull_request ] && [ "$OBS_EXISTS" = true ]; then
-            docker pull "$IMAGE:observer-build-$KEY"
-            docker tag "$IMAGE:observer-build-$KEY" observer-candidate:check
+            docker pull --platform linux/amd64 "$IMAGE-observer@$OBS_DIGEST"
+            docker tag "$IMAGE-observer@$OBS_DIGEST" observer-candidate:check
           fi
           for image in botapi-candidate:check observer-candidate:check; do
             test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$image")" = "$KEY"
@@ -153,8 +183,8 @@ jobs:
           BOT_API_REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
           ALPINE_IMAGE: ${{ steps.inputs.outputs.alpine_image }}
         run: |
-          docker build --target source --build-arg BOT_API_REVISION="$BOT_API_REVISION" \
-            --build-arg ALPINE_IMAGE="$ALPINE_IMAGE" --tag botapi-nonroot-source:check .
+          set -a; . ./.env.build; set +a
+          docker build --target source --build-arg "BOT_API_REVISION=$BOT_API_REVISION" --build-arg "BOT_API_VERSION=$BOT_API_VERSION" --build-arg "ALPINE_IMAGE=$ALPINE_IMAGE" --build-arg "BUILD_FINGERPRINT=$BUILD_FINGERPRINT" --build-arg "BUILD_JOBS=$BUILD_JOBS" --build-arg "SUBMODULES=$SUBMODULES" --build-arg "TDLIB_REVISION=$TDLIB_REVISION" --build-arg "WRAPPER_REVISION=$WRAPPER_REVISION" --build-arg "APK_REFRESH_ID=$APK_REFRESH_ID" --tag botapi-nonroot-source:check .
           sh -n tools/fixtures/nonroot/source-semantics.sh
           docker run --rm --read-only --network none --env BOT_API_REVISION \
             --mount "type=bind,source=$PWD/tools/fixtures/nonroot/source-semantics.sh,target=/check-source.sh,readonly" \
@@ -186,14 +216,56 @@ jobs:
 
       - name: Qualify exact pair with mock and actual no-bot runtime
         timeout-minutes: 8
-        run: python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
+        run: python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check --nginx-image "${{ steps.inputs.outputs.nginx_image }}"
       - name: Build downloads pair and qualify exact images
         env:
           PYTHON_IMAGE: ${{ steps.inputs.outputs.python_image }}
+          DOWNLOADS_FINGERPRINT: ${{ steps.inputs.outputs.downloads_key }}
+          FILE_NGINX_IMAGE: ${{ steps.inputs.outputs.nginx_image }}
         run: |
-          docker build -f Dockerfile.downloads --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
+          digest="${{ steps.existing.outputs.downloads_digest }}"
+          if [ "$digest" = NOT_FOUND ] || [ "${{ github.event_name }}" = pull_request ]; then
+            docker build -f Dockerfile.downloads --build-arg "BUILD_FINGERPRINT=$DOWNLOADS_FINGERPRINT" --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
+          else
+            docker pull --platform linux/amd64 "${{ steps.existing.outputs.image }}-downloads@$digest"
+            docker tag "${{ steps.existing.outputs.image }}-downloads@$digest" downloads-candidate:check
+          fi
           python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
             --downloads-image downloads-candidate:check --report "$RUNNER_TEMP/file-report.json"
+      - name: Build test-only production sender target
+        if: steps.existing.outputs.sender_exists != 'true' || github.event_name == 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: qualification
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: sender-candidate:check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
+            BOT_API_VERSION=${{ steps.inputs.outputs.bot_api_version }}
+            ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
+            BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
+            SUBMODULES=${{ steps.inputs.outputs.submodules_arg }}
+            WRAPPER_REVISION=${{ steps.inputs.outputs.wrapper_revision }}
+            APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
+            TDLIB_REVISION=${{ fromJSON(steps.inputs.outputs.submodules).td }}
+            BUILD_JOBS=1
+      - name: Reuse the retained test-only sender artifact by digest
+        if: steps.existing.outputs.sender_exists == 'true' && github.event_name != 'pull_request'
+        run: |
+          ref="${{ steps.existing.outputs.image }}-sender@${{ steps.existing.outputs.sender_digest }}"
+          docker pull --platform linux/amd64 "$ref"
+          docker tag "$ref" sender-candidate:check
+      - name: Fail-closed bundle qualification (fresh and reused)
+        timeout-minutes: 60
+        env:
+          FILE_NGINX_IMAGE: ${{ steps.inputs.outputs.nginx_image }}
+        run: |
+          python3 tools/qualify_release.py qualify --inputs "$RUNNER_TEMP/resolved-inputs.json" --directory "$RUNNER_TEMP/issue12-qualification"
       - name: Build Pages before promotion
         uses: actions/jekyll-build-pages@v1
         with:
@@ -201,40 +273,22 @@ jobs:
           destination: ./.site-check
       - name: Check rendered docs and private exclusions
         run: python3 tools/check_docs.py .site-check
-      - name: Publish tested build then promote latest
+      - name: Publish qualified immutable bundle without rebuild
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
           IMAGE: ${{ steps.existing.outputs.image }}
-          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
-          EXISTS: ${{ steps.existing.outputs.exists }}
-          REUSED_DIGEST: ${{ steps.existing.outputs.digest }}
-          OBSERVER_EXISTS: ${{ steps.existing.outputs.observer_exists }}
-          DOWNLOADS_FINGERPRINT: ${{ steps.inputs.outputs.downloads_key }}
         run: |
-          tested_image_id="$(cat qualified-image-id.txt)"
-          test "$(docker image inspect --format '{{.Id}}' botapi-candidate:check)" = "$tested_image_id"
-          if [ "$EXISTS" != true ]; then
-            docker tag "$tested_image_id" "$IMAGE:build-$BUILD_FINGERPRINT"
-            docker push "$IMAGE:build-$BUILD_FINGERPRINT"
-            docker buildx imagetools inspect "$IMAGE:build-$BUILD_FINGERPRINT" --format '{{json .Manifest}}' > published-manifest.json
-            digest="$(python3 -c 'import json,re; value=json.load(open("published-manifest.json"))["digest"]; assert re.fullmatch("sha256:[0-9a-f]{64}", value); print(value)')"
-          else
-            digest="$REUSED_DIGEST"
-          fi
-          docker pull --platform linux/amd64 "$IMAGE@$digest"
-          test "$(docker image inspect --format '{{.Id}}' "$IMAGE@$digest")" = "$tested_image_id"
-          if [ "$OBSERVER_EXISTS" != true ]; then
-            docker tag observer-candidate:check "$IMAGE:observer-build-$BUILD_FINGERPRINT"
-            docker push "$IMAGE:observer-build-$BUILD_FINGERPRINT"
-          fi
-          # Existing immutable builds have already passed the same checks.
-          # Both new and reused candidates passed this run's exact-pair gates.
-          docker tag downloads-candidate:check "$IMAGE-downloads:build-$DOWNLOADS_FINGERPRINT"
-          docker push "$IMAGE-downloads:build-$DOWNLOADS_FINGERPRINT"
-          docker buildx imagetools create --tag "$IMAGE-downloads:latest" "$IMAGE-downloads:build-$DOWNLOADS_FINGERPRINT"
-          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$digest"
-          docker buildx imagetools create --tag "$IMAGE:observer-latest" "$IMAGE:observer-build-$BUILD_FINGERPRINT"
-          echo "Published tested $IMAGE@$digest (build-$BUILD_FINGERPRINT)" >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/qualify_release.py publish --inputs "$RUNNER_TEMP/resolved-inputs.json" --directory "$RUNNER_TEMP/issue12-qualification" --repository "$IMAGE"
+          echo 'Immutable bundle published. Deployment selection requires the complete archived receipt; no VPS was changed.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Archive bundle evidence and exact inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue12-bundle-evidence
+          path: |
+            ${{ runner.temp }}/issue12-qualification
+            ${{ runner.temp }}/resolved-inputs.json
+            ${{ runner.temp }}/source-inputs.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

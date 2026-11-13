@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "policy_version": 3,
+  "stable_branch": "3.22",
+  "refresh_window": "utc-day",
+  "generation": 0,
+  "packages": {
+    "build": [
+      "alpine-sdk",
+      "linux-headers",
+      "git",
+      "zlib-dev",
+      "openssl-dev",
+      "gperf",
+      "cmake",
+      "python3"
+    ],
+    "runtime": [
+      "openssl",
+      "libstdc++",
+      "su-exec",
+      "curl",
+      "jq"
+    ]
+  }
+}

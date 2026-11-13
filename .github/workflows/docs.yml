@@ -3,6 +3,7 @@ name: Documentation
 on:
   pull_request:
     paths:
+      - 'image-*.lock.json'
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'index.md'
@@ -86,6 +87,12 @@ jobs:
           DOCS_PRIVACY_SENTINEL: synthetic_issue17_publication_sentinel
         run: |
           test ! -e .site-check/logs/migration/issue11-sentinel.txt
+          test ! -e .site-check/image-inputs.lock.json
+          test ! -e .site-check/image-release.lock.json
+          test ! -e .site-check/.env.build
+          test ! -e .site-check/selected.env
+          test ! -e .site-check/releases
+          test -z "$(find .site-check -name 'image-*.lock.json' -print -quit)"
           test ! -e .site-check/logs
           test ! -e .site-check/scratch/issue21-sentinel.txt
           test ! -e .site-check/scratch

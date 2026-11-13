@@ -96,14 +96,17 @@ print('PASS')
 
 
 def pin_nginx(env):
-    reference = env.get('FILE_NGINX_IMAGE', 'nginx:alpine')
+    reference = env.get('FILE_NGINX_IMAGE')
+    if not reference or '@sha256:' not in reference:
+        raise ValueError('FILE_NGINX_IMAGE must select an immutable qualified candidate')
     if not re.fullmatch(r'nginx(?::[a-zA-Z0-9_.-]+)?(?:@sha256:[0-9a-f]{64})?', reference):
         raise ValueError('invalid fixture image')
     command(['docker', 'pull', reference], env, timeout=180)
     metadata = json.loads(command(['docker', 'image', 'inspect', reference], env))[0]
     for digest in metadata.get('RepoDigests') or []:
         if re.fullmatch(r'(?:docker.io/library/)?nginx@sha256:[0-9a-f]{64}', digest):
-            return 'nginx@' + digest.split('@', 1)[1]
+            if digest.split('@', 1)[1] == reference.split('@', 1)[1]:
+                return 'nginx@' + digest.split('@', 1)[1]
     raise ValueError('fixture digest unavailable')
 
 
@@ -184,8 +187,9 @@ def validate_split(model):
 
 def source_hashes():
     from image_inputs import RECIPE, DOWNLOADS_RECIPE
-    return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
-            for name in sorted(set(RECIPE + DOWNLOADS_RECIPE))}
+    names = set(RECIPE + DOWNLOADS_RECIPE)
+    names.update(p.relative_to(ROOT).as_posix() for p in (ROOT / 'tools/fixtures/files').rglob('*') if p.is_file() and '__pycache__' not in p.parts)
+    return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in sorted(names)}
 
 
 def exercise(botapi_image, downloads_image, report):
