@@ -20,6 +20,9 @@ docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
 
 Для локальной сборки добавьте `-f docker-compose.build.yml` перед secrets-файлом.
 Overlay удаляет значения credentials из итогового окружения контейнера.
+Файлы credentials должны быть непустыми обычными файлами, доступными для чтения
+пользователю сервера; каталоги и FIFO отклоняются без чтения. `docker compose config`
+проверяет структуру конфигурации, а entrypoint проверяет credentials при запуске.
 Прежняя конфигурация через переменные окружения сохраняется.
 
 ## Проверка конфигурации doctor

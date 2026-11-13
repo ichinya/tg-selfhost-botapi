@@ -20,6 +20,9 @@ docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
 
 For a local build insert `-f docker-compose.build.yml` before the secrets file.
 The overlay removes inline credentials from the effective container environment.
+Credential files must be nonempty regular files readable by the server user;
+directories and FIFOs are rejected without reading them. `docker compose config`
+checks the merged structure; the entrypoint checks credentials at startup.
 The existing environment-only configuration remains available.
 
 ## Doctor configuration checks

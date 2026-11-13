@@ -98,6 +98,18 @@ class EntrypointTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["args"], ["--version"])
 
+    def test_nonregular_secret_fails_without_reading_or_disclosing_path(self):
+        fifo = self.root / "private-fifo-canary"
+        os.mkfifo(fifo)
+        self.env.pop("TELEGRAM_API_ID")
+        for path in (fifo, self.root):
+            self.env["TELEGRAM_API_ID_FILE"] = str(path)
+            result = self.run_script()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("TELEGRAM_API_ID_FILE", result.stderr)
+            self.assertNotIn(str(path), result.stdout + result.stderr)
+            self.assertNotIn('"checked"', result.stdout)
+
     def test_root_reexec_and_existing_contents(self):
         self.env['FAKE_UID'] = '0'
         state = Path(self.env['TELEGRAM_WORK_DIR'])
