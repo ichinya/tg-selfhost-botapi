@@ -57,7 +57,7 @@ jobs:
     timeout-minutes: 65
     env:
       UPLOAD_PROJECT: issue4-${{ github.run_id }}-${{ github.run_attempt }}
-      UPLOAD_REPORT: ${{ runner.temp }}/issue4-report.json
+      UPLOAD_REPORT: ${{ github.workspace }}/issue4-report.json
     steps:
       - uses: actions/checkout@v7
       - name: Export candidate and initialize unrun report

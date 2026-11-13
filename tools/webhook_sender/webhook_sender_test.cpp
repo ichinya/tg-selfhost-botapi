@@ -42,7 +42,7 @@ class Probe final : public telegram_bot_api::WebhookActor::Callback {
     event.ensure();
     auto url = td::parse_url("http://127.0.0.1:" + std::to_string(port_) + "/release-probe").move_as_ok();
     sender_ = td::create_actor<telegram_bot_api::WebhookActor>(
-        "ReleaseProductionSender", td::ActorShared<telegram_bot_api::WebhookActor::Callback>(td::actor_id(this), 0),
+        "ReleaseProductionSender", td::ActorShared<telegram_bot_api::WebhookActor::Callback>(actor_id(this), 0),
         1, std::move(url), td::string(), 1, false, td::string("127.0.0.1"), true, td::string(), parameters_);
     set_timeout_in(0.05);
   }
