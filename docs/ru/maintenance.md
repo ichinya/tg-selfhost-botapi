@@ -433,7 +433,7 @@ Docker/Compose/nginx recipe. CI разрешает digest-pinned Python base obs
 после gates, их продвижение не атомарно.
 
 Изолированный gate запускается явно: `python3 tools/check_observability.py
---botapi-image botapi-candidate:check --observer-image observer-candidate:check`.
+--botapi-image botapi-candidate:check --observer-image observer-candidate:check --nginx-image nginx:alpine@sha256:<qualified-gateway-digest>`.
 Он создаёт случайную internal Docker network, использует synthetic inputs,
 проверяет mock privacy и реальные root/manager/helper, удаляет свои контейнеры.
 `python3 tools/check_stats_source.py <upstream-checkout>` проверяет reviewed

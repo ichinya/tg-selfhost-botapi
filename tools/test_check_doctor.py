@@ -5,6 +5,9 @@ import unittest
 import contextlib
 import io
 import json
+import os
+import shutil
+import subprocess
 from check_doctor import assert_report, assert_commands, run_case, Harness
 from doctor_checks import report, check
 from unittest.mock import patch
@@ -15,6 +18,18 @@ from doctor_mock import StackRunner, FakeHttp
 
 
 class HarnessTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('docker'), 'Docker Compose is unavailable')
+    def test_fixture_observer_build_args(self):
+        env = dict(os.environ, DOCTOR_FIXTURE_IMAGE='doctor:synthetic',
+                   DOCTOR_OBSERVER_IMAGE='doctor:observer', DOCTOR_PYTHON_IMAGE='python:synthetic',
+                   DOCTOR_NGINX_IMAGE='nginx:synthetic', DOCTOR_APK_REFRESH_ID='synthetic-doctor',
+                   DOCTOR_BUILD_FINGERPRINT='synthetic-doctor')
+        raw = subprocess.check_output(['docker', 'compose', '-f', str(pathlib.Path(__file__).parent / 'doctor_fixtures/compose.yml'),
+                                       'config', '--format', 'json'], env=env)
+        args = json.loads(raw)['services']['observer']['build']['args']
+        self.assertEqual('synthetic-doctor', args['APK_REFRESH_ID'])
+        self.assertEqual('synthetic-doctor', args['BUILD_FINGERPRINT'])
+
     def test_private_runtime_values_never_reach_either_renderer(self):
         sentinel = "private-doctor-sentinel"
         class PrivateRunner(StackRunner):

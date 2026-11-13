@@ -82,6 +82,9 @@ def compose_models(compose):
             (root/name).write_text('synthetic_issue17_'+name);(root/name).chmod(0o600)
         env=dict(os.environ,API_ID='legacy_id_canary',API_HASH='legacy_hash_canary',
             TELEGRAM_API_ID_SECRET_PATH=str(root/'id'),TELEGRAM_API_HASH_SECRET_PATH=str(root/'hash'))
+        build_env=root/'build.env'
+        command([sys.executable,'tools/image_inputs.py','--inputs-file','image-inputs.lock.json','--build-env',str(build_env)])
+        env.update(line.split('=',1) for line in build_env.read_text(encoding='utf8').splitlines())
         for build in ([],['-f','docker-compose.build.yml']):
             base=compose+['-f','docker-compose.yml']+build
             old=json.loads(output(base+['config','--format','json'],env=env))

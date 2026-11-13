@@ -56,8 +56,9 @@ jobs:
           fixture_env=$(mktemp)
           trap 'rm -f "$fixture_env"' EXIT
           printf '%s\n' 'API_ID=12345' 'API_HASH=test-placeholder' > "$fixture_env"
+          python3 tools/image_inputs.py --inputs-file image-inputs.lock.json --build-env "$RUNNER_TEMP/.env.build"
           docker compose --env-file "$fixture_env" config --quiet
-          docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          docker compose --env-file "$fixture_env" --env-file "$RUNNER_TEMP/.env.build" -f docker-compose.yml -f docker-compose.build.yml config --quiet
           secret_root=$(mktemp -d)
           trap 'rm -f "$fixture_env" "$secret_root/id" "$secret_root/hash"; rmdir "$secret_root"' EXIT
           printf '%s' '12345' > "$secret_root/id"
@@ -65,4 +66,4 @@ jobs:
           chmod 600 "$secret_root/id" "$secret_root/hash"
           export TELEGRAM_API_ID_SECRET_PATH="$secret_root/id" TELEGRAM_API_HASH_SECRET_PATH="$secret_root/hash"
           docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.secrets.yml config --quiet
-          docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.secrets.yml config --quiet
+          docker compose --env-file "$fixture_env" --env-file "$RUNNER_TEMP/.env.build" -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.secrets.yml config --quiet

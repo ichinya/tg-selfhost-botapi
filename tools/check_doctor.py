@@ -138,7 +138,8 @@ class Harness:
     def run(self):
         self.command(["docker", "version", "--format", "{{.Server.Version}}"])
         cases = []
-        env_keys = ("DOCTOR_FIXTURE_IMAGE", "DOCTOR_PYTHON_IMAGE", "DOCTOR_NGINX_IMAGE", 'DOCTOR_OBSERVER_IMAGE')
+        env_keys = ("DOCTOR_FIXTURE_IMAGE", "DOCTOR_PYTHON_IMAGE", "DOCTOR_NGINX_IMAGE", 'DOCTOR_OBSERVER_IMAGE',
+                    'DOCTOR_APK_REFRESH_ID', 'DOCTOR_BUILD_FINGERPRINT')
         previous = {k: os.environ.get(k) for k in env_keys}
         signals = {}
         for signum in (signal.SIGINT, signal.SIGTERM):
@@ -149,6 +150,7 @@ class Harness:
                           "nginx": self.pin(os.environ.get("DOCTOR_NGINX_IMAGE", "nginx:1.28.0-alpine3.21"))}
             os.environ.update(DOCTOR_FIXTURE_IMAGE=self.project + ":synthetic", DOCTOR_PYTHON_IMAGE=self.bases["python"], DOCTOR_NGINX_IMAGE=self.bases["nginx"])
             os.environ['DOCTOR_OBSERVER_IMAGE'] = self.project + ':observer'
+            os.environ.update(DOCTOR_APK_REFRESH_ID='synthetic-doctor', DOCTOR_BUILD_FINGERPRINT='synthetic-doctor')
             self.stage = "fixture-build"
             self.command(self.compose + ["build", "botapi", 'observer'])
             self.built = True
