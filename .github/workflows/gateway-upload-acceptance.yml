@@ -47,8 +47,9 @@ jobs:
           API_ID: '12345'
           API_HASH: test-placeholder
         run: |
+          python3 tools/image_inputs.py --inputs-file image-inputs.lock.json --build-env "$RUNNER_TEMP/.env.build"
           docker compose config --quiet
-          docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          docker compose --env-file "$RUNNER_TEMP/.env.build" -f docker-compose.yml -f docker-compose.build.yml config --quiet
 
   transport:
     needs: offline

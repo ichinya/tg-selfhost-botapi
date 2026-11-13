@@ -436,7 +436,7 @@ pair is tested before publication. PRs never publish. `build-<key>` and
 only after gates and their promotion is not atomic.
 
 Run the isolated gate explicitly with `python3 tools/check_observability.py
---botapi-image botapi-candidate:check --observer-image observer-candidate:check`.
+--botapi-image botapi-candidate:check --observer-image observer-candidate:check --nginx-image nginx:alpine@sha256:<qualified-gateway-digest>`.
 It creates a random internal Docker network, uses synthetic inputs, tests mock
 privacy and actual root/manager/helper behavior, and removes its own containers.
 `python3 tools/check_stats_source.py <upstream-checkout>` checks the reviewed source

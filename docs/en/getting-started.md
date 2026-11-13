@@ -156,7 +156,9 @@ or mount privileges. This test does not prove an actual Telegram download.
 Before the first GHCR publication, build locally:
 
 ```sh
-python3 tools/image_inputs.py --build-env .env.build
+RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+python3 tools/image_inputs.py --capture-wrapper "$RUNNER_TEMP/source-inputs.json"
+python3 tools/image_inputs.py --inputs-file "$RUNNER_TEMP/source-inputs.json" --build-env .env.build
 docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
