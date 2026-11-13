@@ -126,6 +126,31 @@ class QualificationTest(unittest.TestCase):
 
 
 class NativeContractTest(unittest.TestCase):
+    def test_smoke_uses_internal_network_aliases_without_published_ports(self):
+        import json
+        from multiarch_qualify import smoke
+        calls = []
+
+        def fake_command(*args):
+            calls.append(args)
+            if args[:4] == ('docker', 'image', 'inspect', 'nginx:alpine'):
+                return json.dumps([{'Os': 'linux', 'Architecture': 'amd64', 'Id': 'nginx-id'}])
+            if args[:2] == ('docker', 'run'):
+                self.assertNotIn('--publish', args)
+            if args[:2] == ('docker', 'port'):
+                self.fail('Internal network has no published ports')
+            return ''
+
+        with patch('multiarch_qualify.command', side_effect=fake_command), patch('multiarch_qualify.subprocess.run'):
+            smoke('bot-image', 'amd64')
+        runs = [args for args in calls if args[:2] == ('docker', 'run')]
+        self.assertTrue(any('--network-alias' in args and 'gateway' in args for args in runs))
+        probes = [args for args in runs if 'botapi-sender:check' in args]
+        self.assertTrue(probes)
+        script = ' '.join(' '.join(args) for args in probes)
+        self.assertIn('botapi', script)
+        self.assertIn('gateway', script)
+
     def test_readiness_requires_exact_status_and_body(self):
         from multiarch_qualify import exact_no_bot
         body = b'{"ok":false,"error_code":404,"description":"Not Found"}'

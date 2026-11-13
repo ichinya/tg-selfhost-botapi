@@ -6,7 +6,7 @@ import uuid
 import shutil
 import copy
 import hashlib
-import http.client
+import inspect
 from datetime import datetime, timezone, timedelta
 import io
 import json
@@ -83,33 +83,33 @@ def smoke(image, architecture):
     try:
         command("docker", "network", "create", "--internal", network)
         command("docker", "run", "-d", "--name", bot, "--network", network, "--network-alias", "botapi",
-                "--publish", "127.0.0.1::8081", "--memory", "1g",
+                "--memory", "1g",
                 "--tmpfs", "/var/lib/telegram-bot-api", "--tmpfs", "/tmp/telegram-bot-api",
                 "-e", "TELEGRAM_API_ID=12345", "-e", "TELEGRAM_API_HASH=0123456789abcdef0123456789abcdef", image)
         config = str(Path(__file__).resolve().parents[1] / "nginx.conf")
-        command("docker", "run", "-d", "--name", gateway, "--network", network,
-                "--publish", "127.0.0.1::80", "--memory", "128m", "--mount",
+        command("docker", "run", "-d", "--name", gateway, "--network", network, "--network-alias", "gateway",
+                "--memory", "128m", "--mount",
                 f"type=bind,source={config},target=/etc/nginx/conf.d/default.conf,readonly", nginx["Id"])
         command("docker", "exec", gateway, "nginx", "-t")
-        for name, port in ((bot, "8081/tcp"), (gateway, "80/tcp")):
-            address = command("docker", "port", name, port).strip()
-            host, number = address.rsplit(":", 1)
-            if host != "127.0.0.1":
-                raise ValueError("Smoke port must be loopback")
-            for attempt in range(30):
-                connection = http.client.HTTPConnection(host, int(number), timeout=2)
-                try:
-                    connection.request("GET", "/")
-                    response = connection.getresponse()
-                    if exact_no_bot(response.status, response.read(65536)):
-                        break
-                except (OSError, http.client.HTTPException):
-                    pass
-                finally:
-                    connection.close()
-                time.sleep(1)
-            else:
-                raise ValueError("Exact no-bot HTTP response absent")
+        probe = "import http.client, json, time\n" + inspect.getsource(exact_no_bot) + '''
+for host, port in (("botapi", 8081), ("gateway", 80)):
+    for attempt in range(30):
+        connection = http.client.HTTPConnection(host, port, timeout=2)
+        try:
+            connection.request("GET", "/")
+            response = connection.getresponse()
+            if exact_no_bot(response.status, response.read(65536)):
+                break
+        except (OSError, http.client.HTTPException):
+            pass
+        finally:
+            connection.close()
+        time.sleep(1)
+    else:
+        raise ValueError("Exact no-bot HTTP response absent")
+'''
+        command("docker", "run", "--rm", "--network", network, "--entrypoint", "python3",
+                "botapi-sender:check", "-c", probe)
         command("docker", "exec", "--user", "telegram-bot-api", bot, "sh", "-ec",
                 'test "$(stat -c %u "$TELEGRAM_WORK_DIR")" = 101; '
                 'test "$(stat -c %u "$TELEGRAM_TEMP_DIR")" = 101; '
