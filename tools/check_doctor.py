@@ -171,17 +171,25 @@ class Harness:
                         path.write_text(json.dumps(override), encoding="utf-8")
                         files.append(str(path))
                         compose += ["-f", str(path)]
+                    self.stage = "case-" + name + "-compose-up"
                     self.command(compose + ["up", "-d", "--wait", "--wait-timeout", "30"])
+                    self.stage = "case-" + name + "-snapshot-before"
                     before = self.snapshot()
                     argv = ["-p", self.project]
                     for file in files:
                         argv += ["-f", file]
+                    self.stage = "case-" + name + "-doctor"
                     result, code = run_case(argv + common + list(extra))
+                    self.stage = "case-" + name + "-snapshot-after"
                     after = self.snapshot()
                     if before != after:
                         raise AssertionError("synthetic sentinel changed")
                     if expected is not None and code != expected:
+                        self.stage = "case-" + name + "-verdict"
                         reasons = [c["reason_code"] for c in result["checks"] if c["required"] and c["status"] != "PASS"]
+                        # These are internal reason identifiers, never raw diagnostics.
+                        if all(isinstance(r, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", r) for r in reasons):
+                            print("Synthetic case reason codes: " + ",".join(reasons), file=sys.stderr)
                         raise AssertionError(name + " unexpected result: " + ",".join(reasons))
                     cases.append({"name": name, "exit_code": code, "verdict": result["readiness"]["verdict"]})
                     return argv
@@ -252,6 +260,11 @@ if __name__ == "__main__":
     harness = Harness()
     try:
         print(json.dumps(harness.run(), indent=2))
-    except (Exception, KeyboardInterrupt):
-        print("Synthetic doctor integration failed at " + harness.stage, file=sys.stderr)
+    except (Exception, KeyboardInterrupt) as exc:
+        # Exception text and command output may contain private paths or values.
+        # Only report fixed failure categories here.
+        category = ("assertion" if isinstance(exc, AssertionError) else
+                    "command" if isinstance(exc, RunError) else
+                    "interrupted" if isinstance(exc, KeyboardInterrupt) else "unexpected")
+        print("Synthetic doctor integration failed at " + harness.stage + " (" + category + ")", file=sys.stderr)
         sys.exit(1)

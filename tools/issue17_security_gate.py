@@ -102,6 +102,9 @@ def entrypoint_gate():
     name='issue17-entrypoint-'+uuid.uuid4().hex[:12]
     with tempfile.TemporaryDirectory(prefix='issue17-entrypoint-') as directory:
         root=Path(directory)
+        # The container runs as UID 101: it must be able to traverse the bind
+        # mount itself, even though TemporaryDirectory defaults to mode 0700.
+        root.chmod(0o755)
         for name_part,value in (('id',CASES['markers']['api_id']),('hash',CASES['markers']['api_hash'])):
             (root/name_part).write_text(value);(root/name_part).chmod(0o644)
         binaries=root/'bin';binaries.mkdir()
