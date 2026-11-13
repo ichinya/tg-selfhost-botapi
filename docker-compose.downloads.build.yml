@@ -1,0 +1,8 @@
+services:
+  downloads:
+    build:
+      context: .
+      dockerfile: Dockerfile.downloads
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:?Generate .env.build from the snapshot}
+        BUILD_FINGERPRINT: ${DOWNLOADS_FINGERPRINT:?Generate .env.build from the snapshot}

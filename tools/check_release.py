@@ -37,6 +37,15 @@ def validate_compose_config(config, inputs, *, local=False, selected=None):
     for image in ([expected_gateway] if local else [expected_api, expected_gateway]):
         if not re.fullmatch(r'[^\s@]+@sha256:[a-f0-9]{64}', image):
             raise ValueError('Registry image references must be immutable')
+    if not local:
+        for name in ('observer', 'downloads'):
+            if name in services:
+                expected = selected.get(name + '_image')
+                service = services[name]
+                if (not isinstance(expected, str)
+                        or not re.fullmatch(r'[^\s@]+@sha256:[a-f0-9]{64}', expected)
+                        or not isinstance(service, dict) or service.get('image') != expected):
+                    raise ValueError('Effective Compose image references differ from the release')
     environment = api.get('environment', {})
     if not isinstance(environment, dict):
         raise ValueError('Effective Compose credentials mapping is missing')

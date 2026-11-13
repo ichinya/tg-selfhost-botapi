@@ -39,6 +39,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
+      - name: Resolve saved image inputs
+        run: |
+          python3 tools/image_inputs.py --inputs-file image-inputs.lock.json --build-env "$RUNNER_TEMP/.env.build"
+          cat "$RUNNER_TEMP/.env.build" >> "$GITHUB_ENV"
       - name: Build current candidate without publishing
         uses: docker/build-push-action@v7
         with:
@@ -48,7 +52,16 @@ jobs:
           tags: botapi-migration-candidate:check
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: BUILD_JOBS=2
+          build-args: |
+            BOT_API_REVISION=${{ env.BOT_API_REVISION }}
+            BOT_API_VERSION=${{ env.BOT_API_VERSION }}
+            ALPINE_IMAGE=${{ env.ALPINE_IMAGE }}
+            BUILD_FINGERPRINT=${{ env.BUILD_FINGERPRINT }}
+            BUILD_JOBS=${{ env.BUILD_JOBS }}
+            SUBMODULES=${{ env.SUBMODULES }}
+            TDLIB_REVISION=${{ env.TDLIB_REVISION }}
+            WRAPPER_REVISION=${{ env.WRAPPER_REVISION }}
+            APK_REFRESH_ID=${{ env.APK_REFRESH_ID }}
       - name: Require lifecycle, permissions and bounded cleanup
         run: |
           chmod +x tools/fixtures/migration/fake-bot-api.sh

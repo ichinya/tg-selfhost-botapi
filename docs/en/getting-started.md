@@ -30,8 +30,9 @@ docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-com
 ```
 
 For a local Bot API build insert `-f docker-compose.build.yml` immediately after
-the base file and use `up -d --build`. Build the downloads image separately with
-`docker build -f Dockerfile.downloads -t downloads-candidate:check .`; set
+the base file and use `up -d --build`. To build downloads from the saved inputs,
+add `-f docker-compose.downloads.build.yml` after `docker-compose.downloads.yml`
+and run `docker compose --env-file .env.build -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml -f docker-compose.downloads.build.yml build downloads`; set
 `DOWNLOADS_IMAGE` only to a candidate qualified by the file gate. API port is
 18080; downloads HTTP port is loopback 18082 behind the supplied TLS frontend.
 
