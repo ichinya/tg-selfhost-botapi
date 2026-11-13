@@ -103,13 +103,14 @@ def entrypoint_gate():
     with tempfile.TemporaryDirectory(prefix='issue17-entrypoint-') as directory:
         root=Path(directory)
         for name_part,value in (('id',CASES['markers']['api_id']),('hash',CASES['markers']['api_hash'])):
-            (root/name_part).write_text(value);(root/name_part).chmod(0o600)
-        binary=root/'telegram-bot-api'
-        binary.write_text('#!/bin/sh\nset -eu\n[ "$TELEGRAM_API_ID" = "$(cat /run/secrets/id)" ]\n[ "$TELEGRAM_API_HASH" = "$(cat /run/secrets/hash)" ]\n[ "$(ulimit -c)" = 0 ]\necho entrypoint_child_pass\n')
+            (root/name_part).write_text(value);(root/name_part).chmod(0o644)
+        binaries=root/'bin';binaries.mkdir()
+        binary=binaries/'telegram-bot-api'
+        binary.write_text('#!/bin/sh\nset -eu\n[ "$TELEGRAM_API_ID" = "$(cat /run/secrets/id)" ]\n[ "$TELEGRAM_API_HASH" = "$(cat /run/secrets/hash)" ]\n[ "$(ulimit -c)" = 0 ]\necho entrypoint_child_pass\n', newline='\n')
         binary.chmod(0o755)
-        (root/'chown').write_text('#!/bin/sh\nexit 0\n');(root/'chown').chmod(0o755)
-        args=['docker','create','--name',name,'--label','io.tg-selfhost.issue17=synthetic','--network','none',
-              '--ulimit','core=0','--mount',f'type=bind,src={root},dst=/privacy-bin,readonly',
+        (binaries/'chown').write_text('#!/bin/sh\nexit 0\n', newline='\n');(binaries/'chown').chmod(0o755)
+        args=['docker','create','--name',name,'--label','io.tg-selfhost.issue17=synthetic','--network','none','--user','101:101',
+              '--ulimit','core=0','--mount',f'type=bind,src={binaries},dst=/privacy-bin,readonly',
               '--mount',f'type=bind,src={ROOT/"docker-entrypoint.sh"},dst=/entrypoint,readonly',
               '--mount',f'type=bind,src={root},dst=/run/secrets,readonly','--entrypoint','/bin/sh',
               '-e','PATH=/privacy-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
@@ -147,8 +148,9 @@ def gateway_gate(compose):
     with tempfile.TemporaryDirectory(prefix=project) as directory:
         root=Path(directory);evidence=root/'evidence';evidence.mkdir()
         config=root/'gateway.conf'
-        config.write_text((ROOT/'nginx.conf').read_text().replace('proxy_http_version 1.1;',
-            'proxy_http_version 1.1; proxy_read_timeout 1s; proxy_connect_timeout 1s; client_max_body_size 1k;'))
+        config.write_text((ROOT/'nginx.conf').read_text().replace('client_max_body_size 1m;', 'client_max_body_size 1k;')
+            .replace('proxy_read_timeout 600s;', 'proxy_read_timeout 1s;')
+            .replace('proxy_read_timeout 30s;', 'proxy_read_timeout 1s;'))
         env=dict(os.environ,ISSUE17_ROOT=str(ROOT),ISSUE17_EVIDENCE=str(evidence),ISSUE17_GATEWAY_CONFIG=str(config))
         base=compose+['-p',project,'-f',str(ROOT/'tools/fixtures/issue17_security/compose.yml')]
         started=False
