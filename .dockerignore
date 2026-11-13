@@ -1,6 +1,7 @@
 *
 !Dockerfile
 !Dockerfile.downloads
+!docker-compose.downloads.build.yml
 !docker-entrypoint.sh
 !patches/
 patches/*

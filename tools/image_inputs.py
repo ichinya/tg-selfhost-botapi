@@ -29,6 +29,7 @@ QUALIFICATION_RECIPE = ('tools/check_release.py', 'tools/qualify_release.py',
     'tools/smoke_image.py', 'tools/webhook_probe.py', 'tools/check_apk_refresh.py',
     'tools/release_contract.py', 'tools/release.schema.json',
     'nginx.conf', 'nginx-main.conf', 'docker-compose.yml', 'docker-compose.downloads.yml',
+    'docker-compose.downloads.build.yml',
     '.github/workflows/image.yml')
 
 
