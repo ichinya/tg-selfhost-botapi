@@ -3,7 +3,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import unittest
 from doctor import parser
-from doctor_checks import settings_checks, runtime_identity
+from doctor_checks import settings_checks, runtime_identity, changed_identity_components
 from doctor_runtime import compose_argv, Installation
 import contextlib
 import io
@@ -70,6 +70,11 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(runtime_identity({field: first}), runtime_identity({field: reordered}))
             self.assertNotEqual(runtime_identity({field: first}), runtime_identity({field: changed}))
 
+    def test_identity_component_diagnostics_do_not_include_values(self):
+        before = {"Config": {"Env": ["SECRET=old"]}, "State": {"Pid": 1}}
+        after = {"Config": {"Env": ["SECRET=new"]}, "State": {"Pid": 2}}
+        self.assertEqual(["pid", "config"], changed_identity_components(before, after))
+
     def test_snapshot_diagnostics_identify_the_changed_source(self):
         import hashlib
         from doctor_mock import StackRunner
@@ -92,6 +97,8 @@ class ConfigTests(unittest.TestCase):
                 expected = {"compose": "compose_snapshot", "identity": "gateway.identity_snapshot", "nginx": "gateway.config_snapshot"}[changed]
                 for name in ("compose_snapshot", "gateway.identity_snapshot", "gateway.config_snapshot"):
                     self.assertEqual("unknown" if name == expected else "pass", findings["target." + name]["status"])
+                components = [name for name in findings if ".identity_component." in name]
+                self.assertEqual(["target.gateway.identity_component.pid"] if changed == "identity" else [], components)
 
     def test_unexpected_runtime_configuration_and_label_selection(self):
         from doctor_mock import StackRunner
