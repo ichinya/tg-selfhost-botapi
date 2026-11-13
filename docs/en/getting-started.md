@@ -13,7 +13,9 @@ see [configuration](configuration.md) and the
 Do not append an absolute getFile path to an HTTP URL. Missing bot directories
 must fail closed; never fix a missing mount by exposing the whole private cache.
 
-For file-enabled installations, keep the same ordered files on every command:
+For deployment, set the qualified image refs from the release receipt in `.env`
+before running these commands, including `GATEWAY_IMAGE`. For file-enabled
+installations, keep the same ordered files on every command:
 
 ```sh
 # Prepare BOTAPI_STATE_SOURCE, BOTAPI_TEMP_SOURCE and BOTAPI_MEDIA_SOURCE

@@ -11,7 +11,9 @@ translation: /docs/en/getting-started.html
 Не добавляйте абсолютный getFile-путь к HTTP URL. Отсутствующая bot subtree —
 ошибка; не устраняйте её монтированием всего private cache.
 
-Во всех командах file-enabled установки сохраняйте порядок Compose-файлов:
+Перед запуском задайте в `.env` проверенные refs образов из release receipt,
+включая `GATEWAY_IMAGE`. Во всех командах file-enabled установки сохраняйте
+порядок Compose-файлов:
 
 ```sh
 # Подготовьте BOTAPI_STATE_SOURCE, BOTAPI_TEMP_SOURCE и BOTAPI_MEDIA_SOURCE

@@ -141,15 +141,23 @@ override requires the non-root overlay and a prepared `BOTAPI_MEDIA_SOURCE`.
 | `API_ID` | Required application API ID |
 | `API_HASH` | Required application API hash |
 | `GATEWAY_BIND` | Gateway host address; defaults to `127.0.0.1` |
-| `BOTAPI_IMAGE` | Optional image tag or digest; defaults to `ghcr.io/ichinya/tg-selfhost-botapi:latest` |
+| `BOTAPI_IMAGE` | Local tag fallback for config; use a qualified immutable ref for deployment |
+| `OBSERVER_IMAGE` | Local tag fallback for config; use a qualified immutable ref for deployment |
+| `GATEWAY_IMAGE` | Local tag fallback for config; use a qualified immutable ref for deployment |
+
+Use refs from a qualified release receipt for deployment. Generated `.env.build`
+supplies local build inputs. Without refs, base `up` fails pulling the gateway
+fallback when that local image is absent.
 
 For a tested build, set:
 
 ```text
-BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
+BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi@sha256:<qualified-botapi-digest>
+OBSERVER_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi-observer@sha256:<qualified-observer-digest>
+GATEWAY_IMAGE=nginx@sha256:<qualified-gateway-digest>
 ```
 
-An image digest can be used instead. The local build override uses
+The local build override uses
 `tg-selfhost-botapi:local`, independently of `BOTAPI_IMAGE`.
 
 ## Migration helper environment

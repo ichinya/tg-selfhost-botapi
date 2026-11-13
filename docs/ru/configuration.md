@@ -145,15 +145,23 @@ non-root override и подготовленный `BOTAPI_MEDIA_SOURCE`.
 | `API_ID` | Обязательный API ID приложения |
 | `API_HASH` | Обязательный API hash приложения |
 | `GATEWAY_BIND` | Адрес gateway на хосте; по умолчанию `127.0.0.1` |
-| `BOTAPI_IMAGE` | Необязательный тег или digest; по умолчанию `ghcr.io/ichinya/tg-selfhost-botapi:latest` |
+| `BOTAPI_IMAGE` | Локальный тег по умолчанию для config; для развёртывания нужен проверенный immutable ref |
+| `OBSERVER_IMAGE` | Локальный тег по умолчанию для config; для развёртывания нужен проверенный immutable ref |
+| `GATEWAY_IMAGE` | Локальный тег по умолчанию для config; для развёртывания нужен проверенный immutable ref |
+
+Для развёртывания используйте refs из проверенного release receipt. Созданный
+`.env.build` содержит входы локальной сборки. Без refs базовый `up` завершится
+ошибкой загрузки gateway, если локального образа с резервным тегом нет.
 
 Для проверенной сборки:
 
 ```text
-BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
+BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi@sha256:<qualified-botapi-digest>
+OBSERVER_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi-observer@sha256:<qualified-observer-digest>
+GATEWAY_IMAGE=nginx@sha256:<qualified-gateway-digest>
 ```
 
-Вместо тега можно указать digest. Локальный build override использует образ
+Локальный build override использует образ
 `tg-selfhost-botapi:local` независимо от `BOTAPI_IMAGE`.
 
 ## Окружение помощника миграции

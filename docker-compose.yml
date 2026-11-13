@@ -1,6 +1,6 @@
 services:
   botapi:
-    image: ${BOTAPI_IMAGE:-ghcr.io/ichinya/tg-selfhost-botapi:latest}
+    image: ${BOTAPI_IMAGE:-tg-selfhost-botapi:local}
     container_name: tg_botapi
     restart: always
     stop_grace_period: 120s
@@ -21,7 +21,7 @@ services:
       retries: 3
 
   observer:
-    image: ${OBSERVER_IMAGE:-ghcr.io/ichinya/tg-selfhost-botapi:observer-latest}
+    image: ${OBSERVER_IMAGE:-tg-selfhost-botapi-observer:local}
     restart: always
     network_mode: service:botapi
     user: "101:101"
@@ -55,7 +55,7 @@ services:
       retries: 3
 
   gateway:
-    image: nginx:alpine
+    image: ${GATEWAY_IMAGE:-tg-selfhost-gateway:local}
     container_name: tg_gateway
     restart: always
     ports:
