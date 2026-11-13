@@ -119,11 +119,22 @@ def settings_checks(env, prefix="target", explicit=False, defaults_known=True):
     return findings
 
 
+IDENTITY_COMPONENTS = ("id", "image", "pid", "started_at", "running", "restart_count",
+                       "health_status", "restarting", "paused", "dead", "config",
+                       "host_config", "mounts", "network_settings")
+
+
 def runtime_identity(container):
     state = container.get("State", {})
     return (container.get("Id"), container.get("Image"), state.get("Pid"), state.get("StartedAt"), state.get("Running"),
             container.get("RestartCount"), state.get("Health", {}).get("Status"), state.get("Restarting"), state.get("Paused"), state.get("Dead"), container.get("Config"),
             container.get("HostConfig"), container.get("Mounts"), container.get("NetworkSettings"))
+
+
+def changed_identity_components(before, after):
+    """Return fixed field names only; inspect values can contain secrets."""
+    return [name for name, old, new in zip(IDENTITY_COMPONENTS, runtime_identity(before), runtime_identity(after))
+            if old != new]
 
 
 def container_state(container):

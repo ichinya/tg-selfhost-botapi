@@ -488,7 +488,7 @@ class Installation:
             self.add("fixed_names", "unknown", "fixed_container_name", "Fixed names may conflict with another stack.", required=False, severity="warning")
 
     def unchanged(self):
-        from doctor_checks import runtime_identity
+        from doctor_checks import changed_identity_components
         same_model = True
         snapshots = []
         if self.containers:
@@ -496,8 +496,12 @@ class Installation:
             snapshots.append(("compose_snapshot", same_model, "Effective Compose model was checked again at the end.", True))
         for service, container in self.containers.items():
             current = self.json(["docker", "inspect", container["Id"]])[0]
-            same_identity = runtime_identity(current) == runtime_identity(container)
+            changed_components = changed_identity_components(container, current)
+            same_identity = not changed_components
             snapshots.append((service + ".identity_snapshot", same_identity, "Container identity was compared with the initial snapshot.", service in {"botapi", "gateway"}))
+            for component in changed_components:
+                snapshots.append((service + ".identity_component." + component, False,
+                                  "This identity component changed; values are withheld.", service in {"botapi", "gateway"}))
             same = same_model and same_identity
             if service == "gateway" and self.nginx_snapshot is not None:
                 raw = self.exec("gateway", "sh", "-c", "nginx -T 2>/dev/null")
