@@ -63,6 +63,35 @@ class ConfigTests(unittest.TestCase):
         self.assertNotEqual(runtime_identity({"RestartCount": 1}), runtime_identity({"RestartCount": 2}))
         self.assertEqual(runtime_identity({"State": {"Health": {"Status": "healthy", "Log": [1]}}}),
                          runtime_identity({"State": {"Health": {"Status": "healthy", "Log": [2]}}}))
+        for field in ("Config", "HostConfig", "Mounts", "NetworkSettings"):
+            first = {"outer": {"a": 1, "b": 2}}
+            reordered = {"outer": {"b": 2, "a": 1}}
+            changed = {"outer": {"a": 1, "b": 3}}
+            self.assertEqual(runtime_identity({field: first}), runtime_identity({field: reordered}))
+            self.assertNotEqual(runtime_identity({field: first}), runtime_identity({field: changed}))
+
+    def test_snapshot_diagnostics_identify_the_changed_source(self):
+        import hashlib
+        from doctor_mock import StackRunner
+        for changed in ("compose", "identity", "nginx"):
+            with self.subTest(changed=changed):
+                runner = StackRunner()
+                obj = Installation(parser().parse_args(["--scenario", "official-to-self"]), runner, None, [], [])
+                obj.config = json.loads(json.dumps(runner.model))
+                obj.containers = {"gateway": json.loads(json.dumps(runner.containers[1]))}
+                obj.nginx_snapshot = hashlib.sha256(b"initial nginx" if changed == "nginx" else
+                    runner.run(["docker", "exec", "gateway", "sh", "-c", "nginx -T"])[1]).digest()
+                obj.add("earlier", "pass", "consistent", "Collected evidence.")
+                if changed == "compose":
+                    runner.model["name"] = "other-project"
+                elif changed == "identity":
+                    runner.containers[1]["State"]["Pid"] += 1
+                obj.unchanged()
+                findings = {c["id"]: c for c in obj.checks}
+                self.assertEqual("runtime_changed", findings["target.earlier"]["reason_code"])
+                expected = {"compose": "compose_snapshot", "identity": "gateway.identity_snapshot", "nginx": "gateway.config_snapshot"}[changed]
+                for name in ("compose_snapshot", "gateway.identity_snapshot", "gateway.config_snapshot"):
+                    self.assertEqual("unknown" if name == expected else "pass", findings["target." + name]["status"])
 
     def test_unexpected_runtime_configuration_and_label_selection(self):
         from doctor_mock import StackRunner
