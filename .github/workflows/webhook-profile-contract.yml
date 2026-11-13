@@ -40,7 +40,7 @@ jobs:
           python-version: '3.13'
       - name: Explicit pinned source fetch and tracked header patch
         run: |
-          revision=$(sed -n 's/^ARG BOT_API_REVISION=//p' Dockerfile | head -1)
+          revision=$(python3 -c "import json;print(json.load(open('image-inputs.lock.json'))['inputs']['bot_api_revision'])")
           test "${#revision}" -eq 40
           git init /tmp/profile-sender
           git -C /tmp/profile-sender remote add origin https://github.com/tdlib/telegram-bot-api.git

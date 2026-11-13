@@ -7,7 +7,7 @@ import subprocess
 
 
 def check(source, root):
-    expected = re.search(r"ARG BOT_API_REVISION=([0-9a-f]{40})", (root / "Dockerfile").read_text())[1]
+    expected = json.loads((root / "image-inputs.lock.json").read_text())["inputs"]["bot_api_revision"]
     actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
     if actual != expected:
         raise ValueError("Source revision differs from pinned BOT_API_REVISION")
