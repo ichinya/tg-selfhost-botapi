@@ -9,6 +9,7 @@ services:
   gateway:
     image: ${FILE_NGINX_IMAGE:?Pinned fixture nginx image required}
     volumes:
+      - ${FIXTURE_NGINX_MAIN}:/etc/nginx/nginx.conf:ro
       - ${FIXTURE_NGINX}:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - botapi

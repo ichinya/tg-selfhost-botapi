@@ -77,6 +77,11 @@ jobs:
         run: |
           image="ghcr.io/${REPOSITORY,,}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
+          # Pull requests always build their own candidates and never publish.
+          # Private or nonexistent GHCR packages can deny anonymous token requests.
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            exit 0
+          fi
           digest="$(python3 tools/check_release.py --lookup "$image:build-$BUILD_FINGERPRINT")"
           if [ "$digest" = NOT_FOUND ]; then
             echo 'exists=false' >> "$GITHUB_OUTPUT"
