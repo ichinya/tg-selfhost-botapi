@@ -122,8 +122,8 @@ def settings_checks(env, prefix="target", explicit=False, defaults_known=True):
 def runtime_identity(container):
     state = container.get("State", {})
     return (container.get("Id"), container.get("Image"), state.get("Pid"), state.get("StartedAt"), state.get("Running"),
-            container.get("RestartCount"), state.get("Health", {}).get("Status"), state.get("Restarting"), state.get("Paused"), state.get("Dead"), repr(container.get("Config")),
-            repr(container.get("HostConfig")), repr(container.get("Mounts")), repr(container.get("NetworkSettings")))
+            container.get("RestartCount"), state.get("Health", {}).get("Status"), state.get("Restarting"), state.get("Paused"), state.get("Dead"), container.get("Config"),
+            container.get("HostConfig"), container.get("Mounts"), container.get("NetworkSettings"))
 
 
 def container_state(container):

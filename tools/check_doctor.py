@@ -190,6 +190,9 @@ class Harness:
                         # These are internal reason identifiers, never raw diagnostics.
                         if all(isinstance(r, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", r) for r in reasons):
                             print("Synthetic case reason codes: " + ",".join(reasons), file=sys.stderr)
+                        snapshots = [c["check_id"] for c in result["checks"] if c["status"] != "PASS" and c["check_id"].endswith((".identity_snapshot", ".config_snapshot", ".compose_snapshot"))]
+                        if all(isinstance(i, str) and re.fullmatch(r"[a-z][a-z0-9_.]{0,127}", i) for i in snapshots):
+                            print("Changed snapshot checks: " + (",".join(snapshots) or "none"), file=sys.stderr)
                         raise AssertionError(name + " unexpected result: " + ",".join(reasons))
                     cases.append({"name": name, "exit_code": code, "verdict": result["readiness"]["verdict"]})
                     return argv

@@ -490,20 +490,27 @@ class Installation:
     def unchanged(self):
         from doctor_checks import runtime_identity
         same_model = True
+        snapshots = []
         if self.containers:
             same_model = self.json(self.compose + ["config", "--format", "json"]) == self.config
-            self.add("compose_snapshot", "pass" if same_model else "unknown", "consistent" if same_model else "runtime_changed", "Effective Compose model was checked again at the end.")
+            snapshots.append(("compose_snapshot", same_model, "Effective Compose model was checked again at the end.", True))
         for service, container in self.containers.items():
             current = self.json(["docker", "inspect", container["Id"]])[0]
-            same = same_model and runtime_identity(current) == runtime_identity(container)
+            same_identity = runtime_identity(current) == runtime_identity(container)
+            snapshots.append((service + ".identity_snapshot", same_identity, "Container identity was compared with the initial snapshot.", service in {"botapi", "gateway"}))
+            same = same_model and same_identity
             if service == "gateway" and self.nginx_snapshot is not None:
                 raw = self.exec("gateway", "sh", "-c", "nginx -T 2>/dev/null")
-                same = same and hashlib.sha256(raw).digest() == self.nginx_snapshot
+                same_nginx = hashlib.sha256(raw).digest() == self.nginx_snapshot
+                snapshots.append(("gateway.config_snapshot", same_nginx, "Effective gateway configuration was compared with the initial snapshot.", True))
+                same = same and same_nginx
             if not same:
                 for finding in self.checks:
                     if finding["id"].startswith(self.role + ".") and finding["status"] == "pass":
                         finding.update(status="unknown", reason_code="runtime_changed", message="Runtime changed after this evidence was collected.")
             self.add(service + ".snapshot", "pass" if same else "unknown", "consistent" if same else "runtime_changed", "Container identity was checked again at the end.", required=service in {"botapi", "gateway"})
+        for name, same, message, required in snapshots:
+            self.add(name, "pass" if same else "unknown", "consistent" if same else "runtime_changed", message, required=required)
 
     def exec(self, service, program, *args, user=None):
         container = self.containers[service]
