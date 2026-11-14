@@ -382,3 +382,6 @@ Container inputs `TELEGRAM_VERBOSITY`, `TELEGRAM_WORK_DIR` and `TELEGRAM_TEMP_DI
 
 ### Upload acceptance boundary
 The gateway retains 2048m for the entire request body, including multipart overhead; this is not a promise of a 2048 MiB Telegram file. Upload connect/send/read/idle values remain 5s/300s/600s/300s. Four admitted bodies need at least 8 GiB plus reserve on dedicated spool storage. Listener 82 is trusted internal transport. Run existing quick/full/slow/storage profiles; mock transport receipts and real Telegram upload receipts are separate. Upstream retries are disabled.
+
+### Two file access contracts
+Keep both per-bot read-only shared media and authenticated `POST /v1/files/download` for remote clients. The remote request contains file_id; the handler resolves getFile for its configured bot after checking its independent credential. It accepts no client pathname. State, temp and secrets are never media. Use existing `examples/files` and exact-pair `tools/check_file_contract.py` acceptance. Linux openat2 FD confinement is mandatory; unsupported platforms fail closed. Do not expose the old token-in-URL /file alias.

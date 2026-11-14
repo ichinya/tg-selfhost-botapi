@@ -386,3 +386,6 @@ Overlay non-root и files читают `BOTAPI_UID`, `BOTAPI_GID`, `BOTAPI_STATE
 
 ### Граница приёмки загрузок
 Gateway сохраняет 2048m на всё тело запроса, включая multipart overhead; это не обещание файла Telegram размером 2048 МиБ. Connect/send/read/idle для uploads остаются 5s/300s/600s/300s. Четыре тела требуют минимум 8 ГиБ и запас на отдельном spool. Listener 82 — доверенный внутренний транспорт. Используйте существующие quick/full/slow/storage profiles; mock transport и реальная загрузка Telegram учитываются отдельно. Повтор upstream-запроса отключён.
+
+### Два контракта доступа к файлам
+Поддерживаются per-bot read-only media и авторизованный `POST /v1/files/download` для удалённого клиента. Запрос содержит file_id; handler после проверки независимого credential вызывает getFile закреплённого бота. Pathname от клиента не принимается. State, temp и secrets не являются media. Используйте существующие `examples/files` и exact-pair проверку `tools/check_file_contract.py`. Обязателен Linux openat2 FD confinement; неподдерживаемая платформа отказывает. Старый /file alias с токеном в URL публиковать нельзя.
