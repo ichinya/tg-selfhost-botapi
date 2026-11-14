@@ -1,4 +1,4 @@
-"""Linux/amd64 FD-only file access. No realpath/open fallback is permitted."""
+"""Linux amd64/arm64 FD-only file access. No realpath/open fallback is permitted."""
 import ctypes
 import errno
 import os
@@ -42,8 +42,8 @@ NO_XDEV, NO_MAGICLINKS, NO_SYMLINKS, BENEATH = 0x01, 0x02, 0x04, 0x08
 
 
 def openat2(directory, path, flags, resolve):
-    if platform.system() != 'Linux' or platform.machine().lower() not in ('x86_64', 'amd64'):
-        raise UnsupportedPlatform('Linux/amd64 with openat2 is required')
+    if platform.system() != 'Linux' or platform.machine().lower() not in ('x86_64', 'amd64', 'aarch64', 'arm64'):
+        raise UnsupportedPlatform('Linux amd64/arm64 with openat2 is required')
     libc = ctypes.CDLL(None, use_errno=True)
     libc.syscall.restype = ctypes.c_long
     how = OpenHow(flags, 0, resolve)
@@ -63,8 +63,8 @@ class Root:
         self.path = absolute_path(path)
         self.fd = -1
         self.forbidden_inodes = frozenset(forbidden_inodes)
-        if platform.system() != 'Linux' or platform.machine().lower() not in ('x86_64', 'amd64'):
-            raise UnsupportedPlatform('Linux/amd64 with openat2 is required')
+        if platform.system() != 'Linux' or platform.machine().lower() not in ('x86_64', 'amd64', 'aarch64', 'arm64'):
+            raise UnsupportedPlatform('Linux amd64/arm64 with openat2 is required')
         anchor = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
             # The root itself can be a bind mount; its ancestors may not be symlinks.

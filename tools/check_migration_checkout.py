@@ -4,7 +4,7 @@ import subprocess
 import sys
 from check_migration_safety import PATTERNS
 
-REQUIRED = ['tools/migration_executor.sh','tools/migration_executor.html','migrate_off_to_self.sh','tg_selfhost_botapi_migrator.html','assets/js/migration-client.mjs',
+REQUIRED = ['tools/migration_adapter.sh','tools/migration_entry.html','tools/migration_compose_provider.py','tools/migration_executor.sh','tools/migration_executor.html','migrate_off_to_self.sh','tg_selfhost_botapi_migrator.html','assets/js/migration-client.mjs',
             'nginx-main.conf','docker-compose.secrets.yml','patches/botapi-secrets-redaction.patch',
             'tools/issue17_security_gate.py','tools/issue17_security_checks.py',
             'tools/test_issue17_security_browser.cjs','tools/test_issue17_security_shell.cjs',
@@ -27,6 +27,10 @@ REQUIRED = ['tools/migration_executor.sh','tools/migration_executor.html','migra
 
 def main():
     root=Path(__file__).resolve().parents[1]
+    top=subprocess.run(['git','rev-parse','--show-toplevel'],cwd=root,capture_output=True,check=True).stdout.decode().strip()
+    if Path(top).resolve()!=root:
+        print('Candidate must be its own committed checkout',file=sys.stderr)
+        return 1
     tracked=subprocess.run(['git','ls-files','-z'],cwd=root,capture_output=True,check=True).stdout.decode().split('\0')
     missing=sorted(set(REQUIRED)-set(tracked))
     if missing:

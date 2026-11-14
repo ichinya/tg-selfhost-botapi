@@ -379,3 +379,12 @@ Non-root and files overlays read `BOTAPI_UID`, `BOTAPI_GID`, `BOTAPI_STATE_SOURC
 Migration helpers have their own process environment: `SELF_BOT_URL`, `WEBHOOK_URL`, `DROP_PENDING_UPDATES`, `WEBHOOK_SECRET_MODE`, `WEBHOOK_SECRET_TOKEN_FILE`, `WEBHOOK_IP_MODE`, `WEBHOOK_ALLOWED_UPDATES`, `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL`, `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE`, `BOT_TOKEN_FILE`, `MIGRATION_CONNECT_TIMEOUT`, `MIGRATION_REQUEST_DEADLINE`, `MIGRATION_STATUS_DIR` and `MIGRATION_STATUS_ALIAS`. Make the pending-update decision explicitly; see [migration](migration.md).
 
 Container inputs `TELEGRAM_VERBOSITY`, `TELEGRAM_WORK_DIR` and `TELEGRAM_TEMP_DIR` require an explicit container environment override: adding them to `.env` alone does not pass them through. `TELEGRAM_FILES_DIR` and `TELEGRAM_LOG_FILE` are set by the files overlay. Keep state, temporary and media roots separate.
+
+### Upload acceptance boundary
+The gateway retains 2048m for the entire request body, including multipart overhead; this is not a promise of a 2048 MiB Telegram file. Upload connect/send/read/idle values remain 5s/300s/600s/300s. Four admitted bodies need at least 8 GiB plus reserve on dedicated spool storage. Listener 82 is trusted internal transport. Run existing quick/full/slow/storage profiles; mock transport receipts and real Telegram upload receipts are separate. Upstream retries are disabled.
+
+### Two file access contracts
+Keep both per-bot read-only shared media and authenticated `POST /v1/files/download` for remote clients. The remote request contains file_id; the handler resolves getFile for its configured bot after checking its independent credential. It accepts no client pathname. State, temp and secrets are never media. Use existing `examples/files` and exact-pair `tools/check_file_contract.py` acceptance. Linux openat2 FD confinement is mandatory; unsupported platforms fail closed. Do not expose the old token-in-URL /file alias.
+
+### Internal port
+The bundled Compose stack uses fixed internal API port 8081. TELEGRAM_HTTP_PORT remains an entrypoint/binary option for custom deployments; it does not automatically reconfigure nginx or downloads. External bind changes need a network/TLS access policy.

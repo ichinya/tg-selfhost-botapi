@@ -400,6 +400,8 @@ class Installation:
             status, reason = container_state(container)
             self.add(service + ".running", status, reason, "Selected service process state.", required=required)
             self.image_data[service] = self.json(["docker", "image", "inspect", container["Image"]])[0]
+            from doctor_checks import qualification_metadata_checks
+            self.checks.extend(qualification_metadata_checks(self.image_data[service],self.role+'.'+service,apk=service in {'botapi','observer'}))
             desired = services[service]
             actual = container.get("Config", {})
             actual_env = environment(actual.get("Env"))

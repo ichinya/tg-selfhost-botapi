@@ -52,8 +52,8 @@ def report(scenario, checks, *, error=False, clock=None):
             "migration": {"verdict": verdict_for([c for c in checks if c["id"].startswith("migration.")]),
                           "pending_actions": pending_actions(scenario), "unverified_session_facts": ["bot_authorization", "session_restrictions", "queue_preservation", "delivery_result"],
             "executor_support": {"manual": "unsupported" if scenario == "hook-only" else "unknown" if scenario is None else "documented_procedure",
-                                 "helpers": "not_certified", "bash": "cloud_to_local_only; token-bearing preflight; issues #2/#7/#9",
-                                 "browser": "separate tool; issues #6/#8"}},
+                                 "helpers": "runtime_acceptance_required", "bash": "canonical_python_adapter; four_directions; signed_checkpoints_required",
+                                 "browser": "static_entry; same_origin_loopback_helper"}},
             "readiness": {"verdict": verdict, "blockers": failed, "unknowns": unknown,
                           "limits": ["Migration execution, bot authorization, queue retention and delivery are not verified.",
                                      "Evidence is a snapshot of the selected stack; opaque external proxies require separate verification."]},
@@ -312,6 +312,9 @@ def nginx_routes(tree):
                     unknown = True
                 else:
                     roots.append(args[0])
+            elif name == 'proxy_next_upstream':
+                unknown |= args != ['off'] or bool(children)
+                continue
             elif name == 'set':
                 if len(args) != 2 or not ((args[0] == '$botapi_upstream' and re.fullmatch(r'http://botapi:[0-9]+', args[1])) or args == ['$observer_upstream', 'http://botapi:8090']):
                     unknown = True
@@ -561,3 +564,24 @@ def migration_checks(scenario, data):
             for field in ("dedicated_source", "target_empty_prepared"):
                 add("transfer." + field, transfer.get(field))
     return result
+
+
+def qualification_metadata_checks(image, prefix, *, apk=False):
+    """Safe metadata checks; labels alone never qualify native runtime or packages."""
+    labels=(image.get('Config') or {}).get('Labels') or {}
+    architecture=image.get('Architecture')
+    findings=[check(prefix+'.native_runtime','unknown','native_receipt_required',
+                    'Image architecture metadata does not attest native runtime or openat2 confinement.',
+                    required=False,severity='warning')]
+    if architecture is not None and (image.get('Os')!='linux' or architecture not in ('amd64','arm64')):
+        findings.append(check(prefix+'.platform','fail','unsupported_platform','Only qualified Linux amd64/arm64 candidates are supported.'))
+    revision=labels.get('org.opencontainers.image.revision')
+    valid=isinstance(revision,str) and bool(re.fullmatch('[0-9a-f]{40}',revision))
+    findings.append(check(prefix+'.wrapper_revision','pass' if valid else 'unknown','revision_present' if valid else 'revision_unverified',
+                          'Wrapper revision metadata inspected; the actual image ID remains authoritative.',required=False,severity='warning'))
+    if apk:
+        refresh=labels.get('io.tg-selfhost.apk-refresh')
+        valid=isinstance(refresh,str) and bool(re.fullmatch(r'v[1-9][0-9]*-[0-9]{4}-[0-9]{2}-[0-9]{2}-g[0-9]+',refresh))
+        findings.append(check(prefix+'.apk_generation','pass' if valid else 'unknown','refresh_present' if valid else 'refresh_unverified',
+                              'APK generation metadata inspected; inventory and freshness require exact-image receipts.',required=False,severity='warning'))
+    return findings

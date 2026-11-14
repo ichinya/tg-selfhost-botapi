@@ -25,8 +25,8 @@ class PathTests(unittest.TestCase):
             with self.assertRaises(access.UnsupportedPlatform): read_private_file('/secret/token')
 
 
-@unittest.skipUnless(platform.system() == 'Linux' and platform.machine() == 'x86_64',
-                     'requires the mandatory Linux/amd64 gate')
+@unittest.skipUnless(platform.system() == 'Linux' and platform.machine().lower() in ('x86_64','amd64','aarch64','arm64'),
+                     'requires the mandatory Linux amd64/arm64 gate')
 class KernelTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('FILE_ACCESS_BIND_TEST'), 'requires a file bind mount fixture')
     def test_private_secret_file_bind_mount(self):

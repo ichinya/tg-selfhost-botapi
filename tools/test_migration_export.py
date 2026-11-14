@@ -29,7 +29,7 @@ class ExportTests(unittest.TestCase):
     def test_invalid_operation_identifiers_never_create_commands(self):
         plan=build_plan(operation_id='op',bot_id='123',source='https://api.telegram.org',target='https://target.example',
                         token='123:secret_canary',profile={'mode':'polling'},action='polling',drop=False,key=b'x'*32)
-        for operation in ('', 'op\nnext', '$(touch marker)', '`touch marker`', 'op\x00tail', 'λ'):
+        for operation in ('', 'op\nnext', '$(touch marker)', '`touch marker`', 'op\x00tail', '--flag', 'op;touch marker', "op'quote", 'λ'):
             invalid={**plan, 'operation_id':operation}
             with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, '^invalid identifier$'):
                 export_operation({'plan':invalid,'digest':plan_digest(invalid)})

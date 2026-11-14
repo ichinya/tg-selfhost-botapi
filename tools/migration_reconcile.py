@@ -164,6 +164,8 @@ class TrustedReceipts:
                         token_fingerprint=state['plan']['token_fingerprint'])
         if not isinstance(value,dict) or any(value.get(k) != v for k,v in required.items()):
             raise ValueError('provider receipt binding mismatch')
+        if 'target_deployment' in value and value['target_deployment'] != state.get('deployment'):
+            raise ValueError('provider deployment binding mismatch')
         observed = value.get('observed_at')
         if type(observed) not in (int,float) or not 0 <= time.time()-observed <= 300:
             raise ValueError('provider receipt is not fresh')

@@ -1,17 +1,13 @@
-"""Check the replacement adapter syntax."""
 from pathlib import Path
-import subprocess
-import shutil
-import unittest
-from issue10_test_support import bash_binary
-
-class ExampleTests(unittest.TestCase):
+import os, subprocess, unittest
+class AdapterTests(unittest.TestCase):
+    def test_regeneration_uses_only_canonical_adapter(self):
+        root=Path(__file__).resolve().parents[1]
+        subprocess.run(['node','tools/embed_webhook_profile.cjs','--check'],cwd=root,check=True)
+        text=(root/'migrate_off_to_self.sh').read_text()
+        self.assertIn('tools/migration_executor.sh',text); self.assertNotIn('wp_migration_main',text)
+    @unittest.skipUnless(os.name=='posix','POSIX shell syntax gate')
     def test_bash_adapter_syntax(self):
-        root = Path(__file__).resolve().parents[1]
-        result = subprocess.run([bash_binary(), '-n', str(root / 'migrate_off_to_self.sh')], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_standalone_bash_harness(self):
-        root = Path(__file__).resolve().parents[1]
-        result = subprocess.run([shutil.which('node') or 'node', str(root / 'tools/test_issue10_bash.cjs')], cwd=root, capture_output=True, text=True, timeout=120)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        root=Path(__file__).resolve().parents[1]
+        for path in ('migrate_off_to_self.sh','tools/migration_executor.sh','tools/migration_adapter.sh'):
+            subprocess.run(['bash','-n',str(root/path)],check=True)

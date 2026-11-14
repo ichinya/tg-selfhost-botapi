@@ -106,13 +106,15 @@ def validate_profile(profile, action):
                 or profile['mode'] not in ('url_only', 'full') or not isinstance(profile['url'], str)
                 or profile['mode'] == 'url_only' and set(profile) != {'mode', 'url'}):
             raise ValueError('explicit typed webhook profile required')
+        if profile['mode'] == 'full' and set(profile) != allowed:
+            raise ValueError('full profile requires explicit secret, certificate, IP, updates and connection choices')
         url = urlsplit(profile['url'])
         if (url.scheme not in ('http', 'https') or not url.hostname or url.username
                 or url.password or url.fragment or any(ord(c) < 33 for c in profile['url'])):
             raise ValueError('invalid webhook URL')
         url.port
         import re
-        if 'secret_token' in profile and (not isinstance(profile['secret_token'], str)
+        if profile.get('secret_token') is not None and (not isinstance(profile['secret_token'], str)
                 or not re.fullmatch(r'[A-Za-z0-9_-]{1,256}', profile['secret_token'])):
             raise ValueError('invalid webhook secret')
         if 'max_connections' in profile and (type(profile['max_connections']) is not int or not 1 <= profile['max_connections'] <= 100000):
@@ -121,10 +123,10 @@ def validate_profile(profile, action):
                 or any(not isinstance(v, str) or not re.fullmatch('[a-z_]{1,64}', v) for v in profile['allowed_updates'])
                 or len(set(profile['allowed_updates'])) != len(profile['allowed_updates'])):
             raise ValueError('invalid allowed updates')
-        if 'ip_address' in profile:
+        if profile.get('ip_address') is not None:
             import ipaddress
             ipaddress.IPv4Address(profile['ip_address'])
-        if 'certificate_pem' in profile and (not isinstance(profile['certificate_pem'], str)
+        if profile.get('certificate_pem') is not None and (not isinstance(profile['certificate_pem'], str)
                 or len(profile['certificate_pem']) > 131072
                 or not profile['certificate_pem'].startswith('-----BEGIN CERTIFICATE-----')):
             raise ValueError('invalid certificate input')

@@ -701,3 +701,39 @@ HTTP-сервер на loopback. Снимки остаются в приватн
 локальные NOTRUN означают verification deferred to CI/gates. После merge
 отдельно проверьте прежний URL мигратора и совпадение байтов опубликованного
 файла; проверки ветки не подтверждают деплой или доставку реальному боту.
+
+### Аудит: установленный gateway
+Перед обновлением проверьте effective Compose model, mounts контейнера и опубликованные listeners. Gateway нужны только конфигурация и отдельный spool; state, media, secrets и Docker socket монтировать нельзя. Запустите `python3 tools/check_file_contract.py --state-isolation-only` с искусственными данными. Проверьте `/file`, encoded/traversal варианты и management paths через API listener; сравните ответы с sentinel-файлами. По умолчанию host bindings остаются loopback. Внешний доступ требует TLS и политики доступа к инстансу.
+При доказанном раскрытии сначала ограничьте доступ, отзовите затронутые credentials и сохраните обезличенные evidence приватно. Историческая опасная конфигурация сама по себе не доказывает утечку.
+
+### Новые приватные поверхности
+Provider keys, bootstrap helper, journal authority и raw receiver evidence хранятся вне checkout и web roots в приватных файлах оператора. Provider reports содержат только фиксированные коды причин, IDs/hashes и outcomes. Существующие issue17 exact-image gates обязательны для nginx/Bot API logs, image layers и rendered site. Добавленные canaries статического входа и full-profile export не заменяют runtime privacy acceptance.
+
+### Проверенные inputs и APK refresh
+Adoption: policy/validator PR #38 перенесены поверх recipe PR #44; проверенные source/base значения взяты из публичного candidate lock PR #42. Суточное UTC-окно и policy generation входят в build identity до registry lookup. Для срочного обновления повысьте generation. Все APK-стадии используют один APK_REFRESH_ID и обновляют inherited packages; inventories сохраняются внутри exact image. Downloads использует Debian base и отдельную identity без суточного APK-окна.
+Конкурирующий single-architecture publisher PR #42 здесь superseded: он заменял бы PR #44 и конфликтует с native multiarch qualification. Единственной authority остаётся существующий publisher; selected_release сохраняется null. Изменения source/base snapshot требуют review и qualification; разрешение upstream master само по себе не выбирает deployment. OCI source version и wrapper revision различаются. Mutable mirrors не обещают побитовый rebuild.
+
+### Candidate native qualification
+Production sender harness PR #37 принят. Native jobs amd64 и arm64 собирают одинаковые reviewed source/patches и выполняют существующие exact-image privacy/storage/file/observer gates и настоящий production sender/ACK. Promotion использует только два успешных receipts одного workflow run с одинаковыми source, base и APK window. QEMU runtime acceptance не заявляется. В ABI allowlist openat2 добавлен arm64; поддержка остаётся неквалифицированной до native confinement matrix. Реальная доставка Telegram update полным image учитывается отдельно от synthetic sender и остаётся NOTRUN.
+
+### Холодный backup, обновление и rollback
+Приняты cold-backup validator и shutdown primitives PR #42; вторая restore-система не создаётся. Gateway ждёт botapi service_healthy. Начальный shutdown budget — 120s; измерьте SIGTERM/flush на характерном synthetic state перед изменением.
+1. Остановите всех writers приложения. Выполните для выбранного инстанса `docker compose stop -t 120 botapi`; приватно сохраните Docker events/inspect: SIGTERM, exit 0, отсутствие SIGKILL/OOM.
+2. Пока writers остановлены, отдельно архивируйте dedicated state/media roots и приватную конфигурацию через `tar --numeric-owner -cpf`. Запишите один snapshot ID, image receipt/config hashes, SHA256 архивов, mapping и ownership. Копия работающей БД не является согласованным backup.
+3. Проверьте `python3 tools/check_issue12_restore.py --manifest /private/backup.json --archive-directory /private/archives`. Подготовьте пустые dedicated restore roots, проверьте пути/типы членов архива, затем восстановите numeric owners и permissions. Непроверенный архив в production roots распаковывать нельзя.
+4. Запустите exact saved image/overrides на изолированном restore-инстансе, проверьте token-free readiness, hashes/ownership и restart. Запишите отдельный runtime receipt.
+5. Обновляйте после репетиции. Совместимость downgrade не гарантируется: rollback использует соответствующий остановленный snapshot и приватную конфигурацию; новые DB files со старым state не смешиваются. Observer остаётся opt-in.
+
+### Doctor после перехода adapters
+Doctor остаётся token-free и не проверяет авторизацию бота или Telegram delivery. Report называет canonical Python Bash adapter и same-origin helper. Mount permissions, image identity и actual runtime evidence сохраняют FAILED/UNKNOWN; отсутствие Docker/kernel/provider evidence не даёт readiness PASS. Проверка custom binary port отделена от фиксированного Compose port 8081. Для runtime diagnostics используйте synthetic selected-stack fixture, без production bot.
+
+### Приёмка Kuma
+Включайте существующий observability overlay явно. Kuma опрашивает приватные token-free /health/live и /health/ready в разрешённой management-сети; отказ или устаревшие upstream/observer inputs должны давать неготовность. Live не означает ready или Telegram delivery. API listener запрещает management routes. Raw statistics и bot/user/chat identifiers не становятся публичными labels или status fields. После обновления повторяйте check_observability.py на exact Bot API/observer pair; отключённая статистика поддерживается и не означает отсутствие авторизации.
+
+### Актуальная документация adapters
+Разделы migration guide «Явный полный профиль webhook», «Восстановление и authority», «Bash-вход и legacy recovery», «Публичный URL мигратора» и «Ограниченные Compose checkpoints» описывают текущую Python authority. Прежние raw-curl diagnostics — исторические инструменты; они не возобновляют engine operation и не подтверждают миграцию.
+
+### Необязательная reviewed local build
+Из committed checkout один раз выполните `python3 tools/image_inputs.py --build-env /private/build.env`. Файл содержит только публичные build arguments, без API credentials. Затем используйте `docker compose --env-file .env --env-file /private/build.env -f docker-compose.yml -f docker-compose.build.yml up -d --build`. Соответствующие observability/downloads build overlays добавляются только при выборе этих компонентов; используйте тот же build.env. Без APK_REFRESH_ID build overlay отказывает до сборки, исключая незаметное сохранение старых APK layers. Обычная установка через pull по-прежнему требует только API_ID/API_HASH.
+
+Doctor проверяет actual image architecture, wrapper revision и APK-generation labels. Отсутствие metadata остаётся UNKNOWN; labels не доказывают native runtime, confinement или package freshness. Для старой установки дополнительные metadata checks носят advisory характер; наблюдаемая неподдерживаемая платформа блокирует готовность.

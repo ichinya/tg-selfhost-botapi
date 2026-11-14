@@ -14,7 +14,8 @@ PATTERNS=('test_migration_contract.py','test_migration_store.py','test_migration
           'test_migration_faults.py','test_migration_transport.py','test_migration_preflight.py',
           'test_migration_readiness.py','test_docs_privacy.py','test_migrator_requests.py',
           'test_migration_directions.py','test_issue8_shell_safety.py',
-          'test_issue17_security_inputs.py','test_issue17_security_exports.py')
+          'test_issue17_security_inputs.py','test_issue17_security_exports.py',
+          'test_migration_compose_provider.py','test_issue19_profile.py','test_issue19_privacy.py')
 
 
 def main():

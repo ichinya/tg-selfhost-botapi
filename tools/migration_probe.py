@@ -11,13 +11,16 @@ def private_json(path):
     path=Path(path)
     if os.name!='posix':
         raise ValueError('private evidence requires POSIX')
-    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC|os.O_NONBLOCK)
     with os.fdopen(fd,'rb') as f:
         info=os.fstat(f.fileno())
         if (not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid()
                 or info.st_mode & 0o077 or info.st_nlink!=1):
             raise ValueError('evidence file must be private')
+        signature=lambda s:(s.st_dev,s.st_ino,s.st_mode,s.st_uid,s.st_nlink,s.st_size,s.st_mtime_ns,s.st_ctime_ns)
         raw=f.read(262145)
+        if signature(os.fstat(f.fileno())) != signature(info) or signature(os.lstat(path)) != signature(info):
+            raise ValueError('private evidence changed while reading')
     if len(raw)>262144:
         raise ValueError('evidence too large')
     from migration_store import _unique_object, _reject_constant
