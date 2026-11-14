@@ -258,3 +258,9 @@ success дают отказ. При stats off глубина `http_handler_only`
 Ни одна глубина не авторизует бота и не подтверждает связь с Telegram или доставку.
 `/status` — документ, а не общий UP. Внутренний `/selfz` проверяет scheduler
 observer и недоступен через management gateway.
+
+### Проверка VPS
+Registry проекта — GHCR. Public pull может быть анонимным; необязательный Docker Hub login решает access/rate limits этого registry и не переносит образ проекта. Используйте credential store или `--password-stdin`; различайте unauthorized, rate limit и сетевой отказ.
+Приватно выберите qualified immutable digest в BOTAPI_IMAGE и зафиксируйте точный порядок Compose overrides. На целевом host запишите `docker version`, `docker compose version`, затем выполните `docker compose config --quiet`, `docker compose pull`, `docker compose up -d` и проверьте image IDs, health и опубликованные listeners. Необязательная local build использует reviewed source/base inputs и APK refresh ID; успешная локальная сборка не означает qualified release.
+Порты базы: Bot API 8081 внутри, gateway 18080 на loopback host. Management 18081 существует только с явным observability overlay; downloads использует отдельный контракт. Compose-набор закрепляет внутренний API port 8081. При прямом запуске binary менять его можно только вместе с gateway/download upstreams.
+Проверяйте readiness без токенов бота. Сохраняйте только безопасную version/image/network metadata. VPS pull/build/run и реальная Telegram delivery остаются отдельными NOTRUN gates до фактического выполнения.

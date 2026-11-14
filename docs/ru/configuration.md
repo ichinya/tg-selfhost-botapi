@@ -389,3 +389,6 @@ Gateway сохраняет 2048m на всё тело запроса, включ
 
 ### Два контракта доступа к файлам
 Поддерживаются per-bot read-only media и авторизованный `POST /v1/files/download` для удалённого клиента. Запрос содержит file_id; handler после проверки независимого credential вызывает getFile закреплённого бота. Pathname от клиента не принимается. State, temp и secrets не являются media. Используйте существующие `examples/files` и exact-pair проверку `tools/check_file_contract.py`. Обязателен Linux openat2 FD confinement; неподдерживаемая платформа отказывает. Старый /file alias с токеном в URL публиковать нельзя.
+
+### Внутренний порт
+Compose-набор использует фиксированный API port 8081. TELEGRAM_HTTP_PORT остаётся параметром entrypoint/binary для собственных deployment; nginx и downloads автоматически не перенастраиваются. Внешний bind требует политики доступа и TLS.

@@ -10,7 +10,7 @@ services:
       TELEGRAM_LOCAL: "true"
       TELEGRAM_STAT: "false"
       TELEGRAM_HTTP_IP_ADDRESS: ${TELEGRAM_HTTP_IP_ADDRESS:-0.0.0.0}
-      TELEGRAM_HTTP_PORT: ${TELEGRAM_HTTP_PORT:-8081}
+      TELEGRAM_HTTP_PORT: "8081" # Compose gateway/downloads contract; custom deployments must update upstreams together.
     volumes:
       - ./data:/var/lib/telegram-bot-api
     healthcheck:

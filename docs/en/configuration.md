@@ -385,3 +385,6 @@ The gateway retains 2048m for the entire request body, including multipart overh
 
 ### Two file access contracts
 Keep both per-bot read-only shared media and authenticated `POST /v1/files/download` for remote clients. The remote request contains file_id; the handler resolves getFile for its configured bot after checking its independent credential. It accepts no client pathname. State, temp and secrets are never media. Use existing `examples/files` and exact-pair `tools/check_file_contract.py` acceptance. Linux openat2 FD confinement is mandatory; unsupported platforms fail closed. Do not expose the old token-in-URL /file alias.
+
+### Internal port
+The bundled Compose stack uses fixed internal API port 8081. TELEGRAM_HTTP_PORT remains an entrypoint/binary option for custom deployments; it does not automatically reconfigure nginx or downloads. External bind changes need a network/TLS access policy.

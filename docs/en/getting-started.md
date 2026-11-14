@@ -261,3 +261,9 @@ stats on adds a recognized manager response (`http_handler_and_manager`).
 Neither depth authenticates a bot or confirms Telegram connectivity/delivery.
 `/status` is a document, not an overall UP signal. Internal `/selfz` only checks
 the observer scheduler and is not available through the management gateway.
+
+### VPS verification runbook
+The project registry is GHCR. Public pulls may be anonymous; optional Docker Hub login addresses that registry's access/rate limits and does not move the project image. For login use a credential store or `--password-stdin`; distinguish unauthorized, rate limit and network failures.
+Select a qualified immutable image digest privately as BOTAPI_IMAGE and record the exact ordered Compose overrides. On the target host record `docker version`, `docker compose version`, then run `docker compose config --quiet`, `docker compose pull`, `docker compose up -d` and inspect image IDs, health and published listeners. Optional local builds use the reviewed source/base inputs and APK refresh ID; a successful local build is not a qualified release.
+Base ports: Bot API 8081 inside, gateway 18080 on host loopback. Management 18081 exists only with the explicit observability overlay; downloads uses its separate contract. The Compose bundle fixes the internal API port at 8081. Direct binary deployments may change it only with coordinated gateway/download upstream changes.
+Check readiness without bot tokens. Retain only safe version/image/network metadata. VPS pull/build/run and real Telegram delivery remain separate NOTRUN gates until actually executed.
