@@ -9,6 +9,17 @@ from image_inputs import build_key, digest, revision
 
 
 class SavedInputsTest(unittest.TestCase):
+    def test_locked_base_images_reject_shell_substitutions(self):
+        import json
+        from image_inputs import ROOT, validate_lock
+        record = json.loads((ROOT / 'image-inputs.lock.json').read_text(encoding='utf8'))
+        for field in ('observer_base', 'python_image'):
+            for name in ('python:$(id)', 'python:`id`'):
+                with self.subTest(field=field, name=name):
+                    record['inputs'][field] = name + '@sha256:' + 'a' * 64
+                    with self.assertRaises(ValueError):
+                        validate_lock(record)
+
     def test_gateway_change_only_invalidates_qualification(self):
         import copy
         import json

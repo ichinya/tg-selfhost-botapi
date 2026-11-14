@@ -10,6 +10,16 @@ from unittest.mock import patch
 
 
 class RestoreTests(unittest.TestCase):
+    def test_backup_rejects_escaping_symlink_chain(self):
+        stream = io.BytesIO()
+        with tarfile.open(fileobj=stream, mode='w') as archive:
+            for name, target in (('sub/s', '..'), ('x', 'sub/s/../outside')):
+                member = tarfile.TarInfo(name)
+                member.type, member.linkname = tarfile.SYMTYPE, target
+                archive.addfile(member)
+        with self.assertRaises(ValueError):
+            archive_manifest(stream.getvalue())
+
     def test_both_layout_receipts_are_required(self):
         def evidence(image, gateway, layout):
             return {'layout': layout, 'runtime_smoke': 'PASS', 'restore_rehearsal': 'PASS',

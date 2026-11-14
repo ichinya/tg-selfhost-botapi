@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import tempfile
 import platform
@@ -234,7 +235,7 @@ def validate_lock(lock):
             or not re.fullmatch(r'[0-9a-f]{40}', v) for k, v in modules.items()):
         raise ValueError('Invalid locked submodules')
     for name in ('observer_base', 'python_image'):
-        if not isinstance(inputs.get(name), str) or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', inputs[name]):
+        if not isinstance(inputs.get(name), str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}', inputs[name]):
             raise ValueError('Invalid locked base: ' + name)
     if "selected_release" not in lock:
         raise ValueError("Missing selected release")
@@ -439,6 +440,6 @@ if __name__ == "__main__":
         values = public_environment(inputs)
         Path(args.build_env).touch(mode=0o600, exist_ok=True)
         Path(args.build_env).chmod(0o600)
-        Path(args.build_env).write_text(''.join(f'{key}={value}\n' for key, value in values.items()), encoding='utf-8', newline='\n')
+        Path(args.build_env).write_text(''.join(f'{key}={shlex.quote(value)}\n' for key, value in values.items()), encoding='utf-8', newline='\n')
     for key, value in inputs.items():
         print(f"{key}={json.dumps(value, sort_keys=True, separators=(',', ':')) if isinstance(value, dict) else value}")

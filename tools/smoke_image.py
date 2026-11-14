@@ -9,7 +9,6 @@ import subprocess
 import tarfile
 import tempfile
 import time
-import posixpath
 from datetime import datetime, timezone
 from check_release import check_gateway
 from image_inputs import ROOT
@@ -22,13 +21,8 @@ def archive_manifest(raw):
         for member in archive.getmembers():
             if member.name.startswith('/') or '..' in Path(member.name).parts or member.name in result:
                 raise ValueError('Unsafe or duplicate archive entry')
-            if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
-                raise ValueError('Special files are not permitted in a cold backup')
-            if member.issym() or member.islnk():
-                base = posixpath.dirname(member.name) if member.issym() else ''
-                target = posixpath.normpath(posixpath.join(base, member.linkname))
-                if member.linkname.startswith('/') or target == '..' or target.startswith('../'):
-                    raise ValueError('Archive link escapes the storage root')
+            if not (member.isfile() or member.isdir()):
+                raise ValueError('Links and special files are not permitted in a cold backup')
             contents = archive.extractfile(member).read() if member.isfile() else b''
             result[member.name] = (member.type.decode('ascii'), member.uid, member.gid, member.mode,
                                    member.size, member.linkname, hashlib.sha256(contents).hexdigest())
