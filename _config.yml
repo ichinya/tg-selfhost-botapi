@@ -53,6 +53,8 @@ exclude:
   - secrets
   - files
 
+  - .safety-work
+  - .migration-provider
   - .migration-state
   - .migration-private
   - migration-helper.env

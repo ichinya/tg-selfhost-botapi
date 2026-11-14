@@ -705,3 +705,6 @@ HTTP-сервер на loopback. Снимки остаются в приватн
 ### Аудит: установленный gateway
 Перед обновлением проверьте effective Compose model, mounts контейнера и опубликованные listeners. Gateway нужны только конфигурация и отдельный spool; state, media, secrets и Docker socket монтировать нельзя. Запустите `python3 tools/check_file_contract.py --state-isolation-only` с искусственными данными. Проверьте `/file`, encoded/traversal варианты и management paths через API listener; сравните ответы с sentinel-файлами. По умолчанию host bindings остаются loopback. Внешний доступ требует TLS и политики доступа к инстансу.
 При доказанном раскрытии сначала ограничьте доступ, отзовите затронутые credentials и сохраните обезличенные evidence приватно. Историческая опасная конфигурация сама по себе не доказывает утечку.
+
+### Новые приватные поверхности
+Provider keys, bootstrap helper, journal authority и raw receiver evidence хранятся вне checkout и web roots в приватных файлах оператора. Provider reports содержат только фиксированные коды причин, IDs/hashes и outcomes. Существующие issue17 exact-image gates обязательны для nginx/Bot API logs, image layers и rendered site. Добавленные canaries статического входа и full-profile export не заменяют runtime privacy acceptance.
