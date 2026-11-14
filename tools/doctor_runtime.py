@@ -291,6 +291,10 @@ def load_migration_input(path):
     from pathlib import Path
     # Inputs never belong to a checkout or a symlinked directory tree.
     absolute = Path(os.path.abspath(path))
+    # A source archive has no .git, but its own project tree remains private.
+    project_root = Path(__file__).resolve().parent.parent
+    if absolute == project_root or project_root in absolute.parents:
+        raise ValueError("input location")
     for parent in (absolute, *absolute.parents):
         if parent.is_symlink() or (parent.is_dir() and (parent / ".git").exists()):
             raise ValueError("input location")

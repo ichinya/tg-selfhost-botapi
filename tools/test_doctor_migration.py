@@ -21,6 +21,7 @@ from doctor_checks import migration_checks, validate_migration_input, report, pe
 from doctor_runtime import load_migration_input, parse_migration_input, transfer_metadata
 from unittest.mock import patch
 import doctor
+import doctor_runtime
 
 
 class MigrationTests(unittest.TestCase):
@@ -100,6 +101,16 @@ class MigrationTests(unittest.TestCase):
                 load_migration_input(str(link))
             os.chmod(path, 0o644)
             self.assertEqual(({}, False), load_migration_input(str(path)))
+
+    def test_input_rejects_exported_project_without_git(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "export"
+            (root / "tools").mkdir(parents=True)
+            candidate = root / "private.json"
+            candidate.write_text('{"schema_version":1}')
+            with patch.object(doctor_runtime, "__file__", str(root / "tools" / "doctor_runtime.py")):
+                with self.assertRaises(ValueError):
+                    load_migration_input(str(candidate))
 
     def test_transfer_metadata_rejects_links_and_special_files(self):
         self.assertEqual((4103, 2), transfer_metadata(b"directory|4096|1|10|10|1\nregular file|7|2|10|10|1\n"))

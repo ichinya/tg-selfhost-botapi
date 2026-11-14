@@ -37,6 +37,23 @@ class CheckerTests(unittest.TestCase):
     def test_full_runtime_requires_exact_pair(self):
         with self.assertRaises(checker.NotRun): checker.exercise(None, None, {})
 
+    def test_full_compose_receives_isolated_split_settings(self):
+        calls = []
+        def capture(args, env, **kwargs):
+            calls.append((args, env.copy()))
+            if len(calls) == 1:
+                return '{}'
+            raise RuntimeError('captured split configuration')
+        with mock.patch.object(checker, 'command', side_effect=capture), \
+             mock.patch.object(checker, 'validate_full'):
+            with self.assertRaisesRegex(RuntimeError, 'captured split'):
+                checker.exercise('botapi:test', 'downloads:test', {'fixture_images': {'nginx': 'nginx:test'}})
+        args, env = calls[1]
+        self.assertIn(str(checker.ROOT / 'docker-compose.files.yml'), args)
+        self.assertEqual(('101', '101'), (env['BOTAPI_UID'], env['BOTAPI_GID']))
+        self.assertTrue(env['BOTAPI_MEDIA_SOURCE'].endswith('-media'))
+        self.assertNotEqual(str(checker.ROOT / 'data'), env['BOTAPI_MEDIA_SOURCE'])
+
     def test_recipe_hashes_cover_runtime_sources(self):
         hashes = checker.source_hashes()
         for name in ('tools/file_access.py', 'tools/file_contract.py', 'tools/download_server.py',
