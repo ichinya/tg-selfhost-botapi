@@ -58,6 +58,7 @@ class Engine:
     def __init__(self,journal,client,readiness,runtime,verifier=None):
         self.j,self.client,self.readiness,self.r=journal,client,readiness,runtime
         self.verifier = verifier
+        self.original_profile_verified = False
 
     @staticmethod
     def ids(s):
@@ -83,6 +84,9 @@ class Engine:
                 raise Stop('cloud_cooldown_evidence_required')
         if kind == 'application_start' and kind not in s['checkpoints'] and value['observed_at'] < s['checkpoints']['target_verified']['time']:
             raise Stop('application_start_predates_target_verification')
+        if kind == 'quiescence' and self.r.action == 'preserve' and self.r.profile.get('mode') == 'full':
+            self.original_profile_verified = (value.get('original_config_verified') is True
+                and value.get('profile_fingerprint') == s['plan']['profile_fingerprint'])
         self.j.checkpoint(s, kind, canonical(value))
         return value
 
@@ -156,7 +160,13 @@ class Engine:
         if self.r.action=='preserve' and snapshot['url']!=wanted:
             raise Stop('preserve_profile_does_not_match_source')
         if self.r.action == 'preserve' and self.r.profile.get('mode') == 'full':
-            raise Stop('full_preserve_requires_original_private_profile_verification')
+            if not self.original_profile_verified:
+                raise Stop('full_preserve_requires_original_private_profile_verification')
+            for field in ('allowed_updates', 'max_connections'):
+                if snapshot.get(field) != self.r.profile[field]:
+                    raise Stop('source_profile_drift')
+            if bool(snapshot.get('has_custom_certificate')) != bool(self.r.profile['certificate_pem']):
+                raise Stop('source_profile_drift')
         state['snapshot'] = fingerprint(self.j.key,canonical(snapshot))
         self.j.save(state)
 
@@ -271,7 +281,9 @@ class Engine:
                 params={'drop_pending_updates':'true' if self.r.drop else 'false'}
                 method='deleteWebhook' if self.r.profile['mode']=='polling' else 'setWebhook'
                 if method=='setWebhook':
-                    params.update({k:v for k,v in self.r.profile.items() if k != 'mode'})
+                    params.update({k:v for k,v in self.r.profile.items() if k != 'mode' and v is not None})
+                    if self.r.profile.get('mode') == 'full' and self.r.profile['secret_token'] is None:
+                        params['secret_token'] = ''
                 self.mutate(s,step,self.r.target,method,params)
         self.verify_target(s)
         if self.r.direction == 'webhook_only':
@@ -324,10 +336,12 @@ class Engine:
             raise Stop('target_configuration_drift')
         if self.r.profile.get('mode') == 'full':
             for field in ('allowed_updates', 'max_connections', 'ip_address'):
-                if field in self.r.profile and info.get(field) != self.r.profile[field]:
+                if self.r.profile.get(field) is not None and info.get(field) != self.r.profile[field]:
                     s['results']['webhook_configuration']='failed'
                     self.j.save(s)
                     raise Stop('target_configuration_drift')
+        if self.r.profile.get('mode') == 'full' and bool(info.get('has_custom_certificate')) != bool(self.r.profile['certificate_pem']):
+            raise Stop('target_certificate_drift')
         s['results']['webhook_configuration']='confirmed'
         self.j.checkpoint(s,'target_verified',canonical(info))
         self.j.save(s)

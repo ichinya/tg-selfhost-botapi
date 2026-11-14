@@ -583,3 +583,7 @@ The browser-generated Bash plan reports its result on stderr as `ERROR`, `PARTIA
 
 ### Sealed export
 Export uses the existing operation, digest and `MIGRATION_STATE_DIR`; it never emits an independent curl protocol. Input changes require a new plan. Secrets belong in private runtime inputs; never copy tokens or certificate contents into an export. Legacy browser execution is replaced by the helper entry in this release.
+
+### Explicit full webhook input
+Choose preserve/set/polling explicitly. A full private profile has all fields: mode, url, secret_token, certificate_pem, ip_address, allowed_updates, max_connections. Use JSON null for intentionally absent secret/certificate/pinned IP; missing fields mean unknown and are rejected. Empty updates and an explicit connection limit are deliberate choices. Certificate contents are sent as multipart InputFile. URL-only is a limited scope.
+Full preserve additionally requires a fresh signed quiescence receipt from an independent configuration auditor with original_config_verified=true and the exact plan profile_fingerprint. Readback cannot prove the old secret. Without that audit, full preserve blocks before detach; use the existing trusted provider boundary. Configuration readback and actual secret/header delivery are separate results.

@@ -586,3 +586,7 @@ Bash-????, ????????? ? ????????, ??????? ????????? ? stderr: `ERROR`, `PARTIAL`,
 
 ### Экспорт sealed plan
 Экспорт использует существующие operation, digest и `MIGRATION_STATE_DIR`; отдельный curl-протокол не создаётся. Изменение входов требует нового plan. Секреты передаются приватно; содержимое token и certificate в экспорт не копируется. Legacy browser execution в этом выпуске заменяется входом в helper.
+
+### Явный полный профиль webhook
+Выбирайте preserve/set/polling явно. Приватный full profile содержит все поля: mode, url, secret_token, certificate_pem, ip_address, allowed_updates, max_connections. JSON null означает намеренное отсутствие secret/certificate/закреплённого IP; пропущенное поле означает unknown и отклоняется. Пустой список updates и явный connection limit — отдельные решения. Certificate отправляется multipart InputFile. URL-only имеет ограниченный scope.
+Full preserve дополнительно требует свежий подписанный quiescence receipt независимого аудитора конфигурации с original_config_verified=true и точным profile_fingerprint плана. Readback не подтверждает прежний secret. Без такого аудита full preserve блокируется до detach; используется существующая граница trusted provider. Readback конфигурации и доставка secret/header учитываются отдельно.
