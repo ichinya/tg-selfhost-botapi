@@ -11,12 +11,12 @@
 <label>Source API <input id="source" type="url"></label>
 <label>Target API <input id="target" type="url"></label>
 <label>Bot token <input id="token" type="password" autocomplete="off"></label>
-<label>Action <select id="action"><option value="">Select action</option><option value="polling">Polling</option><option value="set">Set webhook</option></select></label>
-<label>Profile scope <select id="scope"><option value="url_only">URL only</option><option value="full">Full</option><option value="polling">Polling</option></select></label>
+<label>Action <select id="action"><option value="">Select action</option><option value="preserve">Preserve</option><option value="polling">Polling</option><option value="set">Set webhook</option></select></label>
+<label>Profile scope <select id="scope"><option value="url_only">URL only</option><option value="full">Full</option><option value="preserve">Preserve</option><option value="polling">Polling</option></select></label>
 <label>Webhook URL <input id="webhook" type="url"></label>
 <label>Profile JSON <textarea id="profile"></textarea></label>
-<label>Direction <select id="direction"><option value="cloud_to_local">Official to self</option><option value="local_to_cloud">Self to official</option><option value="webhook_only">Webhook only</option></select></label>
-<label>Local mode <select id="local-mode"><option value="false">No</option><option value="true">Yes</option></select></label>
+<label>Direction <select id="direction"><option value="cloud_to_local">Official to self</option><option value="local_to_local">Self to self</option><option value="local_to_cloud">Self to official</option><option value="webhook_only">Webhook only</option></select></label>
+<label>Local mode <select id="local-mode"><option value="true">Yes</option><option value="false">No</option></select></label>
 <label><input id="drop" type="checkbox"> Drop pending updates</label>
 <label><input id="queue-ack" type="checkbox"> Acknowledge queue handling</label>
 <label><input id="ack-scope" type="checkbox"> Acknowledge URL-only profile</label>

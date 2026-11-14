@@ -597,3 +597,6 @@ Full preserve дополнительно требует свежий подпи�
 ### Bash-вход и legacy recovery
 Используйте полный проверенный checkout с Python 3.11+ в Linux/WSL. `bash migrate_off_to_self.sh plan|apply|status|resume|reconcile|export` делегирует tools/migration_cli.py. Нужны явные `--operation`, MIGRATION_STATE_DIR и action; прежние aliases SELF_BOT_URL/TELEGRAM_BOT_URL и WEBHOOK_URL/WEB_HOOK читаются как данные. Неоднозначные positional tokens отклоняются до сети. Отдельно скачанный shell прекращает работу до выполнения операций, если runtime dependencies отсутствуют.
 Старые journals wp_migration_main — неподтверждённый исторический вход. Остановите writers приложения, независимо проверьте последний подтверждённый effect и выполните ручную сверку до нового plan; не повторяйте logOut для выяснения результата.
+
+### Публичный URL мигратора
+Прежний tg_selfhost_botapi_migrator.html — статический двуязычный вход. Он не принимает токены и не вызывает Bot API/localhost. Запустите helper из того же checkout и отдельно откройте его loopback URL. Helper отдаёт UI четырёх направлений и трёх actions на одном origin с приватным bootstrap, session и CSRF. При потере ответа сначала прочитайте status той же operation. Изменение формы сбрасывает подтверждение digest. Совместимость URL не сохраняет legacy standalone execution.
