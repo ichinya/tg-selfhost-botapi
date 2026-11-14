@@ -719,3 +719,11 @@ PR #42's competing single-architecture release publisher is superseded here beca
 
 ### Native qualification candidate
 PR #37 production sender harness is adopted. Both native amd64 and arm64 jobs build the same reviewed source/patches and run existing exact-image privacy/storage/file/observer gates plus actual production sender/ACK. Promotion consumes only the two successful receipts of the same workflow run, source, base and APK window. No QEMU runtime acceptance is claimed. The openat2 ABI allowlist includes arm64; support remains unqualified until the native confinement matrix passes. Actual full-image Telegram update delivery remains NOTRUN separately from synthetic sender delivery.
+
+### Cold backup, update and rollback
+PR #42 cold-backup validator and shutdown observation primitives are adopted; no second restore system is introduced. Gateway startup waits for botapi service_healthy. Initial shutdown budget is 120s; measure SIGTERM/flush on representative synthetic state before changing it.
+1. Quiesce every application writer. Stop the selected Bot API instance with `docker compose stop -t 120 botapi`; retain private Docker events/inspect evidence of SIGTERM, exit 0 and no SIGKILL/OOM.
+2. While stopped, archive each dedicated state/media root and private configuration separately using `tar --numeric-owner -cpf`. Record one snapshot ID, image receipt/config hashes, archive SHA256, mapping and ownership. A live copy is not a consistent backup.
+3. Validate with `python3 tools/check_issue12_restore.py --manifest /private/backup.json --archive-directory /private/archives`. Provision empty dedicated restore roots, validate archive member paths/types, then restore numeric owners and permissions. Never unpack an unvalidated archive into production roots.
+4. Start the exact saved image/overrides on the isolated restore instance, check token-free readiness, file hashes/ownership and restart. Record a separate runtime receipt.
+5. Update only after the rehearsal. Downgrade compatibility is not guaranteed: rollback uses the matching stopped snapshot and private configuration; do not mix newer database files into old state. Observer stays opt-in.
