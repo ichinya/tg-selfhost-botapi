@@ -705,3 +705,7 @@ The required gate fails on skips or missing runtimes. Windows skips and local
 NOTRUN results mean verification deferred to CI/gates. After merge, check the
 published root migrator URL and its byte equality separately; branch tests do
 not establish deployment or real-bot delivery.
+
+### Audit: existing gateway installation
+Inspect the effective Compose model, container mounts and published listeners before upgrading. Only configuration and dedicated spool storage belong in the gateway; no state, media, secret or Docker socket mount. Use `python3 tools/check_file_contract.py --state-isolation-only` with synthetic data. Check `/file`, encoded/traversal variants and management paths on the API listener; compare responses with sentinel bodies. Default host bindings stay loopback. External access requires TLS and an instance access policy.
+If a probe proves disclosure, restrict access first, revoke affected credentials and retain sanitized evidence privately. A historical unsafe configuration alone does not prove a leak.

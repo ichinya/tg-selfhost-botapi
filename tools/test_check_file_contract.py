@@ -74,6 +74,7 @@ class CheckerTests(unittest.TestCase):
         management = bind('/etc/nginx/conf.d/observability.conf', 'nginx.observability.conf')
         checker.validate_gateway_runtime({'Mounts': mounts + [management]})
         for bad in ([], mounts[:-1], mounts + [{'Destination': '/state', 'RW': False}],
+                    mounts + [{'Destination': '/var/lib/telegram-bot-api', 'RW': False}],
                     mounts + [dict(management, RW=True)]):
             with self.subTest(mounts=bad), self.assertRaises(ValueError):
                 checker.validate_gateway_runtime({'Mounts': bad})

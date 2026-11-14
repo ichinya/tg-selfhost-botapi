@@ -701,3 +701,7 @@ HTTP-сервер на loopback. Снимки остаются в приватн
 локальные NOTRUN означают verification deferred to CI/gates. После merge
 отдельно проверьте прежний URL мигратора и совпадение байтов опубликованного
 файла; проверки ветки не подтверждают деплой или доставку реальному боту.
+
+### Аудит: установленный gateway
+Перед обновлением проверьте effective Compose model, mounts контейнера и опубликованные listeners. Gateway нужны только конфигурация и отдельный spool; state, media, secrets и Docker socket монтировать нельзя. Запустите `python3 tools/check_file_contract.py --state-isolation-only` с искусственными данными. Проверьте `/file`, encoded/traversal варианты и management paths через API listener; сравните ответы с sentinel-файлами. По умолчанию host bindings остаются loopback. Внешний доступ требует TLS и политики доступа к инстансу.
+При доказанном раскрытии сначала ограничьте доступ, отзовите затронутые credentials и сохраните обезличенные evidence приватно. Историческая опасная конфигурация сама по себе не доказывает утечку.
