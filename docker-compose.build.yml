@@ -3,10 +3,3 @@ services:
   botapi:
     image: tg-selfhost-botapi:local
     build: .
-  observer:
-    image: tg-selfhost-botapi-observer:local
-    build:
-      context: .
-      dockerfile: tools/observability/Dockerfile
-      args:
-        OBSERVER_BASE: ${OBSERVER_BASE:-alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f}

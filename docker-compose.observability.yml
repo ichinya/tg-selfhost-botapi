@@ -1,0 +1,52 @@
+services:
+  botapi:
+    environment:
+      TELEGRAM_STAT: ${TELEGRAM_STAT:-false}
+
+  observer:
+    image: ${OBSERVER_IMAGE:-ghcr.io/ichinya/tg-selfhost-botapi:observer-latest}
+    restart: always
+    network_mode: service:botapi
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    environment:
+      TELEGRAM_STAT: ${TELEGRAM_STAT:-false}
+      TELEGRAM_HTTP_IP_ADDRESS: ${TELEGRAM_HTTP_IP_ADDRESS:-0.0.0.0}
+      TELEGRAM_HTTP_PORT: ${TELEGRAM_HTTP_PORT:-8081}
+      OBSERVER_RUNTIME_DIR: /inputs/runtime
+      OBSERVER_MIGRATION_DIR: ${OBSERVER_MIGRATION_DIR:-}
+      OBSERVER_REGISTRY: ${OBSERVER_REGISTRY:-}
+      OBSERVER_CREDENTIALS_DIR: /inputs/credentials
+    volumes:
+      - ./.observability/runtime:/inputs/runtime:ro
+      - ./.observability/migration:/inputs/migration:ro
+      - ./.observability/registry:/inputs/registry:ro
+      - ./.observability/credentials:/inputs/credentials:ro
+    depends_on:
+      botapi:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-m", "observability.server", "--selfcheck"]
+      interval: 5s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+
+  gateway:
+    ports:
+      - "${MGMT_BIND:-127.0.0.1}:18081:81"
+    volumes:
+      - type: bind
+        source: ./nginx.observability.conf
+        target: /etc/nginx/conf.d/observability.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      observer:
+        condition: service_started

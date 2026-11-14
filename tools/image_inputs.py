@@ -27,6 +27,7 @@ RECIPE = (
     'tools/botapi_healthcheck.sh', 'tools/check_stats_source.py',
     'tools/observability/Dockerfile', 'tools/observability/status.schema.json',
     'docker-compose.yml', 'docker-compose.build.yml', 'nginx.conf',
+    'docker-compose.observability.yml', 'docker-compose.observability.build.yml', 'nginx.observability.conf',
     "docker-compose.files.yml",
 )
 DOWNLOADS_RECIPE = (
