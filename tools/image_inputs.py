@@ -1,4 +1,6 @@
 """Resolve immutable build inputs and fingerprint the image recipe (stdlib only)."""
+from datetime import datetime, timezone
+import os
 import hashlib
 import json
 from pathlib import Path
@@ -8,7 +10,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 RECIPE = (
-    "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
+    "image-inputs.lock.json", "tools/apk_policy.json", "nginx-main.conf", "docker-compose.secrets.yml", "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
     "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
     "tools/test_webhook_user_agent.py",
     "docker-compose.yml", "docker-compose.build.yml", "docker-compose.nonroot.yml", "docker-compose.files.yml",
@@ -92,19 +94,43 @@ def build_key(inputs, files):
     return result.hexdigest()[:32]
 
 
-def resolve():
-    inputs = {
-        "bot_api_revision": revision("tdlib/telegram-bot-api"),
-        "alpine_image": "alpine:3.22@" + digest("alpine:3.22"),
-        "python_image": "python:3.12-slim@" + digest("python:3.12-slim"),
-    }
-    inputs['observer_base'] = 'python:3.13.5-alpine3.22@' + digest('python:3.13.5-alpine3.22')
-    inputs['downloads_key'] = build_key({'python_image': inputs['python_image']},
-                                       {name: (ROOT / name).read_bytes() for name in DOWNLOADS_RECIPE})
-    inputs["build_key"] = build_key(inputs, recipe_files())
+def validate_policy(policy):
+    if (not isinstance(policy, dict) or set(policy) != {"policy_version", "refresh", "generation"}
+            or type(policy["policy_version"]) is not int or policy["policy_version"] != 1
+            or policy["refresh"] != "utc-day" or type(policy["generation"]) is not int
+            or policy["generation"] < 0):
+        raise ValueError("Invalid APK refresh policy")
+    return policy
+
+
+def resolve(clock=None, policy=None, platform='linux/amd64'):
+    # Reviewed source/base snapshot: discovery does not silently promote master.
+    policy=validate_policy(policy or json.loads((ROOT/'tools/apk_policy.json').read_text(encoding='utf-8')))
+    now=(clock or (lambda:datetime.now(timezone.utc)))()
+    if now.tzinfo is None or platform not in ('linux/amd64','linux/arm64'):
+        raise ValueError('aware UTC clock and explicit platform required')
+    saved=json.loads((ROOT/'image-inputs.lock.json').read_text(encoding='utf-8'))
+    if saved.get('schema')!=1 or saved.get('selected_release') is not None:
+        raise ValueError('reviewed candidate snapshot required')
+    inputs={k:saved['inputs'][k] for k in ('bot_api_revision','submodules','bot_api_version','alpine_image','python_image','observer_base')}
+    if not re.fullmatch('[0-9a-f]{40}',inputs['bot_api_revision']) or not re.fullmatch('[0-9a-f]{40}',inputs['submodules']['td']):
+        raise ValueError('pinned source/submodule required')
+    for name in ('alpine_image','python_image','observer_base'):
+        if not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}',inputs[name]):
+            raise ValueError('immutable base required')
+    wrapper=os.environ.get('GITHUB_SHA') or command('git','rev-parse','HEAD')
+    if not re.fullmatch('[0-9a-f]{40}',wrapper):
+        raise ValueError('committed wrapper identity required')
+    window=now.astimezone(timezone.utc).date().isoformat()
+    inputs.update(platform=platform,wrapper_revision=wrapper,apk_policy_version=policy['policy_version'],
+                  apk_refresh_window=window,apk_refresh_generation=policy['generation'],
+                  apk_refresh_id=f"v{policy['policy_version']}-{window}-g{policy['generation']}")
+    inputs['downloads_key']=build_key({'python_image':inputs['python_image']},
+                                    {name:(ROOT/name).read_bytes() for name in DOWNLOADS_RECIPE})
+    inputs['build_key']=build_key(inputs,recipe_files())
     return inputs
 
 
 if __name__ == "__main__":
-    for key, value in resolve().items():
-        print(f"{key}={value}")
+    for key, value in resolve(platform=os.environ.get("BUILD_PLATFORM", "linux/amd64")).items():
+        print(f"{key}={json.dumps(value,sort_keys=True,separators=(chr(44),chr(58))) if isinstance(value,dict) else value}")

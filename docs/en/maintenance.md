@@ -712,3 +712,7 @@ If a probe proves disclosure, restrict access first, revoke affected credentials
 
 ### New private surfaces
 Provider keys, helper bootstrap codes, journal authority and raw receiver evidence stay outside checkout and web roots in operator-owned private files. Provider reports expose fixed reason codes, IDs/hashes and outcomes only. Existing issue17 exact-image gates remain mandatory for nginx/Bot API logs, image layers and rendered site. Added static-entry and full-profile export canaries do not substitute for runtime privacy acceptance.
+
+### Reviewed inputs and APK refresh
+Adoption: PR #38 policy/validator is rebased onto the PR #44 recipe; the reviewed source/base values come from PR #42's public candidate lock. Daily UTC window plus policy generation enters the build identity before registry lookup. Raise generation for an emergency refresh. Every APK stage consumes the same APK_REFRESH_ID and upgrades inherited packages; package inventories remain inside the exact image. Downloads uses a Debian base and has a separate identity without the daily APK window.
+PR #42's competing single-architecture release publisher is superseded here because it would replace PR #44 and conflict with native multiarch qualification. The existing publisher remains the sole authority; selected_release stays null. Snapshot source/base changes require review and qualification; resolving upstream master alone cannot select a deployment. OCI source version and wrapper revision are distinct. Mutable mirrors do not promise bit-for-bit rebuilds.

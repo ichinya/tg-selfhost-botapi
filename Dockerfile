@@ -3,7 +3,9 @@ FROM ${ALPINE_IMAGE} AS source
 
 ARG BOT_API_REVISION=e3e9dd8e5b3d7ab8537cd5a10dc31d5ffa8f82d1
 
-RUN apk add --no-cache alpine-sdk linux-headers git zlib-dev openssl-dev gperf cmake
+ARG APK_REFRESH_ID=local-unqualified
+RUN test -n "$APK_REFRESH_ID" && apk upgrade --no-cache && apk add --no-cache alpine-sdk linux-headers git zlib-dev openssl-dev gperf cmake
+RUN mkdir -p /usr/share/tg-selfhost-botapi && apk info -v | sort > /usr/share/tg-selfhost-botapi/build-packages.txt
 WORKDIR /usr/src/telegram-bot-api
 # Pin the official source so upstream changes cannot silently drop the header.
 RUN git init . \
@@ -35,19 +37,27 @@ FROM ${ALPINE_IMAGE}
 ARG BOT_API_REVISION=e3e9dd8e5b3d7ab8537cd5a10dc31d5ffa8f82d1
 # Public recipe fingerprint, stored in image metadata.
 ARG BUILD_FINGERPRINT=local
+ARG APK_REFRESH_ID=local-unqualified
+ARG WRAPPER_REVISION=unqualified
+ARG BOT_API_VERSION=unqualified
 LABEL org.opencontainers.image.source="https://github.com/ichinya/tg-selfhost-botapi" \
+      org.opencontainers.image.revision="${WRAPPER_REVISION}" \
+      org.opencontainers.image.version="${BOT_API_VERSION}" \
+      io.tg-selfhost.apk-refresh="${APK_REFRESH_ID}" \
       org.opencontainers.image.licenses="BSL-1.0" \
       io.tg-selfhost.bot-api-revision="${BOT_API_REVISION}" \
       io.tg-selfhost.build-key="${BUILD_FINGERPRINT}"
 LABEL io.tg-selfhost.privacy-policy="issue17-v1"
 ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
     TELEGRAM_TEMP_DIR="/tmp/telegram-bot-api"
-RUN apk add --no-cache openssl libstdc++ su-exec curl jq \
+RUN test -n "$APK_REFRESH_ID" && apk upgrade --no-cache && apk add --no-cache openssl libstdc++ su-exec curl jq \
  && addgroup -g 101 -S telegram-bot-api \
  && adduser -S -D -H -u 101 -h /var/lib/telegram-bot-api -s /sbin/nologin -G telegram-bot-api telegram-bot-api \
  && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \
  && chown telegram-bot-api:telegram-bot-api /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \
  && chmod 770 /var/lib/telegram-bot-api-files
+RUN mkdir -p /usr/share/tg-selfhost-botapi && apk info -v | sort > /usr/share/tg-selfhost-botapi/runtime-packages.txt
+COPY --from=source /usr/share/tg-selfhost-botapi/build-packages.txt /usr/share/tg-selfhost-botapi/build-packages.txt
 COPY --from=build /usr/local/bin/telegram-bot-api /usr/local/bin/telegram-bot-api
 COPY --from=build /usr/src/telegram-bot-api/build/botapi-privacy-driver /usr/local/bin/botapi-privacy-driver
 COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh

@@ -708,3 +708,7 @@ HTTP-сервер на loopback. Снимки остаются в приватн
 
 ### Новые приватные поверхности
 Provider keys, bootstrap helper, journal authority и raw receiver evidence хранятся вне checkout и web roots в приватных файлах оператора. Provider reports содержат только фиксированные коды причин, IDs/hashes и outcomes. Существующие issue17 exact-image gates обязательны для nginx/Bot API logs, image layers и rendered site. Добавленные canaries статического входа и full-profile export не заменяют runtime privacy acceptance.
+
+### Проверенные inputs и APK refresh
+Adoption: policy/validator PR #38 перенесены поверх recipe PR #44; проверенные source/base значения взяты из публичного candidate lock PR #42. Суточное UTC-окно и policy generation входят в build identity до registry lookup. Для срочного обновления повысьте generation. Все APK-стадии используют один APK_REFRESH_ID и обновляют inherited packages; inventories сохраняются внутри exact image. Downloads использует Debian base и отдельную identity без суточного APK-окна.
+Конкурирующий single-architecture publisher PR #42 здесь superseded: он заменял бы PR #44 и конфликтует с native multiarch qualification. Единственной authority остаётся существующий publisher; selected_release сохраняется null. Изменения source/base snapshot требуют review и qualification; разрешение upstream master само по себе не выбирает deployment. OCI source version и wrapper revision различаются. Mutable mirrors не обещают побитовый rebuild.

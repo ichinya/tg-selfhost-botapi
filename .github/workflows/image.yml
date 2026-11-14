@@ -107,6 +107,9 @@ jobs:
             BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
             ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
             BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
+            APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
+            BOT_API_VERSION=${{ steps.inputs.outputs.bot_api_version }}
+            WRAPPER_REVISION=${{ github.sha }}
             BUILD_JOBS=1
       - name: Load existing immutable candidate
         if: steps.existing.outputs.exists == 'true' && github.event_name != 'pull_request'
@@ -128,6 +131,8 @@ jobs:
           tags: observer-candidate:check
           build-args: |
             OBSERVER_BASE=${{ steps.inputs.outputs.observer_base }}
+            APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
+            WRAPPER_REVISION=${{ github.sha }}
             BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
       - name: Load reusable candidates and verify pair labels
         env:
