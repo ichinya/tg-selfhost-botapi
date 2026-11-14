@@ -580,3 +580,6 @@ private. Sanitization or cleanup failure prevents this manifest from being ready
 UNKNOWN still requires reconciliation before any retry.
 
 The browser-generated Bash plan reports its result on stderr as `ERROR`, `PARTIAL`, `UNKNOWN`, or `SUCCESS`, followed by `phase=...` and `progress=0|1`. Progress records a confirmed mutation; `UNKNOWN` requires reconciliation because an unacknowledged request may still have taken effect. For a valid HTTP 429 retry delay, `retryNotBefore_epoch` is the earliest retry time, not permission to retry without reconciliation. Successful observable profile verification does not confirm webhook delivery.
+
+### Sealed export
+Export uses the existing operation, digest and `MIGRATION_STATE_DIR`; it never emits an independent curl protocol. Input changes require a new plan. Secrets belong in private runtime inputs; never copy tokens or certificate contents into an export. Legacy browser execution is replaced by the helper entry in this release.

@@ -10,6 +10,8 @@ def export_operation(state):
     digest = state.get('digest')
     if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest) or not hmac.compare_digest(digest, plan_digest(plan)):
         raise ValueError('invalid plan digest')
+    if plan['operation_id'].startswith('-'):
+        raise ValueError('invalid identifier')
     operation = shlex.quote(plan['operation_id'])
     base = 'python3 tools/migration_cli.py'
     common = f' --operation {operation} --state-dir "$MIGRATION_STATE_DIR"'
