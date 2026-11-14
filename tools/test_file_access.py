@@ -26,7 +26,7 @@ class PathTests(unittest.TestCase):
 
 
 @unittest.skipUnless(platform.system() == 'Linux' and platform.machine() == 'x86_64',
-                     'requires the mandatory Linux/amd64 gate')
+                     'requires the mandatory Linux amd64/arm64 gate')
 class KernelTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('FILE_ACCESS_BIND_TEST'), 'requires a file bind mount fixture')
     def test_private_secret_file_bind_mount(self):

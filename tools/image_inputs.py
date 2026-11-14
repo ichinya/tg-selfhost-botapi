@@ -63,6 +63,8 @@ RECIPE = tuple(dict.fromkeys((*RECIPE, *DOWNLOADS_RECIPE,
 
 def recipe_files():
     names = set(RECIPE)
+    names.update('tools/webhook_sender/'+name for name in ('CMakeLists.txt','receiver.py','webhook_sender_test.cpp'))
+    names.update(('tools/multiarch_publish.py',))
     names.update(str(p.relative_to(ROOT)).replace('\\', '/') for p in (ROOT / 'tools/observability').glob('*.py'))
     return {name: (ROOT / name).read_bytes() for name in sorted(names)}
 

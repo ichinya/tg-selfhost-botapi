@@ -24,6 +24,9 @@ RUN git apply --check /tmp/botapi-secrets-redaction.patch \
 COPY tools/fixtures/issue17_security/botapi_log_driver.cpp /tmp/botapi_log_driver.cpp
 RUN printf '\nadd_executable(botapi-privacy-driver /tmp/botapi_log_driver.cpp telegram-bot-api/Query.cpp telegram-bot-api/Stats.cpp)\ntarget_include_directories(botapi-privacy-driver PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})\ntarget_link_libraries(botapi-privacy-driver PRIVATE memprof tdactor tdcore tddb tdnet tdutils)\n' >> CMakeLists.txt
 
+COPY tools/webhook_sender /opt/webhook_sender
+RUN printf '\nadd_subdirectory(/opt/webhook_sender webhook_sender)\n' >> CMakeLists.txt
+
 FROM source AS build
 # One job limits peak memory consumption when building TDLib on a VPS.
 ARG BUILD_JOBS=1
@@ -33,7 +36,7 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/l
  && build/botapi-privacy-driver \
  && strip /usr/local/bin/telegram-bot-api
 
-FROM ${ALPINE_IMAGE}
+FROM ${ALPINE_IMAGE} AS runtime-base
 ARG BOT_API_REVISION=e3e9dd8e5b3d7ab8537cd5a10dc31d5ffa8f82d1
 # Public recipe fingerprint, stored in image metadata.
 ARG BUILD_FINGERPRINT=local
@@ -65,3 +68,11 @@ COPY --chmod=755 tools/botapi_healthcheck.sh /usr/local/bin/botapi-healthcheck
 COPY --from=source /usr/src/telegram-bot-api/LICENSE_1_0.txt /usr/share/licenses/telegram-bot-api/LICENSE_1_0.txt
 EXPOSE 8081/tcp
 ENTRYPOINT ["/docker-entrypoint.sh"]
+
+FROM runtime-base AS sender-test
+RUN apk add --no-cache python3
+COPY --from=build /usr/local/libexec/webhook-sender /usr/local/libexec/webhook-sender
+COPY tools/webhook_sender/receiver.py /opt/webhook_sender/receiver.py
+ENTRYPOINT ["python3", "/opt/webhook_sender/receiver.py"]
+
+FROM runtime-base AS runtime
