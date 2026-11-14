@@ -267,3 +267,14 @@ The project registry is GHCR. Public pulls may be anonymous; optional Docker Hub
 Select a qualified immutable image digest privately as BOTAPI_IMAGE and record the exact ordered Compose overrides. On the target host record `docker version`, `docker compose version`, then run `docker compose config --quiet`, `docker compose pull`, `docker compose up -d` and inspect image IDs, health and published listeners. Optional local builds use the reviewed source/base inputs and APK refresh ID; a successful local build is not a qualified release.
 Base ports: Bot API 8081 inside, gateway 18080 on host loopback. Management 18081 exists only with the explicit observability overlay; downloads uses its separate contract. The Compose bundle fixes the internal API port at 8081. Direct binary deployments may change it only with coordinated gateway/download upstream changes.
 Check readiness without bot tokens. Retain only safe version/image/network metadata. VPS pull/build/run and real Telegram delivery remain separate NOTRUN gates until actually executed.
+
+### Three deployment profiles
+Sibling #15's untracked examples/profiles layout is superseded for this candidate: reuse the shipped examples/files and accepted handler, avoiding a competing ingress/credential contract.
+
+| Application | API and file access | Boundary | Verification |
+| --- | --- | --- | --- |
+| Host-local | loopback :18080; per-bot RO media mapping and examples/files/local_reader.py | matching numeric UID/GID, dedicated media only | existing file fixture + local reader |
+| Co-located Docker | gateway:80; examples/files/compose.local.yml and per-bot RO mount | no state mount, shared numeric permissions | merged Compose + exact-image file fixture |
+| Remote | protected HTTPS ingress; examples/files/remote_client.py POST download | independent download credential, TLS verification, no shared server pathname | existing authenticated/TLS file fixture |
+
+All use the same base/nonroot/files overrides in documented order; secrets overlay is last when enabled. Native platform/kernel qualification is required before claiming support. Config validation alone does not establish startup or file access.
