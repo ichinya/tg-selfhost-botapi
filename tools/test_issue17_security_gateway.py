@@ -18,6 +18,9 @@ class GatewayPolicy(unittest.TestCase):
         self.assertFalse(nginx_routes(tree)[-1])
         self.assertFalse(nginx_privacy(nginx_tree(config+'error_log stderr crit;')))
         self.assertFalse(nginx_privacy(nginx_tree(config.replace('default other','default $uri'))))
+        combined = config.replace('server {', (ROOT/'nginx.observability.conf').read_text() + '\nserver {', 1)
+        self.assertTrue(nginx_privacy(nginx_tree(combined)))
+        self.assertFalse(nginx_routes(nginx_tree(combined))[-1])
 
     def test_real_helper_malformed_requests_and_worker_exception_are_quiet(self):
         marker='synthetic_private_path'

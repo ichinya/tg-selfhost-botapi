@@ -24,12 +24,15 @@ exclude:
   - Dockerfile
   - docker-compose.yml
   - docker-compose.build.yml
+  - docker-compose.observability.yml
+  - docker-compose.observability.build.yml
   - docker-compose.nonroot.yml
   - docker-compose.files.yml
   - docker-compose.secrets.yml
   - docker-entrypoint.sh
   - migrate_off_to_self.sh
   - nginx.conf
+  - nginx.observability.conf
   - nginx-main.conf
   - patches
   - tools

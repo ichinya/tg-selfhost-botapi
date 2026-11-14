@@ -33,6 +33,11 @@ class ComposeSecretsTest(unittest.TestCase):
             self.assertNotIn("secrets", model["services"]["gateway"])
             self.assertNotIn("id-canary", json.dumps(model))
             self.assertNotIn("hash-canary", json.dumps(model))
+            overlay = self.model(base, *build, "docker-compose.secrets.yml", "docker-compose.observability.yml")
+            for service in ("gateway", "observer"):
+                self.assertNotIn("secrets", overlay["services"][service])
+            self.assertNotIn("id-canary", json.dumps(overlay))
+            self.assertNotIn("hash-canary", json.dumps(overlay))
 
 
 if __name__ == "__main__":

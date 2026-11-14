@@ -33,6 +33,9 @@ jobs:
           node --test tools/test_migration_ui.mjs
           node tools/test_issue17_security_browser.cjs
   persistent-volumes:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: mock-acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 180

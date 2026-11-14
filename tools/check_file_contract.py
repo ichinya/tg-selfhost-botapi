@@ -52,18 +52,47 @@ def validate(model, nginx):
 def validate_base(model):
     services = model['services']
     mounts = services['gateway'].get('volumes', [])
-    if (len(mounts) != 1 or mounts[0]['target'] != '/etc/nginx/conf.d/default.conf'
-            or not mounts[0].get('read_only') or services['botapi'].get('ports')
-            or Path(mounts[0]['source']).resolve() != (ROOT / 'nginx.conf').resolve()):
+    allowed = {
+        '/etc/nginx/nginx.conf': ROOT / 'nginx-main.conf',
+        '/etc/nginx/conf.d/default.conf': ROOT / 'nginx.conf',
+        '/etc/nginx/conf.d/observability.conf': ROOT / 'nginx.observability.conf',
+    }
+    found = set()
+    for mount in mounts:
+        target = mount.get('target')
+        if target in found:
+            raise ValueError('duplicate gateway mount')
+        found.add(target)
+        if target == '/var/cache/nginx/client_temp':
+            if mount.get('type') != 'volume' or mount.get('read_only'):
+                raise ValueError('unexpected spool mount')
+        elif (target not in allowed or mount.get('type') != 'bind' or not mount.get('read_only')
+              or Path(mount.get('source', '')).resolve() != allowed[target].resolve()):
+            raise ValueError('unexpected gateway mount')
+    if not {'/etc/nginx/nginx.conf', '/etc/nginx/conf.d/default.conf', '/var/cache/nginx/client_temp'} <= found or services['botapi'].get('ports'):
         raise ValueError('base gateway or backend exposure')
 
 
 def validate_gateway_runtime(container):
-    mounts = container.get('Mounts', [])
-    if (len(mounts) != 1 or mounts[0].get('Destination') != '/etc/nginx/conf.d/default.conf'
-            or mounts[0].get('RW') is not False
-            or Path(mounts[0].get('Source', '')).resolve() != (ROOT / 'nginx.conf').resolve()):
-        raise ValueError('runtime gateway storage exposure')
+    allowed = {
+        '/etc/nginx/nginx.conf': ROOT / 'nginx-main.conf',
+        '/etc/nginx/conf.d/default.conf': ROOT / 'nginx.conf',
+        '/etc/nginx/conf.d/observability.conf': ROOT / 'nginx.observability.conf',
+    }
+    found = set()
+    for mount in container.get('Mounts', []):
+        target = mount.get('Destination')
+        if target in found:
+            raise ValueError('duplicate gateway mount')
+        found.add(target)
+        if target == '/var/cache/nginx/client_temp':
+            if mount.get('Type') != 'volume' or mount.get('RW') is not True:
+                raise ValueError('unexpected spool mount')
+        elif (target not in allowed or mount.get('RW') is not False
+              or Path(mount.get('Source', '')).resolve() != allowed[target].resolve()):
+            raise ValueError('runtime gateway storage exposure')
+    if not {'/etc/nginx/nginx.conf', '/etc/nginx/conf.d/default.conf', '/var/cache/nginx/client_temp'} <= found:
+        raise ValueError('missing runtime gateway mount')
 
 
 PROBE = r'''

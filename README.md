@@ -15,11 +15,11 @@ before starting on a public host. Create `.env` and fill in `API_ID` / `API_HASH
 
 ```sh
 cp .env.example .env
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+docker compose up -d
 ```
 
-Local builds work before the first GHCR release. Once a published image is
-available, use `docker compose pull && docker compose up -d`.
+The default uses the published GHCR image. Local builds are described in the
+[configuration guide](docs/en/configuration.md).
 See [installation](docs/en/getting-started.md) for networking and verification.
 
 - Official server source; independent Docker entrypoint.

@@ -1,7 +1,6 @@
 name: Bot API image
 
 on:
-  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -18,6 +17,9 @@ concurrency:
 
 jobs:
   image:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     permissions:

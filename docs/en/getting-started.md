@@ -5,6 +5,23 @@ translation: /docs/ru/getting-started.html
 
 # Getting started
 
+Requires Docker Compose v2 and a Telegram application API ID/hash from [my.telegram.org](https://my.telegram.org).
+
+```sh
+git clone https://github.com/ichinya/tg-selfhost-botapi.git
+cd tg-selfhost-botapi
+cp .env.example .env
+```
+
+Fill in `API_ID` and `API_HASH` in `.env`, then run:
+
+```sh
+docker compose up -d
+docker compose ps
+```
+
+Botapi should become healthy and gateway should be running. The API binds to `127.0.0.1:18080` by default. An HTTP response confirms reachability, not bot authorization or webhook delivery. See [configuration](configuration.md) and [maintenance](maintenance.md) for advanced options.
+
 ## File downloads
 
 File downloads require the explicit split-storage override and a scoped reader:
@@ -80,9 +97,6 @@ from a bot token issued by BotFather.
 git clone https://github.com/ichinya/tg-selfhost-botapi.git
 cd tg-selfhost-botapi
 cp .env.example .env
-install -d -m 0700 .observability
-install -d -m 0755 .observability/runtime .observability/migration
-sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
 ```
 
 Fill in `API_ID` and `API_HASH` in `.env`. Keep that file private.

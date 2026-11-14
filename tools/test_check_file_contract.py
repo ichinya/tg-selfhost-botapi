@@ -65,12 +65,19 @@ class CheckerTests(unittest.TestCase):
         with self.assertRaises(ValueError): checker.validate(safe, nginx)
 
     def test_runtime_gateway_mounts_must_match_shipped_config(self):
-        mount = {'Destination': '/etc/nginx/conf.d/default.conf',
-                 'Source': str(checker.ROOT / 'nginx.conf'), 'RW': False}
-        checker.validate_gateway_runtime({'Mounts': [mount]})
-        for mounts in ([], [dict(mount, RW=True)], [mount, {'Destination': '/state'}]):
-            with self.subTest(mounts=mounts), self.assertRaises(ValueError):
-                checker.validate_gateway_runtime({'Mounts': mounts})
+        def bind(target, source):
+            return {'Destination': target, 'Source': str(checker.ROOT / source), 'RW': False}
+        mounts = [bind('/etc/nginx/nginx.conf', 'nginx-main.conf'),
+                  bind('/etc/nginx/conf.d/default.conf', 'nginx.conf'),
+                  {'Destination': '/var/cache/nginx/client_temp', 'Type': 'volume', 'RW': True}]
+        checker.validate_gateway_runtime({'Mounts': mounts})
+        management = bind('/etc/nginx/conf.d/observability.conf', 'nginx.observability.conf')
+        checker.validate_gateway_runtime({'Mounts': mounts + [management]})
+        for bad in ([], mounts[:-1], mounts + [{'Destination': '/state', 'RW': False}],
+                    mounts + [dict(management, RW=True)]):
+            with self.subTest(mounts=bad), self.assertRaises(ValueError):
+                checker.validate_gateway_runtime({'Mounts': bad})
+
 
 
 if __name__ == '__main__': unittest.main()
