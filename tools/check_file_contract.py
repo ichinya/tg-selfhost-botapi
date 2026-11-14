@@ -213,7 +213,9 @@ def exercise(botapi_image, downloads_image, report):
     env.update(BOTAPI_TEST_IMAGE=botapi_image, DOWNLOADS_TEST_IMAGE=downloads_image,
                FILE_FIXTURE_IMAGE=project + '-fixture', FIXTURE_NGINX=str(ROOT / 'nginx.conf'),
                FIXTURE_NGINX_MAIN=str(ROOT / 'nginx-main.conf'),
-               FIXTURE_TLS_CONFIG=str(FIXTURE / 'nginx.downloads.conf'))
+               FIXTURE_TLS_CONFIG=str(FIXTURE / 'nginx.downloads.conf'),
+               BOTAPI_UID='101', BOTAPI_GID='101',
+               BOTAPI_MEDIA_SOURCE=str(Path(tempfile.gettempdir()) / (project + '-media')))
     env['FILE_NGINX_IMAGE'] = report['fixture_images']['nginx']
     compose = ['docker', 'compose', '-p', project, '--env-file', str(FIXTURE / 'synthetic.env'),
                '-f', str(FIXTURE / 'compose.full.yml')]
