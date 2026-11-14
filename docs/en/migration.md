@@ -590,3 +590,7 @@ Full preserve additionally requires a fresh signed quiescence receipt from an in
 
 ### Recovery authority
 Keep the private journal outside state/media/webroot. The canonical engine reserves a per-bot operation before bot-bearing observations, records intent before mutation and preserves UNKNOWN after ambiguous transport. Resume never repeats unknown logOut/close/drop. Independent audit evidence is required; elapsed time or empty webhook is insufficient. Target authorization waits for confirmed detach and, for local-to-local, a verified stopped bot-subtree transfer. Readiness, migration, configuration and delivery remain separate outcomes. Private evidence reads reject special files and concurrent replacement.
+
+### Bash entry and legacy recovery
+Use the complete reviewed checkout with Python 3.11+ on Linux/WSL. `bash migrate_off_to_self.sh plan|apply|status|resume|reconcile|export` delegates to tools/migration_cli.py. Explicit `--operation`, MIGRATION_STATE_DIR and action are required; old SELF_BOT_URL/TELEGRAM_BOT_URL and WEBHOOK_URL/WEB_HOOK aliases are read as data. Ambiguous positional tokens are rejected before network use. A separately downloaded shell fails before doing work if runtime dependencies are missing.
+Old wp_migration_main journals are historical, unverified input. Stop application writers, inspect the last confirmed effect independently and reconcile manually before planning; do not rerun logOut to discover what happened.

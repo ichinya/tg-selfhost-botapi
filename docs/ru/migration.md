@@ -593,3 +593,7 @@ Full preserve дополнительно требует свежий подпи�
 
 ### Восстановление и authority
 Приватный journal хранится вне state/media/webroot. Canonical engine резервирует operation бота до bot-bearing observations, пишет intent до мутации и сохраняет UNKNOWN при неоднозначном transport outcome. Resume не повторяет неизвестные logOut/close/drop. Нужен независимый audit receipt; прошедшее время и пустой webhook недостаточны. Авторизация target ждёт подтверждённого detach, а для local-to-local — проверенного переноса остановленного bot subtree. Readiness, migration, configuration и delivery остаются отдельными результатами. Чтение private evidence отклоняет special files и concurrent replacement.
+
+### Bash-вход и legacy recovery
+Используйте полный проверенный checkout с Python 3.11+ в Linux/WSL. `bash migrate_off_to_self.sh plan|apply|status|resume|reconcile|export` делегирует tools/migration_cli.py. Нужны явные `--operation`, MIGRATION_STATE_DIR и action; прежние aliases SELF_BOT_URL/TELEGRAM_BOT_URL и WEBHOOK_URL/WEB_HOOK читаются как данные. Неоднозначные positional tokens отклоняются до сети. Отдельно скачанный shell прекращает работу до выполнения операций, если runtime dependencies отсутствуют.
+Старые journals wp_migration_main — неподтверждённый исторический вход. Остановите writers приложения, независимо проверьте последний подтверждённый effect и выполните ручную сверку до нового plan; не повторяйте logOut для выяснения результата.
