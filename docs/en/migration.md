@@ -75,6 +75,8 @@ Keep the private journal outside state/media/webroot. The canonical engine reser
 
 ### Bash entry and legacy recovery
 Use the complete reviewed checkout with Python 3.11+ on Linux/WSL. `bash migrate_off_to_self.sh plan|apply|status|resume|reconcile|export` delegates to tools/migration_cli.py. Explicit `--operation`, MIGRATION_STATE_DIR and action are required; old SELF_BOT_URL/TELEGRAM_BOT_URL and WEBHOOK_URL/WEB_HOOK aliases are read as data. Ambiguous positional tokens are rejected before network use. A separately downloaded shell fails before doing work if runtime dependencies are missing.
+
+For optional monitoring, create `.observability/migration` in the checkout as an operator-owned 0755 directory and set `MIGRATION_STATUS_DIR` to its absolute path and `MIGRATION_STATUS_ALIAS` to a public alias. The CLI atomically publishes a sanitized projection of the current operation's saved journal. Only confirmed migration state permits polling; a plan or unknown state does not. Publication failures are reported on stderr and do not change the migration exit code. The file represents one operation, so use a separate checkout and monitoring directory for each independently managed operation.
 Old wp_migration_main journals are historical, unverified input. Stop application writers, inspect the last confirmed effect independently and reconcile manually before planning; do not rerun logOut to discover what happened.
 
 ### Published migrator URL

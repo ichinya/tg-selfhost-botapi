@@ -75,6 +75,8 @@ Full preserve дополнительно требует свежий подпи�
 
 ### Bash-вход и legacy recovery
 Используйте полный проверенный checkout с Python 3.11+ в Linux/WSL. `bash migrate_off_to_self.sh plan|apply|status|resume|reconcile|export` делегирует tools/migration_cli.py. Нужны явные `--operation`, MIGRATION_STATE_DIR и action; прежние aliases SELF_BOT_URL/TELEGRAM_BOT_URL и WEBHOOK_URL/WEB_HOOK читаются как данные. Неоднозначные positional tokens отклоняются до сети. Отдельно скачанный shell прекращает работу до выполнения операций, если runtime dependencies отсутствуют.
+
+Для необязательного мониторинга создайте в checkout каталог `.observability/migration` с владельцем-оператором и правами 0755, задайте его абсолютный путь в `MIGRATION_STATUS_DIR` и публичный псевдоним в `MIGRATION_STATUS_ALIAS`. CLI атомарно публикует очищенную проекцию сохранённого журнала текущей операции. Polling разрешает только подтверждённое состояние миграции; plan и неизвестное состояние его не разрешают. Ошибка публикации сообщается в stderr и не меняет код выхода миграции. Файл отражает одну операцию: для независимо управляемых операций используйте отдельные checkout и каталог мониторинга.
 Старые journals wp_migration_main — неподтверждённый исторический вход. Остановите writers приложения, независимо проверьте последний подтверждённый effect и выполните ручную сверку до нового plan; не повторяйте logOut для выяснения результата.
 
 ### Публичный URL мигратора
