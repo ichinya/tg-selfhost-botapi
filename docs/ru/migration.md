@@ -600,3 +600,7 @@ Full preserve дополнительно требует свежий подпи�
 
 ### Публичный URL мигратора
 Прежний tg_selfhost_botapi_migrator.html — статический двуязычный вход. Он не принимает токены и не вызывает Bot API/localhost. Запустите helper из того же checkout и отдельно откройте его loopback URL. Helper отдаёт UI четырёх направлений и трёх actions на одном origin с приватным bootstrap, session и CSRF. При потере ответа сначала прочитайте status той же operation. Изменение формы сбрасывает подтверждение digest. Совместимость URL не сохраняет legacy standalone execution.
+
+### Ограниченные Compose checkpoints
+`python3 tools/migration_compose_provider.py --config /private/provider.json --state-file /private/operation.json --kind quiescence` читает только явно разрешённые полные container IDs. Приватная конфигурация задаёт provider/key_hex, fixture, project, containers (service/image IDs), application, endpoint, endpoint_variable и target_fingerprint. Тот же независимый ключ задаётся в TrustedReceipts для разрешённых kinds. Получайте receipt на соответствующем этапе, не подписывайте заранее весь перенос. Endpoint change требует остановленное приложение с совпадающим effective environment; controlled start сверяет время generation с target verification и endpoint change.
+Allowlist должен содержать всех writers. Collector не обнаруживает неизвестных внешних writers, не подтверждает прежний secret, потерянный logOut/close, перенос state или доставку. Эти границы остаются BLOCKED без независимых аудиторов. Docker socket нельзя монтировать в browser, gateway или helper.
