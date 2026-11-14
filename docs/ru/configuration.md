@@ -368,3 +368,18 @@ OBSERVER_BASE с approved Python image digest. Supervision host producer,
 права registry/credentials и ownership/rotation описаны в
 [обслуживании](maintenance.md). Ready секции описывает её источник наблюдения;
 исходы миграции проверяются отдельно от готовности процесса.
+## Подключение observability
+
+Подготовьте приватные входы `.observability`, описанные выше, затем выполните `docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d`. По умолчанию management доступен на `127.0.0.1:18081`; сохраняйте его приватным. `TELEGRAM_STAT` управляет обоими компонентами только с этим overlay. Для локальной сборки observer подключите также `docker-compose.build.yml` и `docker-compose.observability.build.yml`.
+
+При совместном использовании файловых секретов и observability указывайте `docker-compose.secrets.yml` перед `docker-compose.observability.yml` и проверяйте, что итоговая конфигурация не содержит inline credentials.
+
+## Интерфейсы настройки
+
+Compose читает `API_ID`, `API_HASH`, `BOTAPI_IMAGE`, `GATEWAY_BIND`, `TELEGRAM_HTTP_IP_ADDRESS` и `TELEGRAM_HTTP_PORT`. По умолчанию gateway доступен только на loopback; изменение порта backend требует согласованной настройки nginx. Overlay observability читает `TELEGRAM_STAT`, `MGMT_BIND`, `OBSERVER_IMAGE`, `OBSERVER_MIGRATION_DIR` и `OBSERVER_REGISTRY`; build overlay читает `OBSERVER_BASE`. Закрепляйте образы botapi и observer с одинаковым ключом сборки.
+
+Overlay non-root и files читают `BOTAPI_UID`, `BOTAPI_GID`, `BOTAPI_STATE_SOURCE`, `BOTAPI_TEMP_SOURCE` и `BOTAPI_MEDIA_SOURCE`. Overlay секретов читает `TELEGRAM_API_ID_SECRET_PATH` и `TELEGRAM_API_HASH_SECRET_PATH`. Downloads и reader используют `DOWNLOADS_IMAGE`, `BOT_A_ROOT`, `BOT_A_HOST_ROOT`, `BOT_TOKEN_FILE`, `DOWNLOAD_BOT_TOKEN_FILE`, `DOWNLOAD_AUTH_TOKEN_FILE`, `DOWNLOADS_BIND`, `DOWNLOAD_MAX_DURATION`, `DOWNLOAD_WORKERS`, `BOT_TEST_DC` и `BOT_COLON_LAYOUT`; храните секреты в приватных файлах и оставляйте downloads на loopback без защищённого ingress.
+
+У миграционных helper собственное окружение процесса: `SELF_BOT_URL`, `WEBHOOK_URL`, `DROP_PENDING_UPDATES`, `WEBHOOK_SECRET_MODE`, `WEBHOOK_SECRET_TOKEN_FILE`, `WEBHOOK_IP_MODE`, `WEBHOOK_ALLOWED_UPDATES`, `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL`, `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE`, `BOT_TOKEN_FILE`, `MIGRATION_CONNECT_TIMEOUT`, `MIGRATION_REQUEST_DEADLINE`, `MIGRATION_STATUS_DIR` и `MIGRATION_STATUS_ALIAS`. Решение об ожидающих обновлениях принимайте явно; см. [миграцию](migration.md).
+
+Для `TELEGRAM_VERBOSITY`, `TELEGRAM_WORK_DIR` и `TELEGRAM_TEMP_DIR` необходимо явное переопределение окружения контейнера: добавления в `.env` недостаточно. `TELEGRAM_FILES_DIR` и `TELEGRAM_LOG_FILE` задаёт overlay files. Храните state, временные файлы и media раздельно.

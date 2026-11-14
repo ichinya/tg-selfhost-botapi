@@ -589,11 +589,11 @@ settings; наблюдайте UP, остановите Bot API и получи�
 `observer-build-<same-key>` либо точные digest. Сохраняйте project и Compose overrides:
 
 ```sh
-docker compose pull botapi observer gateway
-docker compose up -d --force-recreate botapi observer gateway
+docker compose -f docker-compose.yml -f docker-compose.observability.yml pull botapi observer gateway
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --force-recreate botapi observer gateway
 ```
 
-Для local builds используйте оба `-f docker-compose.yml -f docker-compose.build.yml`
+Для local builds используйте `docker-compose.yml`, `docker-compose.build.yml`, `docker-compose.observability.yml` и `docker-compose.observability.build.yml`
 при build/up. Пересоздавайте observer при смене владельца namespace и gateway для
 обновления routing. Rollback выбирает прежнюю совместимую пару и ту же процедуру;
 при необходимости нужна совместимая backup состояния. Обновление только botapi

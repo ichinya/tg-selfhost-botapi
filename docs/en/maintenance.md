@@ -594,11 +594,11 @@ Pin BOTAPI_IMAGE to `build-<key>` and OBSERVER_IMAGE to `observer-build-<same-ke
 or their exact digests. Keep the same project and Compose overrides throughout:
 
 ```sh
-docker compose pull botapi observer gateway
-docker compose up -d --force-recreate botapi observer gateway
+docker compose -f docker-compose.yml -f docker-compose.observability.yml pull botapi observer gateway
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --force-recreate botapi observer gateway
 ```
 
-For local builds use both `-f docker-compose.yml -f docker-compose.build.yml` on
+For local builds include `docker-compose.yml`, `docker-compose.build.yml`, `docker-compose.observability.yml` and `docker-compose.observability.build.yml` on
 build/up. Recreate observer whenever its namespace owner changes; recreate gateway
 to refresh routing. Rollback selects the previous compatible pair and follows the
 same procedure, with a compatible state backup when needed. A botapi-only

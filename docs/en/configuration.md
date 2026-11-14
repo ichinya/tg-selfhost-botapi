@@ -364,3 +364,18 @@ Python image digest to reproduce the release base. Host producer supervision,
 registry/credential permissions and ownership/rotation are described in
 [maintenance](maintenance.md). A section's ready state describes its observation
 source; inspect migration outcomes separately from process readiness.
+## Opt-in observability
+
+Prepare the private `.observability` inputs as described above, then run `docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d`. Management binds to `127.0.0.1:18081` by default; keep it private. `TELEGRAM_STAT` controls both components only with this overlay. For a local observer build also include `docker-compose.build.yml` and `docker-compose.observability.build.yml`.
+
+When combining file secrets with observability, list `docker-compose.secrets.yml` before `docker-compose.observability.yml`, and verify the effective configuration does not contain inline credentials.
+
+## Configuration interfaces
+
+Compose reads `API_ID`, `API_HASH`, `BOTAPI_IMAGE`, `GATEWAY_BIND`, `TELEGRAM_HTTP_IP_ADDRESS` and `TELEGRAM_HTTP_PORT`. The gateway defaults to loopback; changing the backend port also requires matching nginx configuration. The observability overlay reads `TELEGRAM_STAT`, `MGMT_BIND`, `OBSERVER_IMAGE`, `OBSERVER_MIGRATION_DIR` and `OBSERVER_REGISTRY`; its build overlay reads `OBSERVER_BASE`. Pin the botapi and observer images to matching build keys.
+
+Non-root and files overlays read `BOTAPI_UID`, `BOTAPI_GID`, `BOTAPI_STATE_SOURCE`, `BOTAPI_TEMP_SOURCE` and `BOTAPI_MEDIA_SOURCE`. The secrets overlay reads `TELEGRAM_API_ID_SECRET_PATH` and `TELEGRAM_API_HASH_SECRET_PATH`. The downloads and reader overlays use `DOWNLOADS_IMAGE`, `BOT_A_ROOT`, `BOT_A_HOST_ROOT`, `BOT_TOKEN_FILE`, `DOWNLOAD_BOT_TOKEN_FILE`, `DOWNLOAD_AUTH_TOKEN_FILE`, `DOWNLOADS_BIND`, `DOWNLOAD_MAX_DURATION`, `DOWNLOAD_WORKERS`, `BOT_TEST_DC` and `BOT_COLON_LAYOUT`; keep credentials in private files and bind downloads to loopback unless protected ingress is configured.
+
+Migration helpers have their own process environment: `SELF_BOT_URL`, `WEBHOOK_URL`, `DROP_PENDING_UPDATES`, `WEBHOOK_SECRET_MODE`, `WEBHOOK_SECRET_TOKEN_FILE`, `WEBHOOK_IP_MODE`, `WEBHOOK_ALLOWED_UPDATES`, `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL`, `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE`, `BOT_TOKEN_FILE`, `MIGRATION_CONNECT_TIMEOUT`, `MIGRATION_REQUEST_DEADLINE`, `MIGRATION_STATUS_DIR` and `MIGRATION_STATUS_ALIAS`. Make the pending-update decision explicitly; see [migration](migration.md).
+
+Container inputs `TELEGRAM_VERBOSITY`, `TELEGRAM_WORK_DIR` and `TELEGRAM_TEMP_DIR` require an explicit container environment override: adding them to `.env` alone does not pass them through. `TELEGRAM_FILES_DIR` and `TELEGRAM_LOG_FILE` are set by the files overlay. Keep state, temporary and media roots separate.
