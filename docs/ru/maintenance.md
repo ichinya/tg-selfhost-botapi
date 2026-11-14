@@ -723,3 +723,6 @@ Production sender harness PR #37 принят. Native jobs amd64 и arm64 соб
 3. Проверьте `python3 tools/check_issue12_restore.py --manifest /private/backup.json --archive-directory /private/archives`. Подготовьте пустые dedicated restore roots, проверьте пути/типы членов архива, затем восстановите numeric owners и permissions. Непроверенный архив в production roots распаковывать нельзя.
 4. Запустите exact saved image/overrides на изолированном restore-инстансе, проверьте token-free readiness, hashes/ownership и restart. Запишите отдельный runtime receipt.
 5. Обновляйте после репетиции. Совместимость downgrade не гарантируется: rollback использует соответствующий остановленный snapshot и приватную конфигурацию; новые DB files со старым state не смешиваются. Observer остаётся opt-in.
+
+### Doctor после перехода adapters
+Doctor остаётся token-free и не проверяет авторизацию бота или Telegram delivery. Report называет canonical Python Bash adapter и same-origin helper. Mount permissions, image identity и actual runtime evidence сохраняют FAILED/UNKNOWN; отсутствие Docker/kernel/provider evidence не даёт readiness PASS. Проверка custom binary port отделена от фиксированного Compose port 8081. Для runtime diagnostics используйте synthetic selected-stack fixture, без production bot.

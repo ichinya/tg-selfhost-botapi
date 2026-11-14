@@ -727,3 +727,6 @@ PR #42 cold-backup validator and shutdown observation primitives are adopted; no
 3. Validate with `python3 tools/check_issue12_restore.py --manifest /private/backup.json --archive-directory /private/archives`. Provision empty dedicated restore roots, validate archive member paths/types, then restore numeric owners and permissions. Never unpack an unvalidated archive into production roots.
 4. Start the exact saved image/overrides on the isolated restore instance, check token-free readiness, file hashes/ownership and restart. Record a separate runtime receipt.
 5. Update only after the rehearsal. Downgrade compatibility is not guaranteed: rollback uses the matching stopped snapshot and private configuration; do not mix newer database files into old state. Observer stays opt-in.
+
+### Doctor scope after adapter migration
+Doctor remains token-free and never checks bot authorization or Telegram delivery. Reports now name the canonical Python Bash adapter and same-origin helper. Mount permissions, image identity and actual runtime evidence retain FAILED/UNKNOWN distinctions; missing Docker/kernel/provider evidence cannot produce readiness PASS. Custom binary port checks remain separate from the fixed 8081 Compose bundle. Use a selected-stack synthetic fixture, never a production bot, for runtime diagnostics.
