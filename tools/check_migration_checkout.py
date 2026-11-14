@@ -27,6 +27,10 @@ REQUIRED = ['tools/migration_executor.sh','tools/migration_executor.html','migra
 
 def main():
     root=Path(__file__).resolve().parents[1]
+    top=subprocess.run(['git','rev-parse','--show-toplevel'],cwd=root,capture_output=True,check=True).stdout.decode().strip()
+    if Path(top).resolve()!=root:
+        print('Candidate must be its own committed checkout',file=sys.stderr)
+        return 1
     tracked=subprocess.run(['git','ls-files','-z'],cwd=root,capture_output=True,check=True).stdout.decode().split('\0')
     missing=sorted(set(REQUIRED)-set(tracked))
     if missing:

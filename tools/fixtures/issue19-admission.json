@@ -1,0 +1,930 @@
+{
+  "base": "f490df7562bd4f054066d5b0a5a8bfbefa6bdff5",
+  "source_head": "3a14f285ea4111ff981a794b6d3b4cb92ab1dbdf",
+  "inventory": [
+    {
+      "path": ".build-inputs.json",
+      "owner": "#23/#38",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": ".github/workflows/delivery-actions.yml",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": ".github/workflows/deployment-profiles.yml",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": ".github/workflows/gateway-uploads.yml",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": ".github/workflows/image-qualification.yml",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": ".github/workflows/issue18-image-qualification.yml",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": ".github/workflows/issue6-html-migrator.yml",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": ".github/workflows/issue7-webhook-profile.yml",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": ".github/workflows/issue9-delivery-actions.yml",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": ".github/workflows/webhook-profile.yml",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "AGENTS.md",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "docker-compose.observability.build.yml",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "docker-compose.observability.yml",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "docs/en/deployment-profiles.md",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "docs/ru/deployment-profiles.md",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "evidence/A-build-deps.log",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "evidence/apk-refresh.json",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "evidence/fixture-builder.log",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "evidence/fixture-packaging.log",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/.env.example",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/README.md",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/allowlist.example.conf",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/compose.common.yml",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/compose.docker.yml",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/compose.host.yml",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/compose.remote.yml",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/host_client.py",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/nginx.remote-main.conf",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "examples/profiles/nginx.remote.conf",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "migration-safety.js",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "patches/webhook-diagnostics-redact.patch",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/botapi_privacy_driver.cpp",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_botapi_log_privacy.py",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_compose_models.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_compose_secrets.py",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_deployment_profiles.py",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_issue18_apk.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_issue18_compose.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_issue18_image.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_issue18_platform.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_issue18_resources.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_issue18_sender.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_migration_candidate.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_runtime_permissions.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/check_secret_logs.py",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/apk_fixture/APKBUILD",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/apk_fixture/LICENSE",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/apk_fixture/SHA256SUMS",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/apk_fixture/probe.c",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/apk_fixture/refresh.c",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/browser/export.spec.mjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/browser/fixture.mjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/browser/migration.spec.mjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/browser/package-lock.json",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/browser/package.json",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/browser/playwright.config.mjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/browser/profile.spec.mjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/platform.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/publish.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/scenarios_dependencies.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/scenarios_entrypoint.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/scenarios_gateway.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/scenarios_metadata.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/scenarios_migration.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/scenarios_sender.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/sender/CMakeLists.txt",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/ci_safety/sender/webhook_sender_test.cpp",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/delivery_actions_mock.py",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/delivery_actions_ui_harness.cjs",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/delivery_actions_v1.json",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/deployment_profiles/Dockerfile",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/deployment_profiles/README.md",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/deployment_profiles/compose.test.yml",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/deployment_profiles/mock_botapi.py",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/deployment_profiles/runtime.py",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue17_secret_surfaces.json",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue18_apk/Dockerfile",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue18_apk/repository.sh",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue18_sender/cases.json",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue18_sender/receiver.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue18_sender/sender_driver.cpp",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue18_sender/targets.cmake",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue21/docker-compose.reader.yml",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue21/entrypoint-probe.sh",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue21/reader-probe.sh",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue21/test_runtime_permissions.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue7-profile-cases.json",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/issue9_action_contract.json",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/fixtures/secret_surfaces.json",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/image_verification.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue14_browser.cjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue6_html_contract.cjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue6_html_mock.cjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue7_profile_mock.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue7_transport_probe.cjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue7_ui_harness.cjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue7_webhook_receiver.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue9_action_contract.cjs",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue9_action_support.py",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue9_mock_api.py",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/issue9_ui_harness.cjs",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/migrate.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/migration_directions.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/migration_legacy.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/migration_private.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/migration_profile.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/migration_server.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/publish_issue18.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/sync_migration_runtime.cjs",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_botapi_log_privacy.py",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_browser_diagnostics.js",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_candidate_image.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_check_docs_secrets.py",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_check_issue18_apk.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_check_issue18_compose.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_check_issue18_image.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_check_issue18_resources.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_check_issue18_sender.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_ci_migration.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_ci_qualification.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_ci_split.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_default_install.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_delivery_actions.py",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_deployment_profiles.py",
+      "owner": "#15",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_image_qualification.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_image_verification.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_issue18_polling.cjs",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_issue6_html_migrator.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_issue7_migrator_ui.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_issue7_profile_privacy.py",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_issue7_webhook_profile.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_issue7_webhook_receiver.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_issue9_action_contract.py",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_issue9_delivery_actions.py",
+      "owner": "#9",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_browser.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_legacy.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_matrix.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_packaging.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_privacy.py",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_profile.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_recovery.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_secrets.py",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_server.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migration_transfer.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_migrator_plan.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_publish_image.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_publish_issue18.py",
+      "owner": "#18",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_release_metadata.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_secret_logs.py",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_shell_log_privacy.js",
+      "owner": "#17",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_verify_image.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/test_webhook_migration.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/verify_image.py",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    },
+    {
+      "path": "tools/webhook-profile.schema.json",
+      "owner": "independent WIP",
+      "decision": "exclude",
+      "reason": "Untracked source is not admitted; tracked candidate comes from f490df7."
+    }
+  ]
+}
