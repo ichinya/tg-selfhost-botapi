@@ -46,6 +46,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Resolve fixture Python base offline
+        run: |
+          python3 tools/image_inputs.py --build-env .env.build
+          cat .env.build >> "$GITHUB_ENV"
       - name: Regression suite on clean checkout
         run: |
           sudo apt-get update
@@ -53,12 +57,13 @@ jobs:
           timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: File bind mount regression
         run: |
+          set -a; . ./.env.build; set +a
           printf SYNTHETIC_BIND_SECRET > "$RUNNER_TEMP/file-contract-secret"
           chmod 600 "$RUNNER_TEMP/file-contract-secret"
           docker run --rm --network none --cpus 1 --memory 256m --pids-limit 64 --user "$(id -u):$(id -g)" \
             -v "$GITHUB_WORKSPACE:/src:ro" \
             --mount "type=bind,src=$RUNNER_TEMP/file-contract-secret,dst=/run/secrets/bot-token,readonly" \
-            -e FILE_ACCESS_BIND_TEST=/run/secrets/bot-token -w /src python:3.12-slim \
+            -e FILE_ACCESS_BIND_TEST=/run/secrets/bot-token -w /src "$PYTHON_IMAGE" \
             python -m unittest tools.test_file_access.KernelTests.test_private_secret_file_bind_mount
       - name: Compose combinations
         env:
@@ -67,19 +72,26 @@ jobs:
           DOWNLOADS_IMAGE: downloads-candidate:check
           BOT_A_ROOT: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
           BOT_A_HOST_ROOT: /tmp/isolated-media/bot-a
+          BOTAPI_MEDIA_SOURCE: /tmp/isolated-media
+          BOTAPI_UID: '101'
+          BOTAPI_GID: '101'
           BOT_TOKEN_FILE: /tmp/isolated-secrets/bot-token
           DOWNLOAD_BOT_TOKEN_FILE: /tmp/isolated-secrets/bot-token
           DOWNLOAD_AUTH_TOKEN_FILE: /tmp/isolated-secrets/auth
         run: |
-          docker compose --env-file tools/fixtures/files/synthetic.env config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.files.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f examples/files/compose.local.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.files.yml -f docker-compose.downloads.yml config --quiet
+          docker compose --env-file .env.build --env-file tools/fixtures/files/synthetic.env config --quiet
+          docker compose --env-file .env.build --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          docker compose --env-file .env.build --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml config --quiet
+          docker compose --env-file .env.build --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.files.yml config --quiet
+          docker compose --env-file .env.build --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f examples/files/compose.local.yml config --quiet
+          docker compose --env-file .env.build --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml config --quiet
+          docker compose --env-file .env.build --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.files.yml -f docker-compose.downloads.yml config --quiet
+          docker compose --env-file .env.build --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml -f docker-compose.downloads.build.yml config --quiet
       - name: State isolation before file services
-        run: python3 tools/check_file_contract.py --state-isolation-only
+        run: |
+          set -a; . ./.env.build; set +a
+          export FILE_NGINX_IMAGE="$GATEWAY_IMAGE"
+          python3 tools/check_file_contract.py --state-isolation-only
       - name: Check exact build-context allowlist
         run: |
           docker build --output "type=local,dest=$RUNNER_TEMP/file-build-context" -f - . <<'DOCKERFILE'
@@ -91,15 +103,22 @@ jobs:
           from pathlib import Path
           root = Path(os.environ['CONTEXT_EXPORT'])
           seen = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()}
-          expected = set('Dockerfile Dockerfile.downloads docker-entrypoint.sh patches/webhook-user-agent.patch patches/botapi-secrets-redaction.patch tools/botapi_healthcheck.sh tools/file_access.py tools/file_contract.py tools/download_server.py examples/files/local_reader.py tools/fixtures/issue17_security/botapi_log_driver.cpp tools/observability/Dockerfile tools/observability/__init__.py tools/observability/migration.py tools/observability/probes.py tools/observability/runtime.py tools/observability/schema.py tools/observability/server.py tools/observability/stats.py tools/observability/status.schema.json tools/observability/webhook.py'.split())
+          expected = set('tools/webhook_sender/CMakeLists.txt tools/webhook_sender/webhook_sender_test.cpp tools/image_inputs.py Dockerfile Dockerfile.downloads docker-compose.downloads.build.yml docker-entrypoint.sh patches/webhook-user-agent.patch patches/botapi-secrets-redaction.patch tools/botapi_healthcheck.sh tools/file_access.py tools/file_contract.py tools/download_server.py examples/files/local_reader.py tools/fixtures/issue17_security/botapi_log_driver.cpp tools/observability/Dockerfile tools/observability/__init__.py tools/observability/migration.py tools/observability/probes.py tools/observability/runtime.py tools/observability/schema.py tools/observability/server.py tools/observability/stats.py tools/observability/status.schema.json tools/observability/webhook.py'.split())
           assert seen == expected, 'build context is not the exact allowlist'
           PY
       - name: Build exact candidates
+        env:
+          BOTAPI_MEDIA_SOURCE: /tmp/isolated-media
+          BOTAPI_UID: '101'
+          BOTAPI_GID: '101'
         run: |
-          docker build --build-arg BUILD_JOBS=1 -t botapi-candidate:check .
-          docker build -f Dockerfile.downloads -t downloads-candidate:check .
+          set -a; . ./.env.build; set +a
+          docker build --build-arg "BOT_API_REVISION=$BOT_API_REVISION" --build-arg "BOT_API_VERSION=$BOT_API_VERSION" --build-arg "ALPINE_IMAGE=$ALPINE_IMAGE" --build-arg "BUILD_FINGERPRINT=$BUILD_FINGERPRINT" --build-arg "BUILD_JOBS=$BUILD_JOBS" --build-arg "SUBMODULES=$SUBMODULES" --build-arg "TDLIB_REVISION=$TDLIB_REVISION" --build-arg "WRAPPER_REVISION=$WRAPPER_REVISION" --build-arg "APK_REFRESH_ID=$APK_REFRESH_ID" -t botapi-candidate:check .
+          DOWNLOADS_IMAGE=downloads-candidate:check BOT_A_ROOT=/var/lib/telegram-bot-api-files/12345:SYNTHETIC_A BOT_A_HOST_ROOT=/tmp/isolated-media/bot-a DOWNLOAD_BOT_TOKEN_FILE=/tmp/isolated-secrets/bot-token DOWNLOAD_AUTH_TOKEN_FILE=/tmp/isolated-secrets/auth docker compose --env-file .env.build --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml -f docker-compose.downloads.build.yml build downloads
       - name: Full synthetic contract and actual image startup
         run: |
+          set -a; . ./.env.build; set +a
+          export FILE_NGINX_IMAGE="$GATEWAY_IMAGE"
           python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
             --downloads-image downloads-candidate:check --report "$RUNNER_TEMP/file-report.json"
       - name: Build Pages

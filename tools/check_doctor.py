@@ -138,7 +138,8 @@ class Harness:
     def run(self):
         self.command(["docker", "version", "--format", "{{.Server.Version}}"])
         cases = []
-        env_keys = ("DOCTOR_FIXTURE_IMAGE", "DOCTOR_PYTHON_IMAGE", "DOCTOR_NGINX_IMAGE", 'DOCTOR_OBSERVER_IMAGE')
+        env_keys = ("DOCTOR_FIXTURE_IMAGE", "DOCTOR_PYTHON_IMAGE", "DOCTOR_NGINX_IMAGE", 'DOCTOR_OBSERVER_IMAGE',
+                    'DOCTOR_APK_REFRESH_ID', 'DOCTOR_BUILD_FINGERPRINT')
         previous = {k: os.environ.get(k) for k in env_keys}
         signals = {}
         for signum in (signal.SIGINT, signal.SIGTERM):
@@ -149,6 +150,7 @@ class Harness:
                           "nginx": self.pin(os.environ.get("DOCTOR_NGINX_IMAGE", "nginx:1.28.0-alpine3.21"))}
             os.environ.update(DOCTOR_FIXTURE_IMAGE=self.project + ":synthetic", DOCTOR_PYTHON_IMAGE=self.bases["python"], DOCTOR_NGINX_IMAGE=self.bases["nginx"])
             os.environ['DOCTOR_OBSERVER_IMAGE'] = self.project + ':observer'
+            os.environ.update(DOCTOR_APK_REFRESH_ID='synthetic-doctor', DOCTOR_BUILD_FINGERPRINT='synthetic-doctor')
             self.stage = "fixture-build"
             self.command(self.compose + ["build", "botapi", 'observer'])
             self.built = True
@@ -169,17 +171,28 @@ class Harness:
                         path.write_text(json.dumps(override), encoding="utf-8")
                         files.append(str(path))
                         compose += ["-f", str(path)]
+                    self.stage = "case-" + name + "-compose-up"
                     self.command(compose + ["up", "-d", "--wait", "--wait-timeout", "30"])
+                    self.stage = "case-" + name + "-snapshot-before"
                     before = self.snapshot()
                     argv = ["-p", self.project]
                     for file in files:
                         argv += ["-f", file]
+                    self.stage = "case-" + name + "-doctor"
                     result, code = run_case(argv + common + list(extra))
+                    self.stage = "case-" + name + "-snapshot-after"
                     after = self.snapshot()
                     if before != after:
                         raise AssertionError("synthetic sentinel changed")
                     if expected is not None and code != expected:
+                        self.stage = "case-" + name + "-verdict"
                         reasons = [c["reason_code"] for c in result["checks"] if c["required"] and c["status"] != "PASS"]
+                        # These are internal reason identifiers, never raw diagnostics.
+                        if all(isinstance(r, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", r) for r in reasons):
+                            print("Synthetic case reason codes: " + ",".join(reasons), file=sys.stderr)
+                        snapshots = [c["check_id"] for c in result["checks"] if c["status"] != "PASS" and (c["check_id"].endswith((".identity_snapshot", ".config_snapshot", ".compose_snapshot")) or ".identity_component." in c["check_id"])]
+                        if all(isinstance(i, str) and re.fullmatch(r"[a-z][a-z0-9_.]{0,127}", i) for i in snapshots):
+                            print("Changed snapshot checks: " + (",".join(snapshots) or "none"), file=sys.stderr)
                         raise AssertionError(name + " unexpected result: " + ",".join(reasons))
                     cases.append({"name": name, "exit_code": code, "verdict": result["readiness"]["verdict"]})
                     return argv
@@ -250,6 +263,11 @@ if __name__ == "__main__":
     harness = Harness()
     try:
         print(json.dumps(harness.run(), indent=2))
-    except (Exception, KeyboardInterrupt):
-        print("Synthetic doctor integration failed at " + harness.stage, file=sys.stderr)
+    except (Exception, KeyboardInterrupt) as exc:
+        # Exception text and command output may contain private paths or values.
+        # Only report fixed failure categories here.
+        category = ("assertion" if isinstance(exc, AssertionError) else
+                    "command" if isinstance(exc, RunError) else
+                    "interrupted" if isinstance(exc, KeyboardInterrupt) else "unexpected")
+        print("Synthetic doctor integration failed at " + harness.stage + " (" + category + ")", file=sys.stderr)
         sys.exit(1)

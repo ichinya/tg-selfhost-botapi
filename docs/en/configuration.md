@@ -20,6 +20,14 @@ docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
 
 For a local build insert `-f docker-compose.build.yml` before the secrets file.
 The overlay removes inline credentials from the effective container environment.
+Credential files must be nonempty regular files readable by the server user;
+directories and FIFOs are rejected without reading them. `docker compose config`
+checks the merged structure; the entrypoint checks credentials at startup.
+
+The gateway and optional downloads service wait for Bot API HTTP readiness.
+This does not test bot authorization or guarantee recovery after an unhealthy status.
+Bot API has a 120-second stop grace period; measure shutdown with your own data
+and override it if needed before taking a stopped backup.
 The existing environment-only configuration remains available.
 
 ## Doctor configuration checks
@@ -133,15 +141,23 @@ override requires the non-root overlay and a prepared `BOTAPI_MEDIA_SOURCE`.
 | `API_ID` | Required application API ID |
 | `API_HASH` | Required application API hash |
 | `GATEWAY_BIND` | Gateway host address; defaults to `127.0.0.1` |
-| `BOTAPI_IMAGE` | Optional image tag or digest; defaults to `ghcr.io/ichinya/tg-selfhost-botapi:latest` |
+| `BOTAPI_IMAGE` | Local tag fallback for config; use a qualified immutable ref for deployment |
+| `OBSERVER_IMAGE` | Local tag fallback for config; use a qualified immutable ref for deployment |
+| `GATEWAY_IMAGE` | Local tag fallback for config; use a qualified immutable ref for deployment |
+
+Use refs from a qualified release receipt for deployment. Generated `.env.build`
+supplies local build inputs. Without refs, base `up` fails pulling the gateway
+fallback when that local image is absent.
 
 For a tested build, set:
 
 ```text
-BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
+BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi@sha256:<qualified-botapi-digest>
+OBSERVER_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi-observer@sha256:<qualified-observer-digest>
+GATEWAY_IMAGE=nginx@sha256:<qualified-gateway-digest>
 ```
 
-An image digest can be used instead. The local build override uses
+The local build override uses
 `tg-selfhost-botapi:local`, independently of `BOTAPI_IMAGE`.
 
 ## Migration helper environment
@@ -336,7 +352,8 @@ Before Compose up, prepare inputs on the Linux host:
 install -d -m 0700 .observability
 install -d -m 0755 .observability/runtime .observability/migration
 sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+python3 tools/image_inputs.py --build-env .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 The observer shares only Bot API's network namespace. It runs as 101:101 with a
@@ -364,3 +381,21 @@ Python image digest to reproduce the release base. Host producer supervision,
 registry/credential permissions and ownership/rotation are described in
 [maintenance](maintenance.md). A section's ready state describes its observation
 source; inspect migration outcomes separately from process readiness.
+
+## Saved build inputs
+
+`image-inputs.lock.json` is an unqualified, dated source/base discovery snapshot.
+Replay is offline: `python3 tools/image_inputs.py --build-env .env.build --json-file /private/resolved.json`.
+Use `docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+Keep generated inputs private. The observer uses the same Alpine base in local builds and CI;
+optional downloads uses the saved Python base. Discovery is explicit (`--save-discovery /private/candidate.json`);
+it retains the selected server revision until a reviewed source update. PR builds replay the committed snapshot.
+The build key excludes deployment digests and documentation; qualification has its own key.
+The local build overlay and downloads explicitly select `linux/amd64`; emulation
+does not qualify a native ARM64 release.
+Historical base digests require fresh registry/platform/support checks in CI before release selection.
+
+The test-only sender artifact is retained by digest alongside each qualified runtime;
+reuse pulls it without recompiling. A missing paired test artifact blocks reuse until evidence is restored.
+After committing a packaging change, use `--capture-wrapper /private/source-inputs.json`
+then replay that file with `--inputs-file` to bind the actual wrapper commit.

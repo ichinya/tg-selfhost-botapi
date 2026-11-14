@@ -43,3 +43,6 @@ workflow должен попасть в основную ветку и успе�
 
 Дальнейшая работа собрана в [issues](https://github.com/ichinya/tg-selfhost-botapi/issues/19).
 Защищённые credentials и диагностика описаны в [настройках](configuration.md#файловые-секреты-docker-compose) и [миграции](migration.md#политика-защищённого-ввода).
+
+Входы сборки и выбор qualified release: [настройка](configuration.md#сохранённые-входы-сборки);
+backup/update/rollback: [обслуживание](maintenance.md#холодный-backup-обновление-и-откат-вместе-с-данными).

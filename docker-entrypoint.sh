@@ -195,6 +195,9 @@ load_secret() {
         exit 1
     fi
     if [ -n "$secret_file" ]; then
+        [ -f "$secret_file" ] || {
+            echo "${secret_name}_FILE must refer to a regular file" >&2; exit 1;
+        }
         secret_value="$(cat "$secret_file" 2>/dev/null)" || {
             echo "Cannot read ${secret_name}_FILE as the server user" >&2; exit 1;
         }

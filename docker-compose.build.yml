@@ -1,12 +1,27 @@
-# Optional local build: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# Local build: generate .env.build with tools/image_inputs.py first.
 services:
   botapi:
+    platform: linux/amd64
     image: tg-selfhost-botapi:local
-    build: .
+    build:
+      context: .
+      args:
+        BOT_API_REVISION: ${BOT_API_REVISION:?Generate .env.build from the saved snapshot}
+        BOT_API_VERSION: ${BOT_API_VERSION:?Generate .env.build from the saved snapshot}
+        ALPINE_IMAGE: ${ALPINE_IMAGE:?Generate .env.build from the saved snapshot}
+        APK_REFRESH_ID: ${APK_REFRESH_ID:?Generate .env.build from the saved snapshot}
+        SUBMODULES: ${SUBMODULES:?Generate .env.build from the saved snapshot}
+        TDLIB_REVISION: ${TDLIB_REVISION:?Generate .env.build from the saved snapshot}
+        WRAPPER_REVISION: ${WRAPPER_REVISION:?Generate .env.build from the saved snapshot}
+        BUILD_FINGERPRINT: ${BUILD_FINGERPRINT:?Generate .env.build from the saved snapshot}
+        BUILD_JOBS: ${BUILD_JOBS:?Generate .env.build from the saved snapshot}
   observer:
+    platform: linux/amd64
     image: tg-selfhost-botapi-observer:local
     build:
       context: .
       dockerfile: tools/observability/Dockerfile
       args:
-        OBSERVER_BASE: ${OBSERVER_BASE:-alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f}
+        OBSERVER_BASE: ${OBSERVER_BASE:?Generate .env.build}
+        APK_REFRESH_ID: ${APK_REFRESH_ID:?Generate .env.build}
+        BUILD_FINGERPRINT: ${BUILD_FINGERPRINT:?Generate .env.build}

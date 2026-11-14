@@ -39,7 +39,9 @@ def prefix(project):
 def validate(model, nginx):
     gateway = model['services']['gateway']
     mounts = gateway.get('volumes', [])
-    if len(mounts) != 1 or mounts[0]['target'] != '/etc/nginx/conf.d/default.conf' or not mounts[0].get('read_only'):
+    if (len(mounts) != 2 or {m.get('target') for m in mounts} !=
+            {'/etc/nginx/nginx.conf', '/etc/nginx/conf.d/default.conf'}
+            or any(not m.get('read_only') for m in mounts)):
         raise ValueError('gateway has unexpected storage')
     nginx = re.sub(r'#[^\n]*', '', nginx)
     if re.search(r'\b(?:alias|root|include)\s', nginx):
@@ -52,17 +54,27 @@ def validate(model, nginx):
 def validate_base(model):
     services = model['services']
     mounts = services['gateway'].get('volumes', [])
-    if (len(mounts) != 1 or mounts[0]['target'] != '/etc/nginx/conf.d/default.conf'
-            or not mounts[0].get('read_only') or services['botapi'].get('ports')
-            or Path(mounts[0]['source']).resolve() != (ROOT / 'nginx.conf').resolve()):
+    expected = {'/etc/nginx/nginx.conf': ROOT / 'nginx-main.conf',
+                '/etc/nginx/conf.d/default.conf': ROOT / 'nginx.conf'}
+    configs = [m for m in mounts if m.get('target') in expected]
+    spool = [m for m in mounts if m.get('target') == '/var/cache/nginx/client_temp']
+    if (len(mounts) != 3 or len(configs) != 2 or len(spool) != 1
+            or {m['target'] for m in configs} != set(expected)
+            or any(m.get('type') != 'bind' or not m.get('read_only')
+                   or Path(m['source']).resolve() != expected[m['target']].resolve() for m in configs)
+            or spool[0].get('type') != 'volume' or spool[0].get('source') != 'gateway_client_temp'
+            or spool[0].get('read_only')
+            or services['botapi'].get('ports')):
         raise ValueError('base gateway or backend exposure')
 
 
 def validate_gateway_runtime(container):
     mounts = container.get('Mounts', [])
-    if (len(mounts) != 1 or mounts[0].get('Destination') != '/etc/nginx/conf.d/default.conf'
-            or mounts[0].get('RW') is not False
-            or Path(mounts[0].get('Source', '')).resolve() != (ROOT / 'nginx.conf').resolve()):
+    expected = {'/etc/nginx/nginx.conf': ROOT / 'nginx-main.conf',
+                '/etc/nginx/conf.d/default.conf': ROOT / 'nginx.conf'}
+    if (len(mounts) != 2 or {m.get('Destination') for m in mounts} != set(expected)
+            or any(m.get('RW') is not False or Path(m.get('Source', '')).resolve() !=
+                   expected[m['Destination']].resolve() for m in mounts)):
         raise ValueError('runtime gateway storage exposure')
 
 
@@ -96,14 +108,17 @@ print('PASS')
 
 
 def pin_nginx(env):
-    reference = env.get('FILE_NGINX_IMAGE', 'nginx:alpine')
+    reference = env.get('FILE_NGINX_IMAGE')
+    if not reference or '@sha256:' not in reference:
+        raise ValueError('FILE_NGINX_IMAGE must select an immutable qualified candidate')
     if not re.fullmatch(r'nginx(?::[a-zA-Z0-9_.-]+)?(?:@sha256:[0-9a-f]{64})?', reference):
         raise ValueError('invalid fixture image')
     command(['docker', 'pull', reference], env, timeout=180)
     metadata = json.loads(command(['docker', 'image', 'inspect', reference], env))[0]
     for digest in metadata.get('RepoDigests') or []:
         if re.fullmatch(r'(?:docker.io/library/)?nginx@sha256:[0-9a-f]{64}', digest):
-            return 'nginx@' + digest.split('@', 1)[1]
+            if digest.split('@', 1)[1] == reference.split('@', 1)[1]:
+                return 'nginx@' + digest.split('@', 1)[1]
     raise ValueError('fixture digest unavailable')
 
 
@@ -112,6 +127,7 @@ def check(report=None):
         raise NotRun('Docker CLI unavailable')
     env = {k: v for k, v in os.environ.items() if not k.startswith(('COMPOSE_', 'BOTAPI_', 'GATEWAY_', 'API_'))}
     env['FIXTURE_NGINX'] = str(ROOT / 'nginx.conf')
+    env['FIXTURE_NGINX_MAIN'] = str(ROOT / 'nginx-main.conf')
     env['API_ID'] = '12345'
     env['API_HASH'] = 'SYNTHETIC_ONLY'
     try:
@@ -184,8 +200,9 @@ def validate_split(model):
 
 def source_hashes():
     from image_inputs import RECIPE, DOWNLOADS_RECIPE
-    return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
-            for name in sorted(set(RECIPE + DOWNLOADS_RECIPE))}
+    names = set(RECIPE + DOWNLOADS_RECIPE)
+    names.update(p.relative_to(ROOT).as_posix() for p in (ROOT / 'tools/fixtures/files').rglob('*') if p.is_file() and '__pycache__' not in p.parts)
+    return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in sorted(names)}
 
 
 def exercise(botapi_image, downloads_image, report):
@@ -195,7 +212,10 @@ def exercise(botapi_image, downloads_image, report):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('COMPOSE_', 'BOTAPI_', 'DOWNLOAD', 'FIXTURE_', 'FILE_', 'API_', 'GATEWAY_'))}
     env.update(BOTAPI_TEST_IMAGE=botapi_image, DOWNLOADS_TEST_IMAGE=downloads_image,
                FILE_FIXTURE_IMAGE=project + '-fixture', FIXTURE_NGINX=str(ROOT / 'nginx.conf'),
-               FIXTURE_TLS_CONFIG=str(FIXTURE / 'nginx.downloads.conf'))
+               FIXTURE_NGINX_MAIN=str(ROOT / 'nginx-main.conf'),
+               FIXTURE_TLS_CONFIG=str(FIXTURE / 'nginx.downloads.conf'),
+               BOTAPI_UID='101', BOTAPI_GID='101',
+               BOTAPI_MEDIA_SOURCE=str(Path(tempfile.gettempdir()) / (project + '-media')))
     env['FILE_NGINX_IMAGE'] = report['fixture_images']['nginx']
     compose = ['docker', 'compose', '-p', project, '--env-file', str(FIXTURE / 'synthetic.env'),
                '-f', str(FIXTURE / 'compose.full.yml')]

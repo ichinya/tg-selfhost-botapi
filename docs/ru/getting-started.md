@@ -11,7 +11,9 @@ translation: /docs/en/getting-started.html
 Не добавляйте абсолютный getFile-путь к HTTP URL. Отсутствующая bot subtree —
 ошибка; не устраняйте её монтированием всего private cache.
 
-Во всех командах file-enabled установки сохраняйте порядок Compose-файлов:
+Перед запуском задайте в `.env` проверенные refs образов из release receipt,
+включая `GATEWAY_IMAGE`. Во всех командах file-enabled установки сохраняйте
+порядок Compose-файлов:
 
 ```sh
 # Подготовьте BOTAPI_STATE_SOURCE, BOTAPI_TEMP_SOURCE и BOTAPI_MEDIA_SOURCE
@@ -26,8 +28,9 @@ docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-com
 ```
 
 Для локальной сборки Bot API вставьте `-f docker-compose.build.yml` сразу после
-base и используйте `up -d --build`. Downloads-образ собирается отдельно:
-`docker build -f Dockerfile.downloads -t downloads-candidate:check .`.
+base и используйте `up -d --build`. Для сборки downloads по сохранённым входам
+добавьте `-f docker-compose.downloads.build.yml` после `docker-compose.downloads.yml`
+и выполните `docker compose --env-file .env.build -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml -f docker-compose.downloads.build.yml build downloads`.
 В `DOWNLOADS_IMAGE` задавайте candidate, прошедший file gate. API — порт 18080;
 downloads HTTP — loopback 18082 за TLS frontend из примера.
 
@@ -83,6 +86,9 @@ sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/cre
 ```
 
 Заполните `API_ID` и `API_HASH` в `.env`. Не публикуйте этот файл.
+Compose проверяет структуру, а entrypoint отклоняет незаданные и пустые credentials
+до запуска сервера. Файловые секреты читаются пользователем сервера; применяйте
+`docker-compose.secrets.yml` последним, в том числе после overlay локальной сборки.
 
 По умолчанию gateway слушает `127.0.0.1` и не раздаёт каталог состояния.
 
@@ -146,14 +152,17 @@ docker run --rm --user 2001:3000 --group-add 2000 \
 До первой публикации в GHCR используйте локальную сборку:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+python3 tools/image_inputs.py --capture-wrapper "$RUNNER_TEMP/source-inputs.json"
+python3 tools/image_inputs.py --inputs-file "$RUNNER_TEMP/source-inputs.json" --build-env .env.build
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Когда готовый образ опубликован:
 
 ```sh
-docker compose pull
-docker compose up -d
+docker compose --env-file .env --env-file selected.env pull
+docker compose --env-file .env --env-file selected.env up -d --no-build
 ```
 
 Для приватного пакета GHCR нужен вход под аккаунтом с доступом; для анонимного
@@ -244,3 +253,7 @@ success дают отказ. При stats off глубина `http_handler_only`
 Ни одна глубина не авторизует бота и не подтверждает связь с Telegram или доставку.
 `/status` — документ, а не общий UP. Внутренний `/selfz` проверяет scheduler
 observer и недоступен через management gateway.
+
+Для запуска из registry требуется полный qualified `selected.env` с архивированным receipt;
+`selected_release: null` означает, что выпуск не принят. Примеры запуска не заменяют обновление установки;
+для него используйте [регламент обслуживания](maintenance.md#холодный-backup-обновление-и-откат-вместе-с-данными).

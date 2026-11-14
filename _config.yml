@@ -20,6 +20,12 @@ defaults:
     values:
       lang: ru
 exclude:
+  - image-inputs.lock.json
+  - image-release.lock.json
+  - image-*.lock.json
+  - .env.build
+  - selected.env
+  - releases
   - README.md
   - Dockerfile
   - docker-compose.yml

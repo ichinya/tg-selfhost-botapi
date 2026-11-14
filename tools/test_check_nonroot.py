@@ -13,18 +13,19 @@ class RunnerTests(unittest.TestCase):
     def test_workflow_gates_publication_for_new_and_reused_images(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/image.yml").read_text(encoding="utf-8")
         gate = workflow.index("- name: Qualify non-root storage before publication")
-        publish = workflow.index("- name: Publish tested build then promote latest")
+        publish = workflow.index("- name: Publish qualified immutable bundle without rebuild")
         self.assertLess(workflow.index("- name: Load existing immutable candidate"), gate)
         self.assertLess(gate, publish)
-        self.assertNotIn("        if:", workflow[gate:publish])
+        section_end = workflow.index('- name: Qualify exact native image', gate)
+        self.assertNotIn("        if:", workflow[gate:section_end])
         self.assertIn('tools/check_nonroot.py --image "$candidate_id"', workflow[gate:publish])
         section = workflow[gate:publish]
         self.assertLess(section.index('chmod +x tools/fixtures/migration/fake-bot-api.sh'),
                         section.index('python3 tools/check_migration_volumes.py'))
         publication = workflow[publish:]
-        self.assertIn('tested_image_id="$(cat qualified-image-id.txt)"', publication)
-        self.assertIn('"$IMAGE@$digest")" = "$tested_image_id"', publication)
-        self.assertIn('docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$digest"', publication)
+        self.assertIn('python3 tools/qualify_release.py publish', publication)
+        self.assertIn('--inputs "$RUNNER_TEMP/resolved-inputs.json"', publication)
+        self.assertNotIn('imagetools create --tag', publication)
 
     def test_numeric_identity_is_required(self):
         self.assertEqual((1000, 2000), identity("1000:2000"))

@@ -23,7 +23,7 @@ For runtime changes, run:
 
 ```sh
 timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
-API_ID=12345 API_HASH=test-placeholder docker compose config --quiet
+API_ID=12345 API_HASH=test-placeholder BOTAPI_IMAGE=example/botapi@sha256:0000000000000000000000000000000000000000000000000000000000000000 OBSERVER_IMAGE=example/observer@sha256:0000000000000000000000000000000000000000000000000000000000000000 GATEWAY_IMAGE=example/gateway@sha256:0000000000000000000000000000000000000000000000000000000000000000 docker compose config --quiet
 ```
 
 Entrypoint tests require a POSIX environment. For image changes, check the patch
@@ -288,3 +288,27 @@ secrets last, after the optional build overlay. Test Compose 2.24.4 and the CI
 version. Evidence artifacts contain only status/counts, commit/revision, image
 identity/build key and tool versions. Never upload raw logs, dossiers or inputs.
 Unavailable runner/image/Pages checks are NOTRUN: verification deferred to CI/gates.
+
+## Issue 12 release checks
+
+Keep unrelated untracked work out of candidate commits. Run scoped tests first:
+
+```sh
+python3 -m unittest discover -s tools -p 'test_issue12_*.py'
+python3 -m unittest discover -s tools -p 'test_image_inputs.py'
+python3 -m unittest discover -s tools -p 'test_entrypoint.py'
+python3 -m unittest discover -s tools -p 'test_botapi_healthcheck.py'
+git diff --check
+sh -n docker-entrypoint.sh tools/botapi_healthcheck.sh
+```
+
+Full discovery belongs to a clean Linux candidate. Replay the committed snapshot
+with `python3 tools/image_inputs.py --build-env .env.build` before checking Compose.
+Use synthetic API credentials for structural config tests. Keep file secrets last.
+The exact `.dockerignore` export must match `files.yml`; lock/generated-env/evidence
+exclusions must match `_config.yml`, `docs.yml` and `check_docs.py`.
+Unavailable image, registry, native, Pages and security checks are recorded as
+`verification deferred to CI/gates`; they must pass before release selection.
+Code completion never fabricates a receipt, selected digest or live/VPS acceptance.
+#22 native ARM64 and #23 dependency policy remain explicit boundaries. Archive
+complete external evidence for rollback retention; Actions retention alone is insufficient.

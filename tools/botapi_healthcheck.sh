@@ -16,11 +16,11 @@ case "$port" in ''|*[!0-9]*) exit 1 ;; esac
 case "$host" in *[!0-9a-fA-F.:\[\]]*) exit 1 ;; esac
 work=$(mktemp -d 2>/dev/null) || exit 1
 trap 'rm -f "$work/body" "$work/headers" 2>/dev/null; rmdir "$work" 2>/dev/null' EXIT HUP INT TERM
-code=$(curl --silent --noproxy '*' --connect-timeout 1 --max-time 2 --max-filesize 16384 \
+code=$(curl --disable --silent --proxy '' --noproxy '*' --max-redirs 0 --connect-timeout 1 --max-time 2 --max-filesize 16384 \
     --output "$work/body" --dump-header "$work/headers" --write-out '%{http_code}' \
     "http://$host:$port/" 2>/dev/null) || exit 1
 [ "$code" = 404 ] || exit 1
 [ "$(wc -c < "$work/body")" -le 16384 ] || exit 1
 tr -d '\r' < "$work/headers" | grep -Eiq '^content-type:[[:space:]]*application/json([;[:space:]]|$)' || exit 1
-jq -e 'type == "object" and .ok == false and (.error_code | type == "number") and .error_code == 404' \
+jq -s -e 'length == 1 and (.[0] | type == "object" and .ok == false and (.error_code | type == "number") and .error_code == 404)' \
     "$work/body" >/dev/null 2>&1

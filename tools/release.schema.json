@@ -1,0 +1,615 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Public image release records v1",
+  "description": "Receipts: releases/receipts/<build_key>.json. Cross-record identity and approval are validated by release_contract.py; schema validity alone is not qualification.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/candidate"
+    },
+    {
+      "$ref": "#/$defs/selected"
+    },
+    {
+      "$ref": "#/$defs/receipt"
+    }
+  ],
+  "$defs": {
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bot_api_revision",
+        "wrapper_revision",
+        "alpine_image",
+        "platform",
+        "bot_api_version",
+        "submodules",
+        "apk_policy_version",
+        "apk_refresh_window",
+        "apk_refresh_generation",
+        "apk_refresh_id",
+        "observer_base",
+        "python_image"
+      ],
+      "properties": {
+        "bot_api_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "wrapper_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "alpine_image": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$"
+        },
+        "platform": {
+          "const": "linux/amd64"
+        },
+        "bot_api_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "submodules": {
+          "type": "object",
+          "required": [
+            "td"
+          ],
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          }
+        },
+        "apk_policy_version": {
+          "const": 3
+        },
+        "apk_refresh_window": {
+          "type": "string",
+          "format": "date"
+        },
+        "apk_refresh_generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "apk_refresh_id": {
+          "type": "string",
+          "pattern": "^apk-v3-[0-9]{4}-[0-9]{2}-[0-9]{2}-g[0-9]+$"
+        },
+        "observer_base": {
+          "type": "string",
+          "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+        },
+        "python_image": {
+          "type": "string",
+          "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "policy_version",
+        "stable_branch",
+        "refresh_window",
+        "generation",
+        "packages"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "policy_version": {
+          "const": 3
+        },
+        "stable_branch": {
+          "const": "3.22"
+        },
+        "refresh_window": {
+          "const": "utc-day"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "packages": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "build",
+            "runtime"
+          ],
+          "properties": {
+            "build": {
+              "const": [
+                "alpine-sdk",
+                "linux-headers",
+                "git",
+                "zlib-dev",
+                "openssl-dev",
+                "gperf",
+                "cmake",
+                "python3"
+              ]
+            },
+            "runtime": {
+              "const": [
+                "openssl",
+                "libstdc++",
+                "su-exec",
+                "curl",
+                "jq"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_repository",
+        "observed_date",
+        "alpine_index_digest",
+        "alpine_amd64_digest",
+        "nginx_candidate_image",
+        "nginx_version",
+        "nginx_amd64_digest",
+        "qualification"
+      ],
+      "properties": {
+        "source_repository": {
+          "const": "https://github.com/tdlib/telegram-bot-api"
+        },
+        "observed_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "alpine_index_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "alpine_amd64_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "nginx_candidate_image": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$"
+        },
+        "nginx_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "nginx_amd64_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "qualification": {
+          "const": "NOTRUN"
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence_sha256"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN",
+            "NOTRUN"
+          ]
+        },
+        "evidence_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "evidence_sha256": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "botapi_image",
+        "nginx_image",
+        "receipt_sha256"
+      ],
+      "properties": {
+        "botapi_image": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$"
+        },
+        "nginx_image": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$"
+        },
+        "receipt_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image",
+        "config_id",
+        "platform_digest",
+        "version"
+      ],
+      "properties": {
+        "image": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$"
+        },
+        "config_id": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "platform_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "inputs",
+        "selected_release",
+        "apk_policy",
+        "discovery"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "inputs": {
+          "$ref": "#/$defs/inputs"
+        },
+        "selected_release": {
+          "type": "null"
+        },
+        "apk_policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "discovery": {
+          "$ref": "#/$defs/discovery"
+        },
+        "recipe_sha256": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "selected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "selected_release"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "selected_release": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/selection"
+            }
+          ]
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "qualification_version",
+        "build_key",
+        "platform",
+        "server_revision",
+        "server_version",
+        "tdlib_revision",
+        "wrapper_revision",
+        "config_id",
+        "index_digest",
+        "platform_digest",
+        "binary_sha256",
+        "recipe_sha256",
+        "inventories_sha256",
+        "patch_sha256",
+        "entrypoint_sha256",
+        "checks",
+        "provenance",
+        "gateway",
+        "qualification_key",
+        "components"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "qualification_version": {
+          "const": 1
+        },
+        "build_key": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "platform": {
+          "const": "linux/amd64"
+        },
+        "server_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "server_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "tdlib_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "wrapper_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "config_id": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "index_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "platform_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "binary_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "recipe_sha256": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_./-]+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "inventories_sha256": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_./-]+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "patch_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "entrypoint_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "unit",
+            "static",
+            "image",
+            "runtime_ua",
+            "restore",
+            "apk_policy"
+          ],
+          "properties": {
+            "unit": {
+              "$ref": "#/$defs/gate"
+            },
+            "static": {
+              "$ref": "#/$defs/gate"
+            },
+            "image": {
+              "$ref": "#/$defs/gate"
+            },
+            "runtime_ua": {
+              "$ref": "#/$defs/gate"
+            },
+            "restore": {
+              "$ref": "#/$defs/gate"
+            },
+            "apk_policy": {
+              "$ref": "#/$defs/gate"
+            }
+          }
+        },
+        "provenance": {
+          "enum": [
+            "ci",
+            "manual-live"
+          ]
+        },
+        "gateway": {
+          "$ref": "#/$defs/gateway"
+        },
+        "qualification_key": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "botapi",
+            "observer",
+            "downloads",
+            "sender"
+          ],
+          "properties": {
+            "botapi": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "image",
+                "config_id",
+                "rootfs_sha256"
+              ],
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+                },
+                "config_id": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "rootfs_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "observer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "image",
+                "config_id",
+                "rootfs_sha256"
+              ],
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+                },
+                "config_id": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "rootfs_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "downloads": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "image",
+                "config_id",
+                "rootfs_sha256"
+              ],
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+                },
+                "config_id": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "rootfs_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "sender": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "image",
+                "config_id",
+                "rootfs_sha256"
+              ],
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+                },
+                "config_id": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "rootfs_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

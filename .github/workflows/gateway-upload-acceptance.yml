@@ -47,8 +47,9 @@ jobs:
           API_ID: '12345'
           API_HASH: test-placeholder
         run: |
+          python3 tools/image_inputs.py --inputs-file image-inputs.lock.json --build-env "$RUNNER_TEMP/.env.build"
           docker compose config --quiet
-          docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          docker compose --env-file "$RUNNER_TEMP/.env.build" -f docker-compose.yml -f docker-compose.build.yml config --quiet
 
   transport:
     needs: offline
@@ -56,7 +57,7 @@ jobs:
     timeout-minutes: 65
     env:
       UPLOAD_PROJECT: issue4-${{ github.run_id }}-${{ github.run_attempt }}
-      UPLOAD_REPORT: ${{ runner.temp }}/issue4-report.json
+      UPLOAD_REPORT: ${{ github.workspace }}/issue4-report.json
     steps:
       - uses: actions/checkout@v7
       - name: Export candidate and initialize unrun report
@@ -126,7 +127,16 @@ jobs:
               report['status'] = 'FAIL' if errors or report.get('status') == 'PASS' else report.get('status', 'FAIL')
           path.write_text(json.dumps(report, indent=2))
           if not valid:
-              raise SystemExit('Acceptance incomplete/failed; inspect synthetic report')
+              # Print only fixed categories and counts; the retained report has detail.
+              print('Acceptance diagnostics: status={}, cleanup={}, external_cleanup={}, '
+                    'inventory_loaded={}, expected_matches={}, scenarios={}, expected_count={}, '
+                    'unique_names={}, names_match={}, all_pass={}'.format(
+                        report.get('status') if report.get('status') in ('PASS', 'FAIL', 'NOTRUN') else 'OTHER',
+                        report.get('cleanup') if report.get('cleanup') in ('PASS', 'FAIL', 'NOTRUN') else 'OTHER',
+                        'FAIL' if errors else 'PASS', bool(required), expected == required,
+                        len(names), len(expected), len(names) == len(set(names)),
+                        set(names) == set(expected), all(row.get('status') == 'PASS' for row in scenarios)))
+              raise SystemExit('Acceptance incomplete/failed; inspect retained synthetic report')
           PY
       - name: Retain synthetic acceptance evidence
         if: always()

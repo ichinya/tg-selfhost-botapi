@@ -36,6 +36,9 @@ services:
     build:
       context: ../..
       dockerfile: tools/observability/Dockerfile
+      args:
+        APK_REFRESH_ID: ${DOCTOR_APK_REFRESH_ID:?harness must select a synthetic refresh ID}
+        BUILD_FINGERPRINT: ${DOCTOR_BUILD_FINGERPRINT:?harness must select a synthetic fingerprint}
     network_mode: service:botapi
     user: '101:101'
     read_only: true

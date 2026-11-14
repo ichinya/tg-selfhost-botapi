@@ -1,5 +1,6 @@
 """Pure report construction for the doctor preflight."""
 from datetime import datetime, timezone
+import json
 import re
 from urllib.parse import quote
 
@@ -119,11 +120,27 @@ def settings_checks(env, prefix="target", explicit=False, defaults_known=True):
     return findings
 
 
+IDENTITY_COMPONENTS = ("id", "image", "pid", "started_at", "running", "restart_count",
+                       "health_status", "restarting", "paused", "dead", "config",
+                       "host_config", "mounts", "network_settings")
+
+
 def runtime_identity(container):
     state = container.get("State", {})
+    mounts = container.get("Mounts")
+    if isinstance(mounts, list):
+        # Docker does not guarantee mount order. Keep duplicates and compare every
+        # field, including fields beyond Destination, Type and Source.
+        mounts = sorted(json.dumps(mount, sort_keys=True, separators=(",", ":")) for mount in mounts)
     return (container.get("Id"), container.get("Image"), state.get("Pid"), state.get("StartedAt"), state.get("Running"),
-            container.get("RestartCount"), state.get("Health", {}).get("Status"), state.get("Restarting"), state.get("Paused"), state.get("Dead"), repr(container.get("Config")),
-            repr(container.get("HostConfig")), repr(container.get("Mounts")), repr(container.get("NetworkSettings")))
+            container.get("RestartCount"), state.get("Health", {}).get("Status"), state.get("Restarting"), state.get("Paused"), state.get("Dead"), container.get("Config"),
+            container.get("HostConfig"), mounts, container.get("NetworkSettings"))
+
+
+def changed_identity_components(before, after):
+    """Return fixed field names only; inspect values can contain secrets."""
+    return [name for name, old, new in zip(IDENTITY_COMPONENTS, runtime_identity(before), runtime_identity(after))
+            if old != new]
 
 
 def container_state(container):

@@ -17,7 +17,7 @@ class EntrypointTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         binary = self.root / "telegram-bot-api"
         binary.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
-                          "assert sys.argv[1:] == ['--version'] or (os.getenv('TELEGRAM_API_ID') == os.getenv('EXPECTED_ID') and os.getenv('TELEGRAM_API_HASH') == os.getenv('EXPECTED_HASH'))\n"
+                          "assert sys.argv[1:] in (['--version'], ['--help']) or (os.getenv('TELEGRAM_API_ID') == os.getenv('EXPECTED_ID') and os.getenv('TELEGRAM_API_HASH') == os.getenv('EXPECTED_HASH'))\n"
                           "print(json.dumps(dict(args=sys.argv[1:], checked=True)))\n")
         binary.chmod(0o755)
         # Avoid real ownership changes; verify only the entrypoint's invocation contract.
@@ -97,6 +97,26 @@ class EntrypointTest(unittest.TestCase):
         result = self.run_script("--version")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["args"], ["--version"])
+
+    def test_help_ignores_credentials_and_unsafe_storage(self):
+        for name in ('TELEGRAM_API_HASH', 'TELEGRAM_API_ID', 'TELEGRAM_WORK_DIR', 'TELEGRAM_TEMP_DIR'):
+            self.env.pop(name)
+        self.env['TELEGRAM_FILES_DIR'] = '/'
+        result = self.run_script('--help')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['args'], ['--help'])
+
+    def test_nonregular_secret_fails_without_reading_or_disclosing_path(self):
+        fifo = self.root / "private-fifo-canary"
+        os.mkfifo(fifo)
+        self.env.pop("TELEGRAM_API_ID")
+        for path in (fifo, self.root):
+            self.env["TELEGRAM_API_ID_FILE"] = str(path)
+            result = self.run_script()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("TELEGRAM_API_ID_FILE", result.stderr)
+            self.assertNotIn(str(path), result.stdout + result.stderr)
+            self.assertNotIn('"checked"', result.stdout)
 
     def test_root_reexec_and_existing_contents(self):
         self.env['FAKE_UID'] = '0'

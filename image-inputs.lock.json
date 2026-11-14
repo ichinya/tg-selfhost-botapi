@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "inputs": {
+    "bot_api_revision": "e3e9dd8e5b3d7ab8537cd5a10dc31d5ffa8f82d1",
+    "alpine_image": "alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f",
+    "platform": "linux/amd64",
+    "bot_api_version": "10.3",
+    "submodules": {
+      "td": "bc9c263e2bfee06aaab41e82db51a103376030bc"
+    },
+    "wrapper_revision": "95f9261dd3c9fefccd9ce246c96d79701537473a",
+    "apk_policy_version": 3,
+    "apk_refresh_window": "2026-11-08",
+    "apk_refresh_generation": 0,
+    "apk_refresh_id": "apk-v3-2026-11-08-g0",
+    "observer_base": "alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f",
+    "python_image": "python:3.12-slim@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54"
+  },
+  "selected_release": null,
+  "apk_policy": {
+    "schema": 1,
+    "policy_version": 3,
+    "stable_branch": "3.22",
+    "refresh_window": "utc-day",
+    "generation": 0,
+    "packages": {
+      "build": [
+        "alpine-sdk",
+        "linux-headers",
+        "git",
+        "zlib-dev",
+        "openssl-dev",
+        "gperf",
+        "cmake",
+        "python3"
+      ],
+      "runtime": [
+        "openssl",
+        "libstdc++",
+        "su-exec",
+        "curl",
+        "jq"
+      ]
+    }
+  },
+  "discovery": {
+    "source_repository": "https://github.com/tdlib/telegram-bot-api",
+    "observed_date": "2026-11-04",
+    "nginx_candidate_image": "nginx:alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606",
+    "alpine_index_digest": "sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f",
+    "nginx_amd64_digest": "sha256:2db7d28517d1fba17c2da3210395f7be11a11b419246ad0da2edf782af72f367",
+    "alpine_amd64_digest": "sha256:dc92f017beea8e7f43263073d717f7bc011228c95d5312e440deb4d035bb4eec",
+    "qualification": "NOTRUN",
+    "nginx_version": "1.31.8"
+  }
+}

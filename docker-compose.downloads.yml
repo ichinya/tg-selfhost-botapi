@@ -1,10 +1,8 @@
 # Merge after base + nonroot + files overrides. One instance per bot.
 services:
   downloads:
+    platform: linux/amd64
     image: ${DOWNLOADS_IMAGE:?Set a qualified immutable downloads image}
-    build:
-      context: .
-      dockerfile: Dockerfile.downloads
     user: "101:101"
     read_only: true
     cap_drop: [ALL]
@@ -43,4 +41,6 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    depends_on: [botapi]
+    depends_on:
+      botapi:
+        condition: service_healthy

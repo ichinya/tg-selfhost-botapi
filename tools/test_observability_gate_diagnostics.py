@@ -12,7 +12,7 @@ class GateDiagnosticsTest(unittest.TestCase):
         with patch.object(check_observability, 'command', side_effect=ValueError('private-marker')):
             with patch.object(check_observability.subprocess, 'run'):
                 with self.assertRaises(RuntimeError) as raised:
-                    check_observability.smoke('botapi', 'observer')
+                    check_observability.smoke('botapi', 'observer', 'nginx')
         self.assertEqual('network', str(raised.exception))
         self.assertIsNone(raised.exception.__cause__)
 

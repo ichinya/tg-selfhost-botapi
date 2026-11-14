@@ -43,3 +43,6 @@ release. A configured image name alone does not mean the image has been publishe
 
 Implementation work is tracked in [issues](https://github.com/ichinya/tg-selfhost-botapi/issues/19).
 For protected credentials and diagnostics, see [configuration](configuration.md#docker-compose-file-secrets) and [migration](migration.md#protected-input-policy).
+
+Build inputs and qualified release selection: [configuration](configuration.md#saved-build-inputs);
+cold backup/update/rollback: [maintenance](maintenance.md#cold-backup-update-and-data-aware-rollback).
