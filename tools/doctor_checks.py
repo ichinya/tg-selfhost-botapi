@@ -1,5 +1,6 @@
 """Pure report construction for the doctor preflight."""
 from datetime import datetime, timezone
+import json
 import re
 from urllib.parse import quote
 
@@ -126,9 +127,14 @@ IDENTITY_COMPONENTS = ("id", "image", "pid", "started_at", "running", "restart_c
 
 def runtime_identity(container):
     state = container.get("State", {})
+    mounts = container.get("Mounts")
+    if isinstance(mounts, list):
+        # Docker does not guarantee mount order. Keep duplicates and compare every
+        # field, including fields beyond Destination, Type and Source.
+        mounts = sorted(json.dumps(mount, sort_keys=True, separators=(",", ":")) for mount in mounts)
     return (container.get("Id"), container.get("Image"), state.get("Pid"), state.get("StartedAt"), state.get("Running"),
             container.get("RestartCount"), state.get("Health", {}).get("Status"), state.get("Restarting"), state.get("Paused"), state.get("Dead"), container.get("Config"),
-            container.get("HostConfig"), container.get("Mounts"), container.get("NetworkSettings"))
+            container.get("HostConfig"), mounts, container.get("NetworkSettings"))
 
 
 def changed_identity_components(before, after):
