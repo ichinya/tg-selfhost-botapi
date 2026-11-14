@@ -177,6 +177,18 @@ class CandidateRegressionTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Commit recipe changes'):
                 require_committed_recipe()
 
+    def test_capture_checks_all_discovered_recipe_files(self):
+        from image_inputs import require_committed_recipe
+        files = {'Dockerfile': b'', 'tools/observability/extra.py': b'',
+                 'tools/webhook_sender/extra.cpp': b''}
+        with patch('image_inputs.recipe_files', return_value=files), \
+             patch('image_inputs.subprocess.run') as run:
+            require_committed_recipe()
+        self.assertEqual(run.call_count, 2)
+        for call in run.call_args_list:
+            args = call.args[0]
+            self.assertEqual(set(args[args.index('--') + 1:]), set(files))
+
     def test_qualify_logs_in_before_registry_access(self):
         from image_inputs import ROOT
         workflow = (ROOT / '.github/workflows/image.yml').read_text(encoding='utf8')

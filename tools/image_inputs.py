@@ -130,9 +130,10 @@ def qualification_files():
 
 def require_committed_recipe():
     try:
-        subprocess.run(['git', '-c', f'safe.directory={ROOT.as_posix()}', '-C', str(ROOT), 'ls-files', '--error-unmatch', '--', *RECIPE],
+        recipe = tuple(recipe_files())
+        subprocess.run(['git', '-c', f'safe.directory={ROOT.as_posix()}', '-C', str(ROOT), 'ls-files', '--error-unmatch', '--', *recipe],
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
-        subprocess.run(['git', '-c', f'safe.directory={ROOT.as_posix()}', '-C', str(ROOT), 'diff', '--quiet', 'HEAD', '--', *RECIPE],
+        subprocess.run(['git', '-c', f'safe.directory={ROOT.as_posix()}', '-C', str(ROOT), 'diff', '--quiet', 'HEAD', '--', *recipe],
                        check=True, timeout=120)
     except subprocess.CalledProcessError as exc:
         raise ValueError('Commit recipe changes before capturing a new candidate') from exc
