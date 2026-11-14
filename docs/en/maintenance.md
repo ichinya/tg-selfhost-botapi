@@ -5,6 +5,31 @@ translation: /docs/ru/maintenance.html
 
 # Maintenance
 
+Before selecting a release, run the scoped checks from CONTRIBUTING and
+`python3 tools/check_compose_models.py`. The latter checks merged layouts and
+local component identity without a Docker daemon. Image, registry, POSIX, Pages,
+security and live checks require their recorded gates; unavailable checks remain
+`verification deferred to CI/gates` and cannot authorize release selection.
+
+`tools/smoke_image.py` rehearses both base and explicit non-root split-media layouts
+on isolated resources. Each layout must restore the complete archived tree with
+numeric ownership and modes and reject an unhealthy candidate before starting the
+gateway. The split case archives state and media from the same clean stop. These
+synthetic receipts do not establish production database compatibility or live delivery.
+
+Local release verification includes every enabled component: observer uses the
+saved base, refresh ID and shared build key; downloads uses its saved Python base
+and downloads key. File harnesses mount both shipped nginx configs and an isolated
+spool volume. A failed or unavailable harness never qualifies an image.
+
+The Compose stop budget is `120s`; measure graceful shutdown on representative
+state and extend it when required. SIGKILL, OOM or an unobserved stop cannot
+authorize a consistent backup, even if the container is now stopped.
+
+The image build requires the CMake version and the server's `parameters->version_`
+to agree with the saved `BOT_API_VERSION`. Qualification also checks the runtime
+privacy-policy label, source/gitlinks and binary hashes; a label alone is not evidence.
+
 ## Gateway upload storage and changes
 
 The project-scoped `gateway_client_temp` volume stores buffered request bodies;
@@ -403,7 +428,7 @@ Storage and image identity come from a trusted Python 3 host CLI, not the HTTP
 observer. With the same project name/files as deployment, run:
 
 ```sh
-python3 tools/observe_runtime.py --project-directory "$PWD" --file docker-compose.yml --file docker-compose.build.yml --watch
+python3 tools/observe_runtime.py --project-directory "$PWD" --file docker-compose.yml --file docker-compose.observability.yml --watch
 ```
 
 Prepare `.observability/runtime` as an owned 0755 directory. Atomic 0644 status.json
@@ -418,7 +443,7 @@ key, image ID and digest are distinct. Without a successful producer they are
 unknown; after 90 seconds the snapshot is stale. Health remains independent.
 
 For supervision, install an operator-owned systemd service with `Type=simple`,
-`WorkingDirectory=/opt/tg-selfhost-botapi`, `ExecStart=/usr/bin/python3 /opt/tg-selfhost-botapi/tools/observe_runtime.py --project-directory /opt/tg-selfhost-botapi --file docker-compose.yml --file docker-compose.build.yml --watch`,
+`WorkingDirectory=/opt/tg-selfhost-botapi`, `ExecStart=/usr/bin/python3 /opt/tg-selfhost-botapi/tools/observe_runtime.py --project-directory /opt/tg-selfhost-botapi --file docker-compose.yml --file docker-compose.observability.yml --watch`,
 `Restart=on-failure`, `RestartSec=5`, `UMask=0077`; run as the trusted Docker-capable
 host account and enable with `systemctl enable --now botapi-observation.service`.
 Alternatively use a oneshot service with the same command without --watch and a
@@ -428,7 +453,7 @@ never mount its socket in observer. A manual oneshot needs regular renewal.
 ## Candidate-pair acceptance
 
 The build key covers every observer Python module, JSON schema, health helper and
-Docker/Compose/nginx recipe. CI resolves a digest-pinned Python observer base,
+Docker/Compose/nginx recipe. CI replays the saved digest-pinned Alpine observer base,
 loads both exact candidates and checks their shared build-key labels. Reuse still
 requires a fresh pair qualification; a missing image is built and the complete
 pair is tested before publication. PRs never publish. `build-<key>` and
@@ -509,7 +534,9 @@ distinguish its failure. This manual Kuma acceptance is NOTRUN in this pass.
 ## Updating and rollback of the pair
 
 Use the complete [cold backup, update and rollback procedure](#cold-backup-update-and-data-aware-rollback).
-Recreate the observer with its namespace owner, preserve state and media together, and repeat private health/doctor checks.
+Include the observability overlay only when installed and retain the exact saved
+project/files/env invocation. Recreate observer with its namespace owner and
+restore state/media/config together when rollback requires the previous snapshot.
 
 ## Isolated mock walkthrough
 
@@ -675,13 +702,17 @@ PRIVATE=/secure/botapi-update
 # Use this installation's saved values; append its actual nonroot/files/downloads
 # and secrets overlays in their original order. Do not include a build overlay.
 OVERLAYS=(-f "$CHECKOUT/docker-compose.yml")
+# Add the actual installed overlays to OVERLAYS, secrets last.
+SERVICES=(botapi gateway)
+# SERVICES+=(observer)  # only with docker-compose.observability.yml
+# SERVICES+=(downloads) # only when installed
 dc() {
   local selection=$1; shift
   docker compose -p saved-project --project-directory "$CHECKOUT" \
     --env-file "$PRIVATE/installation.env" --env-file "$selection" "${OVERLAYS[@]}" "$@"
 }
 dc "$PRIVATE/old.env" config --format json > "$PRIVATE/old-compose.json"
-dc "$PRIVATE/new.env" pull botapi observer gateway
+dc "$PRIVATE/new.env" pull "${SERVICES[@]}"
 # Pull downloads as well when installed; never put bot tokens in argv.
 ```
 
@@ -725,8 +756,7 @@ health, then recreate gateway and any downloads. A botapi-only `--no-deps` updat
 leaves observer attached to the old network namespace and is insufficient.
 
 ```sh
-dc "$PRIVATE/new.env" up -d --no-build --force-recreate --wait --wait-timeout 180 botapi observer
-dc "$PRIVATE/new.env" up -d --no-build --force-recreate gateway
+dc "$PRIVATE/new.env" up -d --no-build --force-recreate --wait --wait-timeout 180 "${SERVICES[@]}"
 # Recreate installed downloads with the same --no-build invocation.
 ```
 

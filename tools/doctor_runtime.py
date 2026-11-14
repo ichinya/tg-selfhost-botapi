@@ -857,6 +857,8 @@ class Installation:
                 if 81 in listens:
                     private = bool(management) and all(b.get('HostIp') in {'127.0.0.1', '::1'} for b in management)
                     self.add('management_binding', 'pass' if private else 'fail', 'loopback_only' if private else 'management_exposed', 'Management must use a loopback binding or separately verified private ingress.')
+                elif management:
+                    self.add('management_binding', 'fail', 'listener_mismatch', 'Management is published without its expected listener.')
                 # Mount-backed roots could hide symlinks into another mount. Never read their contents.
                 for root in roots:
                     if backing(root, mounts):

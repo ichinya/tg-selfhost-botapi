@@ -11,9 +11,11 @@ services:
     volumes:
       - ${FIXTURE_NGINX_MAIN}:/etc/nginx/nginx.conf:ro
       - ${FIXTURE_NGINX}:/etc/nginx/conf.d/default.conf:ro
+      - gateway_client_temp:/var/cache/nginx/client_temp
     depends_on:
       - botapi
 volumes:
+  gateway_client_temp:
   state:
   temp:
   secret:

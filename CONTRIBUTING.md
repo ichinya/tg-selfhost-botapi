@@ -298,6 +298,8 @@ python3 -m unittest discover -s tools -p 'test_issue12_*.py'
 python3 -m unittest discover -s tools -p 'test_image_inputs.py'
 python3 -m unittest discover -s tools -p 'test_entrypoint.py'
 python3 -m unittest discover -s tools -p 'test_botapi_healthcheck.py'
+python3 -m unittest discover -s tools -p 'test_check_file_contract.py'
+python3 -m unittest discover -s tools -p 'test_default_install.py'
 git diff --check
 sh -n docker-entrypoint.sh tools/botapi_healthcheck.sh
 ```
@@ -305,6 +307,13 @@ sh -n docker-entrypoint.sh tools/botapi_healthcheck.sh
 Full discovery belongs to a clean Linux candidate. Replay the committed snapshot
 with `python3 tools/image_inputs.py --build-env .env.build` before checking Compose.
 Use synthetic API credentials for structural config tests. Keep file secrets last.
+`tools/check_compose_models.py` covers base/build, opt-in observer and its build,
+nonroot/files/downloads and secret combinations using the saved public arguments.
+It also verifies effective image/argument identity for local layouts, including
+the combined observer/downloads/secrets case, without starting containers.
+Local image verification additionally compares every enabled observer/downloads
+image and build argument to that snapshot. Capture committed wrapper changes
+before replay/build as documented in both configuration guides.
 The exact `.dockerignore` export must match `files.yml`; lock/generated-env/evidence
 exclusions must match `_config.yml`, `docs.yml` and `check_docs.py`.
 Unavailable image, registry, native, Pages and security checks are recorded as

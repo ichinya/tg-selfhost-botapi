@@ -11,7 +11,8 @@ def validate_backup(record, archives):
     required = {'schema', 'snapshot_id', 'stopped_cleanly', 'release_receipt_sha256', 'config_sha256', 'layout', 'members'}
     if not isinstance(record, dict) or set(record) != required or type(record['schema']) is not int or record['schema'] != 1:
         raise ValueError('Unknown backup manifest')
-    if record['stopped_cleanly'] is not True or not re.fullmatch(r'[a-f0-9]{32}', record['snapshot_id']):
+    if (record['stopped_cleanly'] is not True or not isinstance(record['snapshot_id'], str)
+            or not re.fullmatch(r'[a-f0-9]{32}', record['snapshot_id'])):
         raise ValueError('Backup requires an observed clean stop and one snapshot identity')
     for name in ('release_receipt_sha256', 'config_sha256'):
         if not isinstance(record[name], str) or not re.fullmatch(r'[a-f0-9]{64}', record[name]):
@@ -23,6 +24,7 @@ def validate_backup(record, archives):
     if not isinstance(members, dict) or set(members) != names or set(archives) != names:
         raise ValueError('Incomplete or mixed storage snapshot')
     manifest = {}
+    mappings = set()
     for name in sorted(names):
         entry = members[name]
         if not isinstance(entry, dict) or set(entry) != {'snapshot_id', 'sha256', 'storage_mapping'}:
@@ -31,6 +33,9 @@ def validate_backup(record, archives):
             raise ValueError('Mixed or corrupt archive')
         if not isinstance(entry['storage_mapping'], str) or not entry['storage_mapping']:
             raise ValueError('Missing private storage mapping')
+        if entry['storage_mapping'] in mappings:
+            raise ValueError('Aliased private storage mapping')
+        mappings.add(entry['storage_mapping'])
         tree = archive_manifest(archives[name])
         if not tree:
             raise ValueError('Empty backup archive')

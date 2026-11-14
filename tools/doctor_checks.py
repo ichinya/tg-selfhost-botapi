@@ -413,13 +413,12 @@ def nginx_route_contract(tree, api_port):
     _, proxies, listens, unknown = nginx_routes(tree)
     expected = 'http://botapi:' + str(api_port)
     if unknown: return False
-    if 81 not in listens:
-        return bool(proxies) and all(p.rstrip('/') == expected for p in proxies)
+    has_management = 81 in listens
     servers = [children for name, _, children in flatten_nginx(tree) if name == 'server']
     resolvers = [args for name,args,_ in flatten_nginx(tree) if name == 'resolver']
     if resolvers != [['127.0.0.11', 'valid=5s', 'ipv6=off']]: return False
-    if len(proxies) != 6: return False
-    if len(servers) != 2: return False
+    if len(proxies) != (6 if has_management else 3): return False
+    if len(servers) != (2 if has_management else 1): return False
     for nodes in servers:
         ports = [args for name, args, _ in nodes if name == 'listen']
         locations = {tuple(args): children for name, args, children in nodes if name == 'location'}
@@ -460,7 +459,9 @@ def nginx_route_contract(tree, api_port):
         else: return False
     # Nested overrides must not change either fixed target or escape route context.
     sets = [(args[0], args[1]) for name,args,_ in flatten_nginx(tree) if name == 'set']
-    return sorted(sets) == sorted([('$botapi_upstream', expected), ('$observer_upstream', 'http://botapi:8090')])
+    expected_sets = [('$botapi_upstream', expected)]
+    if has_management: expected_sets.append(('$observer_upstream', 'http://botapi:8090'))
+    return sorted(sets) == sorted(expected_sets)
 
 
 def overlaps(a, b):

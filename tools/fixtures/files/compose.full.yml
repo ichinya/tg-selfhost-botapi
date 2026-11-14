@@ -20,6 +20,7 @@ services:
     volumes:
       - ${FIXTURE_NGINX_MAIN}:/etc/nginx/nginx.conf:ro
       - ${FIXTURE_NGINX}:/etc/nginx/conf.d/default.conf:ro
+      - gateway_client_temp:/var/cache/nginx/client_temp
   downloads:
     image: ${DOWNLOADS_TEST_IMAGE}
     user: '101:101'
@@ -113,6 +114,7 @@ services:
       - actual-state:/var/lib/telegram-bot-api
       - actual-media:/var/lib/telegram-bot-api-files
 volumes:
+  gateway_client_temp:
   media:
   secret:
   tls:

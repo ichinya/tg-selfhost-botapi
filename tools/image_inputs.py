@@ -22,6 +22,27 @@ RECIPE = (
     'tools/observability/Dockerfile', 'Dockerfile.downloads',
     'tools/file_access.py', 'tools/file_contract.py', 'tools/download_server.py',
     'examples/files/local_reader.py',
+    "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
+    "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
+    "tools/test_webhook_user_agent.py",
+    "docker-compose.yml", "docker-compose.build.yml", "docker-compose.nonroot.yml", "docker-compose.files.yml",
+    "tools/check_nonroot.py", "tools/check_nonroot_compose.py",
+    "tools/test_check_nonroot.py", "tools/test_nonroot_compose.py",
+    "tools/fixtures/nonroot/compose.yml", "tools/fixtures/nonroot/media-probe.sh",
+    "tools/fixtures/nonroot/source-semantics.sh",
+    "tools/migration_probe.py", "tools/migration_contract.py",
+    "tools/check_migration_volumes.py", "tools/fixtures/migration/fake-bot-api.sh",
+    "tools/fixtures/migration/docker-compose.volumes.yml",
+    "patches/botapi-secrets-redaction.patch",
+    "tools/fixtures/issue17_security/botapi_log_driver.cpp",
+    "tools/fixtures/issue17_security/cases.json",
+    "tools/issue17_security_gate.py", "tools/issue17_security_checks.py",
+    ".github/workflows/image.yml",
+    'tools/botapi_healthcheck.sh', 'tools/check_stats_source.py',
+    'tools/observability/Dockerfile', 'tools/observability/status.schema.json',
+    'docker-compose.yml', 'docker-compose.build.yml', 'nginx.conf',
+    'docker-compose.observability.yml', 'docker-compose.observability.build.yml', 'nginx.observability.conf',
+    "docker-compose.files.yml",
 )
 DOWNLOADS_RECIPE = ('Dockerfile.downloads', 'tools/file_access.py', 'tools/file_contract.py',
                     'tools/download_server.py', 'examples/files/local_reader.py')
@@ -30,14 +51,23 @@ QUALIFICATION_RECIPE = ('tools/check_release.py', 'tools/qualify_release.py',
     'tools/release_contract.py', 'tools/release.schema.json',
     'nginx.conf', 'nginx-main.conf', 'docker-compose.yml', 'docker-compose.downloads.yml',
     'docker-compose.downloads.build.yml',
+    'docker-compose.observability.yml', 'docker-compose.observability.build.yml', 'nginx.observability.conf',
+    'tools/check_nonroot_compose.py', 'tools/check_compose_models.py',
+    'tools/fixtures/files/compose.yml', 'tools/fixtures/files/compose.full.yml',
+    'tools/fixtures/files/Dockerfile.full', 'tools/fixtures/files/runtime.py',
+    'tools/fixtures/files/nginx.downloads.conf',
     '.github/workflows/image.yml')
 
 
 
-def extract_source_version(source):
+def extract_source_version(source, runtime_source=None):
     matches = re.findall(r'project\s*\(\s*TelegramBotApi\s+VERSION\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)\s', source, re.I)
     if len(matches) != 1:
         raise ValueError('Cannot resolve one official source version')
+    if runtime_source is not None:
+        runtime = re.findall(r'parameters\s*->\s*version_\s*=\s*"([0-9]+\.[0-9]+(?:\.[0-9]+)?)"', runtime_source)
+        if runtime != matches:
+            raise ValueError('Runtime and CMake source versions differ')
     return matches[0]
 
 
@@ -380,6 +410,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=("locked", "discovery"), default="locked")
     parser.add_argument('--check-host', action='store_true')
     parser.add_argument('--extract-version', type=Path)
+    parser.add_argument('--runtime-source', type=Path)
     parser.add_argument('--json-file')
     parser.add_argument('--build-env', help='Write public saved build arguments as an env file')
     parser.add_argument('--save-discovery', type=Path, help='Save a new unqualified candidate envelope')
@@ -388,7 +419,8 @@ if __name__ == "__main__":
     parser.add_argument('--capture-wrapper', type=Path, help='Explicitly save a new candidate for the committed wrapper HEAD')
     args = parser.parse_args()
     if args.extract_version:
-        print(extract_source_version(args.extract_version.read_text(encoding='utf8')))
+        print(extract_source_version(args.extract_version.read_text(encoding='utf8'),
+              args.runtime_source.read_text(encoding='utf8') if args.runtime_source else None))
         raise SystemExit(0)
     if args.check_host:
         check_host()

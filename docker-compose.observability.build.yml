@@ -1,0 +1,11 @@
+services:
+  observer:
+    platform: linux/amd64
+    image: tg-selfhost-botapi-observer:local
+    build:
+      context: .
+      dockerfile: tools/observability/Dockerfile
+      args:
+        APK_REFRESH_ID: ${APK_REFRESH_ID:?Generate .env.build}
+        BUILD_FINGERPRINT: ${BUILD_FINGERPRINT:?Generate .env.build}
+        OBSERVER_BASE: ${OBSERVER_BASE:?Generate .env.build}

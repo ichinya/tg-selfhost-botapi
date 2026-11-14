@@ -30,7 +30,7 @@ RUN test -n "$BOT_API_REVISION" && test -n "$SUBMODULES" && test -n "$TDLIB_REVI
  && git submodule update --init --recursive --depth 1
 COPY tools/image_inputs.py /tmp/image_inputs.py
 RUN test -n "$BOT_API_VERSION" \
- && test "$(python3 /tmp/image_inputs.py --extract-version CMakeLists.txt)" = "$BOT_API_VERSION" \
+ && test "$(python3 /tmp/image_inputs.py --extract-version CMakeLists.txt --runtime-source telegram-bot-api/telegram-bot-api.cpp)" = "$BOT_API_VERSION" \
  && test "$(git -C td rev-parse HEAD)" = "$TDLIB_REVISION" \
  && actual="$(git submodule status --recursive | awk '{print $2 "=" $1}' | LC_ALL=C sort | paste -sd, -)" \
  && test "$actual" = "$SUBMODULES" \

@@ -181,6 +181,8 @@ def validate_evidence(candidate, directory):
             raise ValueError('Executed gate evidence differs: ' + gate)
     sender = json.loads((directory / 'sender.json').read_text())
     runtime = json.loads((directory / 'runtime.json').read_text())
+    from smoke_image import validate_restore_evidence
+    validate_restore_evidence(runtime)
     if (sender.get('production_sender') != 'PASS' or sender.get('queue_acknowledged') is not True
             or any(sender.get(k) != 'PASS' for k in ('receiver_negative_control', 'ack_error_control', 'ack_timeout_control'))
             or any(runtime.get(k) != 'PASS' for k in ('runtime_smoke', 'restore_rehearsal', 'readiness_abort'))

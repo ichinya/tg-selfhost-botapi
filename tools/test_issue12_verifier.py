@@ -21,6 +21,7 @@ class ReleaseCheckTest(unittest.TestCase):
                   'io.tg-selfhost.build-key': inputs['build_key'],
                   'io.tg-selfhost.base': inputs['alpine_image'],
                   'io.tg-selfhost.platform': inputs['platform'], 'io.tg-selfhost.verification-contract': '1'}
+        labels['io.tg-selfhost.privacy-policy'] = 'issue17-v1'
         info = {'Os': 'linux', 'Architecture': 'amd64', 'Config': {'Labels': labels, 'Entrypoint': ['/docker-entrypoint.sh']},
                 'Id': 'sha256:' + 'b' * 64}
         info['Config']['Healthcheck'] = {
@@ -96,6 +97,7 @@ class ReleaseCheckTest(unittest.TestCase):
                                 refreshed['inventories_sha256']['runtime-packages.txt'])
             for name, bad in [('org.opencontainers.image.revision', 'a' * 40),
                               ('org.opencontainers.image.version', '0.0'),
+                              ('io.tg-selfhost.privacy-policy', 'missing'),
                               ('io.tg-selfhost.tdlib-revision', 'a' * 40),
                               ('io.tg-selfhost.wrapper-revision', 'a' * 40)]:
                 old = labels[name]

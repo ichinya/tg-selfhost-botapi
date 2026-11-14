@@ -6,6 +6,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DocumentationTests(unittest.TestCase):
+    def test_local_build_captures_before_replay_in_both_languages(self):
+        for lang in ('en', 'ru'):
+            config = (ROOT / 'docs' / lang / 'configuration.md').read_text(encoding='utf8')
+            self.assertLess(config.index('--capture-wrapper'), config.index('--build-env'))
+            for marker in ('--inputs-file "$BUILD_INPUTS/source-inputs.json"',
+                           'docker-compose.observability.build.yml', '8081'):
+                self.assertIn(marker, config)
+
     def test_both_languages_describe_pending_selection_and_cold_restore(self):
         for lang in ('en', 'ru'):
             maintenance = (ROOT / 'docs' / lang / 'maintenance.md').read_text(encoding='utf8')
@@ -17,6 +25,8 @@ class DocumentationTests(unittest.TestCase):
     def test_pages_declares_locks_and_generated_inputs_private(self):
         config = (ROOT / '_config.yml').read_text()
         workflow = (ROOT / '.github/workflows/docs.yml').read_text()
-        for name in ('image-inputs.lock.json', 'image-release.lock.json', '.env.build', 'selected.env', 'releases'):
+        for name in ('image-inputs.lock.json', 'image-release.lock.json', '.env.build', 'selected.env', 'releases',
+                     'docker-compose.observability.yml', 'docker-compose.observability.build.yml',
+                     'docker-compose.downloads.build.yml'):
             self.assertIn('  - ' + name, config)
             self.assertIn('test ! -e .site-check/' + name, workflow)

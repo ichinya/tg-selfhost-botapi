@@ -5,6 +5,26 @@ translation: /docs/ru/getting-started.html
 
 # Getting started
 
+Requires Docker Compose v2 and a Telegram application API ID/hash from [my.telegram.org](https://my.telegram.org).
+
+```sh
+git clone https://github.com/ichinya/tg-selfhost-botapi.git
+cd tg-selfhost-botapi
+cp .env.example .env
+```
+
+Fill in `API_ID` and `API_HASH` in `.env`. Select qualified image digests into
+`selected.env` using the [release procedure](maintenance.md#qualified-release-bundle).
+With `selected_release: null`, use the [local build](configuration.md#saved-build-inputs) first.
+After selection run:
+
+```sh
+docker compose --env-file .env --env-file selected.env up -d --no-build
+docker compose --env-file .env --env-file selected.env ps
+```
+
+Botapi should become healthy and gateway should be running. The API binds to `127.0.0.1:18080` by default. An HTTP response confirms reachability, not bot authorization or webhook delivery. See [configuration](configuration.md) and [maintenance](maintenance.md) for advanced options.
+
 ## File downloads
 
 File downloads require the explicit split-storage override and a scoped reader:
@@ -30,9 +50,12 @@ docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-com
 ```
 
 For a local Bot API build insert `-f docker-compose.build.yml` immediately after
-the base file and use `up -d --build`. To build downloads from the saved inputs,
+the base file and use `up -d --build`. Capture the wrapper and generate `.env.build`
+as in [saved build inputs](configuration.md#saved-build-inputs); pass
+`--env-file .env --env-file .env.build` on every local config/build/up command.
+To build downloads from the saved inputs,
 add `-f docker-compose.downloads.build.yml` after `docker-compose.downloads.yml`
-and run `docker compose --env-file .env.build -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml -f docker-compose.downloads.build.yml build downloads`; set
+and run `docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml -f docker-compose.downloads.yml -f docker-compose.downloads.build.yml build downloads`; set
 `DOWNLOADS_IMAGE` only to a candidate qualified by the file gate. API port is
 18080; downloads HTTP port is loopback 18082 behind the supplied TLS frontend.
 
@@ -83,9 +106,6 @@ from a bot token issued by BotFather.
 git clone https://github.com/ichinya/tg-selfhost-botapi.git
 cd tg-selfhost-botapi
 cp .env.example .env
-install -d -m 0700 .observability
-install -d -m 0755 .observability/runtime .observability/migration
-sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
 ```
 
 Fill in `API_ID` and `API_HASH` in `.env`. Keep that file private.
@@ -156,9 +176,10 @@ or mount privileges. This test does not prove an actual Telegram download.
 Before the first GHCR publication, build locally:
 
 ```sh
-RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
-python3 tools/image_inputs.py --capture-wrapper "$RUNNER_TEMP/source-inputs.json"
-python3 tools/image_inputs.py --inputs-file "$RUNNER_TEMP/source-inputs.json" --build-env .env.build
+umask 077
+BUILD_INPUTS=$(mktemp -d)
+python3 tools/image_inputs.py --capture-wrapper "$BUILD_INPUTS/source-inputs.json"
+python3 tools/image_inputs.py --inputs-file "$BUILD_INPUTS/source-inputs.json" --build-env .env.build
 docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 

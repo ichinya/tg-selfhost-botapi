@@ -5,6 +5,26 @@ translation: /docs/en/getting-started.html
 
 # Установка
 
+Нужны Docker Compose v2 и API ID/hash приложения Telegram с [my.telegram.org](https://my.telegram.org).
+
+```sh
+git clone https://github.com/ichinya/tg-selfhost-botapi.git
+cd tg-selfhost-botapi
+cp .env.example .env
+```
+
+Заполните `API_ID` и `API_HASH` в `.env`. Сохраните qualified image digest в
+`selected.env` по [регламенту выпуска](maintenance.md#квалифицированный-набор-выпуска).
+При `selected_release: null` сначала выполните [локальную сборку](configuration.md#сохранённые-входы-сборки).
+После выбора выполните:
+
+```sh
+docker compose --env-file .env --env-file selected.env up -d --no-build
+docker compose --env-file .env --env-file selected.env ps
+```
+
+Botapi должен стать healthy, gateway должен работать. По умолчанию API доступен на `127.0.0.1:18080`. HTTP-ответ подтверждает доступность, но не авторизацию бота или доставку webhook. Дополнительные возможности описаны в [настройках](configuration.md) и [обслуживании](maintenance.md).
+
 Для скачивания файлов нужен явный split-storage override и scoped reader:
 см. [настройки](configuration.md) и
 [исполняемые примеры](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
@@ -28,9 +48,12 @@ docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-com
 ```
 
 Для локальной сборки Bot API вставьте `-f docker-compose.build.yml` сразу после
-base и используйте `up -d --build`. Для сборки downloads по сохранённым входам
+base и используйте `up -d --build`. Захватите wrapper и создайте `.env.build`
+по [сохранённым входам](configuration.md#сохранённые-входы-сборки); передавайте
+`--env-file .env --env-file .env.build` при каждом локальном config/build/up.
+Для сборки downloads по сохранённым входам
 добавьте `-f docker-compose.downloads.build.yml` после `docker-compose.downloads.yml`
-и выполните `docker compose --env-file .env.build -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml -f docker-compose.downloads.build.yml build downloads`.
+и выполните `docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml -f docker-compose.downloads.yml -f docker-compose.downloads.build.yml build downloads`.
 В `DOWNLOADS_IMAGE` задавайте candidate, прошедший file gate. API — порт 18080;
 downloads HTTP — loopback 18082 за TLS frontend из примера.
 
@@ -80,9 +103,6 @@ API ID/hash приложения и токен бота от BotFather — ра�
 git clone https://github.com/ichinya/tg-selfhost-botapi.git
 cd tg-selfhost-botapi
 cp .env.example .env
-install -d -m 0700 .observability
-install -d -m 0755 .observability/runtime .observability/migration
-sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
 ```
 
 Заполните `API_ID` и `API_HASH` в `.env`. Не публикуйте этот файл.
@@ -152,9 +172,10 @@ docker run --rm --user 2001:3000 --group-add 2000 \
 До первой публикации в GHCR используйте локальную сборку:
 
 ```sh
-RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
-python3 tools/image_inputs.py --capture-wrapper "$RUNNER_TEMP/source-inputs.json"
-python3 tools/image_inputs.py --inputs-file "$RUNNER_TEMP/source-inputs.json" --build-env .env.build
+umask 077
+BUILD_INPUTS=$(mktemp -d)
+python3 tools/image_inputs.py --capture-wrapper "$BUILD_INPUTS/source-inputs.json"
+python3 tools/image_inputs.py --inputs-file "$BUILD_INPUTS/source-inputs.json" --build-env .env.build
 docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 

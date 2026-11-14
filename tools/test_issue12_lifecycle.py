@@ -52,6 +52,8 @@ class ComposeLifecycleTests(unittest.TestCase):
         base = (ROOT / 'docker-compose.yml').read_text()
         gateway = base.split('  gateway:', 1)[1]
         self.assertIn('condition: service_healthy', gateway)
-        self.assertIn('condition: service_started', gateway)
+        overlay = (ROOT / 'docker-compose.observability.yml').read_text()
+        self.assertIn('condition: service_started', overlay)
+        self.assertNotIn('  observer:', base)
         self.assertIn('stop_grace_period: 120s', base)
         self.assertIn('condition: service_healthy', (ROOT / 'docker-compose.downloads.yml').read_text())

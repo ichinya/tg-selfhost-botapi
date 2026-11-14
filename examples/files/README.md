@@ -1,5 +1,11 @@
 # File access examples
 
+Use the complete qualified release selection for registry deployment. For local
+builds first capture the committed wrapper and replay saved inputs as described
+in [EN configuration](../../docs/en/configuration.md#saved-build-inputs) /
+[RU настройки](../../docs/ru/configuration.md#сохранённые-входы-сборки).
+Pass both `.env` and `.env.build` on every local command and keep secrets last.
+
 Linux/amd64 and a kernel supporting openat2 are required. The Bot API is a trusted
 local API, not a tenant sandbox. Each application sees only its own bot subtree.
 The host/writer is trusted; no nested mounts are permitted beneath that subtree.

@@ -27,7 +27,7 @@ User-Agent для webhook и инструменты миграции.
 | Официальный сервер tdlib | Реализует Bot API |
 | Образ этого проекта | Собирает сервер, применяет патч webhook и запускает его с настройками из окружения |
 | nginx | Проксирует HTTP-запросы к серверу |
-| Observer | Health без входа ботом и безопасные operational snapshots через private management listener |
+| Observer (opt-in overlay) | Health без входа ботом и безопасные operational snapshots через private management listener |
 | Runtime host CLI | Пишет безопасные metadata диска и фактического образа без Docker-доступа у observer |
 | Host CLI doctor | Проверяет установку и предпосылки миграции, выводит безопасный text/JSON отчёт |
 | Python-исполнитель | Неизменяемый plan/apply/status/resume для четырёх направлений |

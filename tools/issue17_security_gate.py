@@ -95,7 +95,10 @@ def compose_models(compose):
             if environment.get('TELEGRAM_API_ID_FILE')!='/run/secrets/telegram_api_id' or environment.get('TELEGRAM_API_HASH_FILE')!='/run/secrets/telegram_api_hash': raise GateFailure('file_mount_contract')
             if model['services']['gateway'].get('secrets'): raise GateFailure('gateway_secret_grant')
             assert_private_absent(json.dumps(model),['legacy_id_canary','legacy_hash_canary'])
-    return {'models':4}
+            overlay=json.loads(output(base+['-f','docker-compose.secrets.yml','-f','docker-compose.observability.yml','config','--format','json'],env=env))
+            if any(overlay['services'][name].get('secrets') for name in ('gateway','observer')): raise GateFailure('overlay_secret_grant')
+            assert_private_absent(json.dumps(overlay),['legacy_id_canary','legacy_hash_canary'])
+    return {'models':6}
 
 
 def entrypoint_gate():

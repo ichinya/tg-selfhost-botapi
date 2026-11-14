@@ -7,8 +7,17 @@ with outgoing `User-Agent: WebhookDelivery/1.0` and migration tools.
 [Documentation](https://ichinya.github.io/tg-selfhost-botapi/) ·
 [Migration tool](https://ichinya.github.io/tg-selfhost-botapi/tg_selfhost_botapi_migrator.html)
 
-Use saved source/base inputs for a local build, or select an entire qualified bundle by digest.
-`selected_release: null` means no registry deployment is accepted yet.
-The gateway binds to localhost and rejects legacy `/file` access.
+Create `.env` from `.env.example` and fill in `API_ID` / `API_HASH`. Select a
+qualified bundle into `selected.env` using the installation guide, then start:
 
-[Maintenance EN](docs/en/maintenance.md) · [Обслуживание RU](docs/ru/maintenance.md) · [Contributing](CONTRIBUTING.md)
+```sh
+docker compose --env-file .env --env-file selected.env up -d --no-build
+```
+
+`selected_release: null` means no registry bundle has been accepted yet; use the
+[saved-input local build](docs/en/configuration.md#saved-build-inputs) in that case.
+Defaults refer to local tags. The gateway binds to localhost, rejects legacy
+`/file` access and waits for HTTP readiness. Observability is an opt-in overlay.
+
+[Maintenance EN](docs/en/maintenance.md) · [Обслуживание RU](docs/ru/maintenance.md) ·
+[Contributing](CONTRIBUTING.md)

@@ -1,6 +1,7 @@
 """Verify immutable image content and receipts; never authorize live gates."""
 import argparse
 import hashlib
+import ipaddress
 import json
 from pathlib import Path
 import re
@@ -26,6 +27,20 @@ def validate_compose_config(config, inputs, *, local=False, selected=None):
         expected_args = {k: v for k, v in build_environment(inputs).items() if k not in ('OBSERVER_BASE', 'PYTHON_IMAGE')}
         if api.get('build', {}).get('args') != expected_args:
             raise ValueError('Effective Compose build arguments differ from saved inputs')
+        components = {
+            'observer': ('tg-selfhost-botapi-observer:local', {
+                'OBSERVER_BASE': inputs['observer_base'], 'APK_REFRESH_ID': inputs['apk_refresh_id'],
+                'BUILD_FINGERPRINT': inputs['build_key']}),
+            'downloads': ('tg-selfhost-botapi-downloads:local', {
+                'PYTHON_IMAGE': inputs['python_image'], 'BUILD_FINGERPRINT': inputs['downloads_key']}),
+        }
+        for name, (image, args) in components.items():
+            if name in services:
+                service = services[name]
+                if (not isinstance(service, dict) or service.get('image') != image
+                        or service.get('build', {}).get('args') != args
+                        or service.get('platform', 'linux/amd64') != inputs['platform']):
+                    raise ValueError('Effective Compose local component differs from saved inputs: ' + name)
     else:
         if not selected:
             raise ValueError('Registry deployment requires a qualified selected release')
@@ -51,6 +66,13 @@ def validate_compose_config(config, inputs, *, local=False, selected=None):
         raise ValueError('Effective Compose credentials mapping is missing')
     if str(environment.get('TELEGRAM_HTTP_PORT', '8081')) != '8081':
         raise ValueError('Effective Compose TELEGRAM_HTTP_PORT must be 8081')
+    address = environment.get('TELEGRAM_HTTP_IP_ADDRESS', '0.0.0.0')
+    try:
+        listen_ip = ipaddress.ip_address(address)
+    except ValueError:
+        raise ValueError('Effective Compose TELEGRAM_HTTP_IP_ADDRESS must be an IP address') from None
+    if listen_ip.is_loopback:
+        raise ValueError('Effective Compose TELEGRAM_HTTP_IP_ADDRESS must be reachable from gateway')
     for name in ('TELEGRAM_API_ID', 'TELEGRAM_API_HASH'):
         if bool(environment.get(name)) == bool(environment.get(name + '_FILE')):
             raise ValueError('Effective Compose requires exactly one credential source: ' + name)
@@ -128,6 +150,7 @@ def image_evidence(ref, inputs, require_registry=True):
                            'io.tg-selfhost.tdlib-revision': inputs['submodules']['td'],
                            'io.tg-selfhost.base': inputs['alpine_image'],
                            'io.tg-selfhost.platform': inputs['platform'],
+                           'io.tg-selfhost.privacy-policy': 'issue17-v1',
                            'io.tg-selfhost.verification-contract': '1',
                            'io.tg-selfhost.build-key': inputs['build_key']}.items():
         if labels.get(name) != expected:

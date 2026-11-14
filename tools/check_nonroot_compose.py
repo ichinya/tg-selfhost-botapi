@@ -148,6 +148,8 @@ def compose_matrix(commands):
         envfile = directory / "empty.env"
         envfile.write_text("", encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if not k.startswith(("BOTAPI_", "API_", "COMPOSE_"))}
+        from image_inputs import public_environment, resolve
+        env.update(public_environment(resolve()))
         env.update(API_ID="12345", API_HASH="synthetic-placeholder", BOTAPI_UID="1000", BOTAPI_GID="2000")
         for role in ("STATE", "TEMP", "MEDIA"):
             source = directory / role.lower()

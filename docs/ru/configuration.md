@@ -5,6 +5,15 @@ translation: /docs/en/configuration.html
 
 # Настройки
 
+Verifier выпуска отклоняет loopback-адрес backend и порт Compose, отличный от
+`8081`. Container health использует loopback; доступность через gateway требует
+отдельной проверки корня без токена. Observability включается отдельным overlay.
+
+`docker compose config` проверяет структуру и может пройти с пустыми API credentials.
+Verifier выпуска требует ровно один непустой inline-источник или `_FILE` для каждого
+API-параметра. Entrypoint проверяет читаемые обычные файлы от имени сервера до его
+запуска; сообщение об ошибке содержит только имя параметра.
+
 ## Файловые секреты Docker Compose
 
 Для дополнительного secrets overlay нужен Compose версии 2.24.4 или новее.
@@ -19,7 +28,9 @@ docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
 ```
 
 Для локальной сборки добавьте `-f docker-compose.build.yml` перед secrets-файлом.
-Overlay удаляет значения credentials из итогового окружения контейнера.
+Overlay переопределяет inline credentials явными пустыми строками, оставляя
+непустыми только `_FILE`-источники. Это работает и в длинных цепочках overlay,
+где отдельные версии Compose непоследовательно применяют вложенный `!reset null`.
 Файлы credentials должны быть непустыми обычными файлами, доступными для чтения
 пользователю сервера; каталоги и FIFO отклоняются без чтения. `docker compose config`
 проверяет структуру конфигурации, а entrypoint проверяет credentials при запуске.
@@ -357,8 +368,7 @@ unknown, сумма выборки — нижняя граница, а не гл
 install -d -m 0700 .observability
 install -d -m 0755 .observability/runtime .observability/migration
 sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
-python3 tools/image_inputs.py --build-env .env.build
-docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --no-build
 ```
 
 Observer делит только network namespace Bot API, работает как 101:101 с read-only
@@ -368,8 +378,8 @@ dossier mounts. Пустые каталоги работают без bot creden
 body и Authorization. API listener 18080 закрывает эти пути. Отложенный Docker DNS
 позволяет nginx стартовать без target; management upstream errors дают фиксированный
 503. Management 4xx от nginx могут содержать стандартные HTML-страницы ошибок.
-Порты API 8082/8090 зарезервированы. Custom API port требует nginx override и
-doctor. Raw stats остаётся на loopback. Доступ к observer 8090 доверен только сети
+Порты API 8082/8090 зарезервированы. Поддерживаемый порт backend Compose — 8081;
+verifier выпуска отклоняет другие порты. Raw stats остаётся на loopback. Доступ к observer 8090 доверен только сети
 Compose; публиковать его как monitoring ingress нельзя.
 
 Doctor проверяет контексты routes и владельца namespace. Неизвестные переменные,
@@ -379,27 +389,55 @@ mounts и неверный namespace owner дают fail или unknown. Doctor 
 APK repositories Python/curl/jq остаются изменяемыми. Immutable пара фиксирует
 результат сборки; побайтовая воспроизводимость не обещается.
 
-Опубликованный observer использует digest-pinned Python base, разрешённую CI.
-Локальный fallback — pinned Alpine с APK Python; для release base задайте
-OBSERVER_BASE с approved Python image digest. Supervision host producer,
+Observer использует сохранённые Alpine base и APK Python локально и в CI.
+Для локальной сборки сначала захватите wrapper по инструкции
+[сохранённых входов](#сохранённые-входы-сборки). Supervision host producer,
 права registry/credentials и ownership/rotation описаны в
 [обслуживании](maintenance.md). Ready секции описывает её источник наблюдения;
 исходы миграции проверяются отдельно от готовности процесса.
 
 ## Сохранённые входы сборки
 
-`image-inputs.lock.json` — датированный снимок обнаруженных source/base, ещё без квалификации.
-Повторение работает без сети: `python3 tools/image_inputs.py --build-env .env.build --json-file /private/resolved.json`.
-Сборка: `docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
-Храните сгенерированные входы закрыто. Observer использует одинаковую базу Alpine локально и в CI;
-необязательный downloads — сохранённую базу Python. Discovery запускается явно (`--save-discovery /private/candidate.json`),
-сохраняя выбранную ревизию сервера до отдельного review обновления исходников. PR повторяет сохранённый снимок.
-Ключ сборки исключает deployment digests и документацию; у квалификации отдельный ключ.
-Local build overlay и downloads явно выбирают `linux/amd64`; эмуляция не
-квалифицирует native ARM64 release.
-Исторические digest требуют повторной проверки registry/platform/support в CI до выбора выпуска.
+`image-inputs.lock.json` — датированный source/base snapshot без квалификации.
+Сначала закоммитьте изменения рецепта, захватите фактический wrapper commit,
+затем повторите полученный candidate:
 
-Test-only sender artifact сохраняется по digest вместе с runtime; reuse скачивает
-его без повторной компиляции. Отсутствие парного test artifact запрещает reuse до восстановления evidence.
-После commit изменений упаковки выполните `--capture-wrapper /private/source-inputs.json`,
-затем повторите файл через `--inputs-file`, чтобы записать фактический commit обёртки.
+```sh
+umask 077
+BUILD_INPUTS=$(mktemp -d)
+python3 tools/image_inputs.py --capture-wrapper "$BUILD_INPUTS/source-inputs.json"
+python3 tools/image_inputs.py --inputs-file "$BUILD_INPUTS/source-inputs.json" --build-env .env.build --json-file "$BUILD_INPUTS/resolved.json"
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml config --quiet
+docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+Replay работает без сети. Сохраните закрытые candidate/resolved-файлы и env;
+передавайте resolved-файл через `tools/check_release.py --inputs` при локальной
+проверке. Для сборки observer добавляйте `-f docker-compose.observability.yml
+-f docker-compose.observability.build.yml` после base/build во всех config/build/up.
+Для downloads добавьте nonroot/files/downloads и его build overlay, сохранив
+подготовленные paths и оба аргумента `--env-file`. Secrets overlay указывайте последним.
+
+Observer использует одинаковые сохранённые Alpine base и refresh ID локально и в CI;
+downloads — Python base и собственный key. Discovery запускается явно
+(`--save-discovery /private/candidate.json`) и сохраняет reviewed source revision.
+Fix-коммиты не обновляют сохранённое окно APK. У квалификации отдельный key.
+Поддерживается только `linux/amd64`; эмуляция не квалифицирует ARM64. Перед выбором
+нужны свежие проверки registry/platform/support исторических digest.
+Test-only sender сохраняется по digest; отсутствие его evidence запрещает reuse.
+
+## Подключение observability
+
+Подготовьте приватные входы `.observability`, описанные выше, затем выполните `docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d`. По умолчанию management доступен на `127.0.0.1:18081`; сохраняйте его приватным. `TELEGRAM_STAT` управляет обоими компонентами только с этим overlay. Для локальной сборки observer подключите также `docker-compose.build.yml` и `docker-compose.observability.build.yml`.
+
+При совместном использовании файловых секретов и observability указывайте `docker-compose.secrets.yml` последним, после `docker-compose.observability.yml` и проверяйте, что итоговая конфигурация не содержит inline credentials.
+
+## Интерфейсы настройки
+
+Compose читает `API_ID`, `API_HASH`, `BOTAPI_IMAGE`, `GATEWAY_BIND`, `TELEGRAM_HTTP_IP_ADDRESS` и `TELEGRAM_HTTP_PORT`. По умолчанию gateway доступен только на loopback; verifier выпуска требует порт backend 8081 и адрес backend вне loopback. Overlay observability читает `TELEGRAM_STAT`, `MGMT_BIND`, `OBSERVER_IMAGE`, `OBSERVER_MIGRATION_DIR` и `OBSERVER_REGISTRY`; build overlay читает `OBSERVER_BASE`. Закрепляйте образы botapi и observer с одинаковым ключом сборки.
+
+Overlay non-root и files читают `BOTAPI_UID`, `BOTAPI_GID`, `BOTAPI_STATE_SOURCE`, `BOTAPI_TEMP_SOURCE` и `BOTAPI_MEDIA_SOURCE`. Overlay секретов читает `TELEGRAM_API_ID_SECRET_PATH` и `TELEGRAM_API_HASH_SECRET_PATH`. Downloads и reader используют `DOWNLOADS_IMAGE`, `BOT_A_ROOT`, `BOT_A_HOST_ROOT`, `BOT_TOKEN_FILE`, `DOWNLOAD_BOT_TOKEN_FILE`, `DOWNLOAD_AUTH_TOKEN_FILE`, `DOWNLOADS_BIND`, `DOWNLOAD_MAX_DURATION`, `DOWNLOAD_WORKERS`, `BOT_TEST_DC` и `BOT_COLON_LAYOUT`; храните секреты в приватных файлах и оставляйте downloads на loopback без защищённого ingress.
+
+У миграционных helper собственное окружение процесса: `SELF_BOT_URL`, `WEBHOOK_URL`, `DROP_PENDING_UPDATES`, `WEBHOOK_SECRET_MODE`, `WEBHOOK_SECRET_TOKEN_FILE`, `WEBHOOK_IP_MODE`, `WEBHOOK_ALLOWED_UPDATES`, `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL`, `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE`, `BOT_TOKEN_FILE`, `MIGRATION_CONNECT_TIMEOUT`, `MIGRATION_REQUEST_DEADLINE`, `MIGRATION_STATUS_DIR` и `MIGRATION_STATUS_ALIAS`. Решение об ожидающих обновлениях принимайте явно; см. [миграцию](migration.md).
+
+Для `TELEGRAM_VERBOSITY`, `TELEGRAM_WORK_DIR` и `TELEGRAM_TEMP_DIR` необходимо явное переопределение окружения контейнера: добавления в `.env` недостаточно. `TELEGRAM_FILES_DIR` и `TELEGRAM_LOG_FILE` задаёт overlay files. Храните state, временные файлы и media раздельно.

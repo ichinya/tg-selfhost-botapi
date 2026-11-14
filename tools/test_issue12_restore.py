@@ -5,9 +5,34 @@ import tarfile
 import unittest
 from check_issue12_restore import validate_backup
 from smoke_image import archive_manifest, validate_shutdown
+from smoke_image import rehearse_layouts, validate_restore_evidence
+from unittest.mock import patch
 
 
 class RestoreTests(unittest.TestCase):
+    def test_both_layout_receipts_are_required(self):
+        def evidence(image, gateway, layout):
+            return {'layout': layout, 'runtime_smoke': 'PASS', 'restore_rehearsal': 'PASS',
+                    'readiness_abort': 'PASS', 'archives_sha256': {
+                        name: 'a' * 64 for name in (('state', 'media') if layout == 'nonroot-split' else ('state',))}}
+        with patch('smoke_image.runtime', side_effect=evidence) as run:
+            record = rehearse_layouts('candidate', 'nginx@sha256:' + 'a' * 64)
+            self.assertEqual(run.call_count, 2)
+        validate_restore_evidence(record)
+        for mutation in ('missing-layout', 'missing-media', 'failed'):
+            bad = copy.deepcopy(record)
+            if mutation == 'missing-layout': del bad['layouts']['base']
+            elif mutation == 'missing-media': del bad['layouts']['nonroot-split']['archives_sha256']['media']
+            else: bad['layouts']['base']['readiness_abort'] = 'NOTRUN'
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                validate_restore_evidence(bad)
+
+    def test_backup_rejects_aliased_storage(self):
+        record, archives = self.fixture('base')
+        record['members']['private']['storage_mapping'] = record['members']['state']['storage_mapping']
+        with self.assertRaisesRegex(ValueError, 'Aliased'):
+            validate_backup(record, archives)
+
     def archive(self, uid=101, data=b'synthetic-state'):
         stream = io.BytesIO()
         with tarfile.open(fileobj=stream, mode='w') as archive:

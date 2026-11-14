@@ -46,7 +46,8 @@ def smoke(botapi_image, observer_image, nginx_image):
         # The gateway must start even before either upstream resolves.
         stage = 'gateway-start'
         gateway=launch('gateway',['--network',network,'--network-alias','gateway','--mount',
-            'type=bind,src='+str(ROOT/'nginx.conf')+',dst=/etc/nginx/conf.d/default.conf,readonly'],nginx_image)
+            'type=bind,src='+str(ROOT/'nginx.conf')+',dst=/etc/nginx/conf.d/default.conf,readonly',
+            '--mount', 'type=bind,src='+str(ROOT/'nginx.observability.conf')+',dst=/etc/nginx/conf.d/observability.conf,readonly'],nginx_image)
         stage = 'gateway-without-upstream'
         script='import http.client,time; time.sleep(2); c=http.client.HTTPConnection("gateway",81,timeout=4); c.request("GET","/health/ready"); r=c.getresponse(); raise SystemExit(0 if r.status==503 else 1)'
         command(['docker','run','--rm','--network',network,'--entrypoint','python3',observer_image,'-c',script])

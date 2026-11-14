@@ -47,9 +47,30 @@ class ConfigurationTests(unittest.TestCase):
 
 
 class ComposeCredentialTests(unittest.TestCase):
-    def test_secrets_overlay_resets_inline_values(self):
+    def test_effective_credentials_require_one_source_per_parameter(self):
+        from check_release import validate_compose_config
+        ref = lambda name: name + '@sha256:' + 'a' * 64
+        selected = {'botapi_image': ref('botapi'), 'nginx_image': ref('gateway')}
+        env = {'TELEGRAM_API_ID': '123', 'TELEGRAM_API_HASH': 'synthetic-hash-canary'}
+        config = {'services': {'botapi': {'image': selected['botapi_image'], 'environment': env},
+                               'gateway': {'image': selected['nginx_image']}}}
+        for name in ('TELEGRAM_API_ID', 'TELEGRAM_API_HASH'):
+            saved = env.copy()
+            for value, file in (('', ''), (None, None), ('inline-canary', '/private/path-canary')):
+                env[name], env[name + '_FILE'] = value, file
+                with self.subTest(name=name, value=value), self.assertRaises(ValueError) as error:
+                    validate_compose_config(config, {'platform': 'linux/amd64'}, selected=selected)
+                self.assertIn(name, str(error.exception))
+                for canary in ('inline-canary', 'path-canary', 'synthetic-hash-canary'):
+                    self.assertNotIn(canary, str(error.exception))
+            env.clear(); env.update(saved)
+            env[name] = ''
+            env[name + '_FILE'] = '/private/placeholder'
+            self.assertTrue(validate_compose_config(config, {'platform': 'linux/amd64'}, selected=selected))
+
+    def test_secrets_overlay_clears_inline_values(self):
         root = Path(__file__).resolve().parents[1]
         text = (root / 'docker-compose.secrets.yml').read_text()
         for name in ('TELEGRAM_API_ID', 'TELEGRAM_API_HASH'):
-            self.assertIn(name + ': !reset null', text)
+            self.assertIn(name + ': ""', text)
             self.assertIn(name + '_FILE:', text)
