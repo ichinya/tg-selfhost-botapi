@@ -75,6 +75,15 @@ class ConfigTests(unittest.TestCase):
         after = {"Config": {"Env": ["SECRET=new"]}, "State": {"Pid": 2}}
         self.assertEqual(["pid", "config"], changed_identity_components(before, after))
 
+    def test_mount_identity_ignores_order_but_detects_all_changes(self):
+        first = {"Destination": "/a", "Type": "bind", "Source": "/host/a", "RW": True}
+        second = {"Destination": "/b", "Type": "volume", "Source": "/host/b", "RW": False}
+        before = {"Mounts": [first, second, first]}
+        self.assertEqual([], changed_identity_components(before, {"Mounts": [second, first, first]}))
+        for mounts in ([first, second], [first, second, {**first, "RW": False}],
+                       [first, second, {**first, "Source": "/host/other"}]):
+            self.assertEqual(["mounts"], changed_identity_components(before, {"Mounts": mounts}))
+
     def test_snapshot_diagnostics_identify_the_changed_source(self):
         import hashlib
         from doctor_mock import StackRunner
