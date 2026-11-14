@@ -730,3 +730,6 @@ PR #42 cold-backup validator and shutdown observation primitives are adopted; no
 
 ### Doctor scope after adapter migration
 Doctor remains token-free and never checks bot authorization or Telegram delivery. Reports now name the canonical Python Bash adapter and same-origin helper. Mount permissions, image identity and actual runtime evidence retain FAILED/UNKNOWN distinctions; missing Docker/kernel/provider evidence cannot produce readiness PASS. Custom binary port checks remain separate from the fixed 8081 Compose bundle. Use a selected-stack synthetic fixture, never a production bot, for runtime diagnostics.
+
+### Kuma acceptance
+Enable the existing observability overlay explicitly. Kuma probes the private token-free /health/live and /health/ready endpoints on the permitted management network; failed or stale upstream/observer inputs must remain not ready. Live does not mean ready or Telegram delivery. The API listener must deny management routes. Raw statistics and bot/user/chat identifiers never become public labels or status fields. Repeat check_observability.py against the exact Bot API/observer pair after updates; disabled statistics is a supported state, not missing authorization.

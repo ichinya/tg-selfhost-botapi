@@ -726,3 +726,6 @@ Production sender harness PR #37 принят. Native jobs amd64 и arm64 соб
 
 ### Doctor после перехода adapters
 Doctor остаётся token-free и не проверяет авторизацию бота или Telegram delivery. Report называет canonical Python Bash adapter и same-origin helper. Mount permissions, image identity и actual runtime evidence сохраняют FAILED/UNKNOWN; отсутствие Docker/kernel/provider evidence не даёт readiness PASS. Проверка custom binary port отделена от фиксированного Compose port 8081. Для runtime diagnostics используйте synthetic selected-stack fixture, без production bot.
+
+### Приёмка Kuma
+Включайте существующий observability overlay явно. Kuma опрашивает приватные token-free /health/live и /health/ready в разрешённой management-сети; отказ или устаревшие upstream/observer inputs должны давать неготовность. Live не означает ready или Telegram delivery. API listener запрещает management routes. Raw statistics и bot/user/chat identifiers не становятся публичными labels или status fields. После обновления повторяйте check_observability.py на exact Bot API/observer pair; отключённая статистика поддерживается и не означает отсутствие авторизации.
