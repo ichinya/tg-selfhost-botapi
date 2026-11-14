@@ -49,6 +49,8 @@ def validate_compose_config(config, inputs, *, local=False, selected=None):
     environment = api.get('environment', {})
     if not isinstance(environment, dict):
         raise ValueError('Effective Compose credentials mapping is missing')
+    if str(environment.get('TELEGRAM_HTTP_PORT', '8081')) != '8081':
+        raise ValueError('Effective Compose TELEGRAM_HTTP_PORT must be 8081')
     for name in ('TELEGRAM_API_ID', 'TELEGRAM_API_HASH'):
         if bool(environment.get(name)) == bool(environment.get(name + '_FILE')):
             raise ValueError('Effective Compose requires exactly one credential source: ' + name)

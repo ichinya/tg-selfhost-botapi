@@ -15,6 +15,21 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertTrue(required)
         self.assertEqual(required - args, set())
 
+    def test_effective_compose_port_must_match_gateway(self):
+        ref = lambda name: name + '@sha256:' + 'a' * 64
+        selected = {name + '_image': ref(name) for name in ('botapi', 'nginx')}
+        env = {'TELEGRAM_API_ID': '123', 'TELEGRAM_API_HASH': 'synthetic'}
+        config = {'services': {'botapi': {'image': selected['botapi_image'], 'environment': env},
+                               'gateway': {'image': selected['nginx_image']}}}
+        inputs = {'platform': 'linux/amd64'}
+        for port in ('8081', 8081):
+            env['TELEGRAM_HTTP_PORT'] = port
+            self.assertTrue(validate_compose_config(config, inputs, selected=selected))
+        for port in ('8082', '', None):
+            env['TELEGRAM_HTTP_PORT'] = port
+            with self.subTest(port=port), self.assertRaisesRegex(ValueError, 'TELEGRAM_HTTP_PORT'):
+                validate_compose_config(config, inputs, selected=selected)
+
     def test_registry_rejects_foreign_or_missing_optional_images(self):
         ref = lambda name: name + '@sha256:' + 'a' * 64
         selected = {name + '_image': ref(name) for name in ('botapi', 'nginx', 'observer', 'downloads')}

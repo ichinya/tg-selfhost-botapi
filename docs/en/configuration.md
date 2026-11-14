@@ -175,14 +175,14 @@ These variables configure the image's entrypoint. Compose currently maps
 | `TELEGRAM_API_ID_FILE`, `TELEGRAM_API_HASH_FILE` | Read the corresponding credential from a mounted file |
 | `TELEGRAM_WORK_DIR` | State directory; set by the image |
 | `TELEGRAM_TEMP_DIR` | Temporary directory; set by the image |
-| `TELEGRAM_HTTP_PORT` | Bot API port; `8081` |
+| `TELEGRAM_HTTP_PORT` | Compose requires internal port `8081`; the release verifier rejects other values. Standalone entrypoint supports other ports. |
 | `TELEGRAM_LOCAL` | Local mode; Compose sets `true` |
 | `TELEGRAM_STAT` | Statistics endpoint on port `8082`; disabled by default |
 | `TELEGRAM_LOG_FILE`, `TELEGRAM_VERBOSITY` | Log destination and verbosity |
 | `TELEGRAM_FILTER` | Bot user-ID filter |
 | `TELEGRAM_MAX_CONNECTIONS`, `TELEGRAM_MAX_WEBHOOK_CONNECTIONS` | Connection limits |
 | `TELEGRAM_PROXY` | Outgoing webhook HTTP proxy |
-| `TELEGRAM_HTTP_IP_ADDRESS` | Bot API listen address |
+| `TELEGRAM_HTTP_IP_ADDRESS` | Bot API listen address; loopback makes it unreachable from the gateway container. |
 
 Boolean flags accept `true/false` or `1/0`. Do not set both a credential and its
 `_FILE` variant. File-based credentials require mounting the files and changing

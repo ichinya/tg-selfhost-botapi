@@ -179,14 +179,14 @@ Bash helper импортирует документированные migration 
 | `TELEGRAM_API_ID_FILE`, `TELEGRAM_API_HASH_FILE` | Чтение соответствующих данных из смонтированного файла |
 | `TELEGRAM_WORK_DIR` | Каталог состояния; задаётся образом |
 | `TELEGRAM_TEMP_DIR` | Временный каталог; задаётся образом |
-| `TELEGRAM_HTTP_PORT` | Порт Bot API; `8081` |
+| `TELEGRAM_HTTP_PORT` | Для Compose требуется внутренний порт `8081`; verifier отклоняет другие значения. Отдельный entrypoint поддерживает другие порты. |
 | `TELEGRAM_LOCAL` | Local mode; Compose задаёт `true` |
 | `TELEGRAM_STAT` | Статистика на порту `8082`; по умолчанию выключена |
 | `TELEGRAM_LOG_FILE`, `TELEGRAM_VERBOSITY` | Путь журнала и уровень логирования |
 | `TELEGRAM_FILTER` | Фильтр по user ID бота |
 | `TELEGRAM_MAX_CONNECTIONS`, `TELEGRAM_MAX_WEBHOOK_CONNECTIONS` | Лимиты соединений |
 | `TELEGRAM_PROXY` | HTTP proxy для исходящих webhook |
-| `TELEGRAM_HTTP_IP_ADDRESS` | Адрес прослушивания Bot API |
+| `TELEGRAM_HTTP_IP_ADDRESS` | Адрес прослушивания Bot API; loopback делает его недоступным из контейнера gateway. |
 
 Булевы флаги принимают `true/false` и `1/0`. Не задавайте одновременно значение
 учётных данных и его вариант `_FILE`. Для файловых секретов нужны монтирование и
