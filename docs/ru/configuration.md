@@ -383,3 +383,6 @@ Overlay non-root и files читают `BOTAPI_UID`, `BOTAPI_GID`, `BOTAPI_STATE
 У миграционных helper собственное окружение процесса: `SELF_BOT_URL`, `WEBHOOK_URL`, `DROP_PENDING_UPDATES`, `WEBHOOK_SECRET_MODE`, `WEBHOOK_SECRET_TOKEN_FILE`, `WEBHOOK_IP_MODE`, `WEBHOOK_ALLOWED_UPDATES`, `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL`, `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE`, `BOT_TOKEN_FILE`, `MIGRATION_CONNECT_TIMEOUT`, `MIGRATION_REQUEST_DEADLINE`, `MIGRATION_STATUS_DIR` и `MIGRATION_STATUS_ALIAS`. Решение об ожидающих обновлениях принимайте явно; см. [миграцию](migration.md).
 
 Для `TELEGRAM_VERBOSITY`, `TELEGRAM_WORK_DIR` и `TELEGRAM_TEMP_DIR` необходимо явное переопределение окружения контейнера: добавления в `.env` недостаточно. `TELEGRAM_FILES_DIR` и `TELEGRAM_LOG_FILE` задаёт overlay files. Храните state, временные файлы и media раздельно.
+
+### Граница приёмки загрузок
+Gateway сохраняет 2048m на всё тело запроса, включая multipart overhead; это не обещание файла Telegram размером 2048 МиБ. Connect/send/read/idle для uploads остаются 5s/300s/600s/300s. Четыре тела требуют минимум 8 ГиБ и запас на отдельном spool. Listener 82 — доверенный внутренний транспорт. Используйте существующие quick/full/slow/storage profiles; mock transport и реальная загрузка Telegram учитываются отдельно. Повтор upstream-запроса отключён.
