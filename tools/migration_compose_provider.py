@@ -4,6 +4,7 @@ from datetime import datetime
 import hashlib, hmac, re, subprocess, time
 from migration_contract import canonical, normalize_endpoint, validate_plan, plan_digest
 from migration_probe import private_json
+from migration_store import StateStore,Journal,StateError
 
 class Collector:
     def __init__(self, config, inspect=None):
@@ -66,6 +67,7 @@ class Collector:
             elif app['State'].get('Running') is not False:
                 raise ValueError('change endpoint while application is stopped')
         payload=dict(version=1,kind=kind,operation_id=state['plan']['operation_id'],digest=state['digest'],
+                     target_deployment=state.get('deployment'),
                      observed_at=time.time(),source_fingerprint=state['plan']['source_fingerprint'],
                      target_fingerprint=state['plan']['target_fingerprint'],token_fingerprint=state['plan']['token_fingerprint'],
                      topology_sha256=hashlib.sha256(canonical({k:dict(image=v['Image'],started=v['State'].get('StartedAt')) for k,v in observations.items()}).encode()).hexdigest())
@@ -76,13 +78,18 @@ class Collector:
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument('--config',required=True); p.add_argument('--state-file',required=True)
+    p.add_argument('--config',required=True); p.add_argument('--state-dir',required=True); p.add_argument('--operation',required=True)
     p.add_argument('--kind',choices=('quiescence','endpoint_change','application_start'),required=True)
     args=p.parse_args()
     try:
-        result=Collector(private_json(args.config)).collect(args.kind,private_json(args.state_file))
+        store=StateStore(args.state_dir,create=False)
+        try:
+            state=Journal(store,read_only=True).load(args.operation)
+            result=Collector(private_json(args.config)).collect(args.kind,state)
+        finally:
+            store.close()
         print(canonical(result)); return 0
-    except (ValueError,KeyError,TypeError,OSError,subprocess.SubprocessError):
+    except (StateError,ValueError,KeyError,TypeError,OSError,subprocess.SubprocessError):
         print(canonical({'status':'BLOCKED','reason':'independent_checkpoint_unverified'})); return 2
 
 if __name__=='__main__': raise SystemExit(main())

@@ -1,3 +1,8 @@
+---
+title: Audit acceptance
+translation: /docs/ru/audit-status.html
+---
+
 # Audit acceptance
 
 Candidate base: `f490df7562bd4f054066d5b0a5a8bfbefa6bdff5` (merged PR #44).
@@ -33,3 +38,8 @@ Integration policy
 PR #37/#38/#42 are conflicting candidates. Rebase-adopt their native runner, APK policy and release/restore contracts in T12–T14 after source review; no parallel publisher or restore authority. Unreviewed WIP is excluded, including the foreign observability build override. The candidate uses PR #44 tracked overrides.
 
 Full file inventory: `tools/fixtures/issue19-admission.json`. Sibling #1 remains docs-only; #15 uses existing tracked examples/files pending T17 review; #2/#9 use the canonical Python authority. No source WIP is overwritten.
+
+### Execution slice
+All T1–T19 source slices are prepared as ordered patches against f490df7. Git metadata is read-only in this session, so no task commit exists. Runtime/live acceptance is NOTRUN: verification deferred to CI/gates. Partial boundaries: T10 does not collect state-transfer/delivery/effect or source-secret audits; T16 retains the existing doctor checks and documents new unobserved provider/native facts. Issue #19 must remain open pending committed-candidate and external acceptance.
+
+Local source verification: 418 discovered tests, 368 PASS / 50 SKIP; 8 filesystem tests explicitly deferred after access denial. Later affected image/provider (52 tests) and doctor (71 tests, 1 skip) suites passed; JS client 5 PASS. These suites overlap. See tools/fixtures/issue19-local-verification.json. No image, native, browser, POSIX, restore or live acceptance is claimed.

@@ -733,3 +733,11 @@ Doctor remains token-free and never checks bot authorization or Telegram deliver
 
 ### Kuma acceptance
 Enable the existing observability overlay explicitly. Kuma probes the private token-free /health/live and /health/ready endpoints on the permitted management network; failed or stale upstream/observer inputs must remain not ready. Live does not mean ready or Telegram delivery. The API listener must deny management routes. Raw statistics and bot/user/chat identifiers never become public labels or status fields. Repeat check_observability.py against the exact Bot API/observer pair after updates; disabled statistics is a supported state, not missing authorization.
+
+### Authoritative adapter documentation
+The migration guide sections titled Explicit full webhook input, Recovery authority, Bash entry and legacy recovery, Published migrator URL and Bounded Compose checkpoints describe the current Python authority. Earlier raw-curl diagnostics are historical tools and cannot resume an engine operation or certify a migration.
+
+### Reviewed optional local build
+From a committed checkout, run `python3 tools/image_inputs.py --build-env /private/build.env` once. The file contains only public reviewed build arguments, not API credentials. Then use `docker compose --env-file .env --env-file /private/build.env -f docker-compose.yml -f docker-compose.build.yml up -d --build`. Add the corresponding observability/downloads build overlays only when selected; reuse the same build.env. Without APK_REFRESH_ID the build overlay fails before building, avoiding silently stale local APK layers. Default pull-based installation still needs only API_ID/API_HASH.
+
+Doctor inspects actual image architecture, wrapper revision and APK-generation labels. Missing metadata remains UNKNOWN; labels do not prove native runtime, confinement or package freshness. These additional metadata checks are advisory for existing installations; unsupported observed platforms are blocking.

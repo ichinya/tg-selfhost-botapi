@@ -1,11 +1,7 @@
-// The shipped migrator must load the helper client tested below.
-const fs = require('node:fs');
-const path = require('node:path');
-require('./test_issue17_security_browser.cjs');
-const html = fs.readFileSync(path.join(__dirname, 'migration_executor.html'), 'utf8');
-if (!html.includes('src="assets/js/migration-client.mjs"')) {
-  throw new Error('Migrator HTML must load assets/js/migration-client.mjs');
-}
-import('./test_migration_ui.mjs')
-  .then(() => console.log('helper contract checks passed'))
-  .catch(error => { console.error(error); process.exitCode = 1; });
+const fs=require('node:fs'),assert=require('node:assert/strict');
+const html=fs.readFileSync('tg_selfhost_botapi_migrator.html','utf8');
+assert(!/<(?:input|textarea|script)\b/i.test(html));
+assert(html.includes('tools/migration_helper.py'));
+const ui=fs.readFileSync('tools/migration_executor.html','utf8');
+for(const value of ['cloud_to_local','local_to_local','local_to_cloud','webhook_only','preserve','set','polling']) assert(ui.includes('value="'+value+'"'));
+import('./test_migration_ui.mjs').catch(error=>{console.error(error);process.exitCode=1;});

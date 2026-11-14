@@ -63,6 +63,7 @@ jobs:
         env:
           API_ID: '12345'
           API_HASH: test-placeholder
+          APK_REFRESH_ID: v1-2000-01-01-g0
         run: |
           docker compose config --quiet
           docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
@@ -214,7 +215,7 @@ jobs:
         env:
           PYTHON_IMAGE: ${{ steps.inputs.outputs.python_image }}
         run: |
-          docker build -f Dockerfile.downloads --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
+          docker build -f Dockerfile.downloads --build-arg "BUILD_FINGERPRINT=${{ steps.inputs.outputs.downloads_key }}" --build-arg "WRAPPER_REVISION=${{ github.sha }}" --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
           python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
             --downloads-image downloads-candidate:check --report "$RUNNER_TEMP/file-report.json"
       - name: Qualify patched production sender

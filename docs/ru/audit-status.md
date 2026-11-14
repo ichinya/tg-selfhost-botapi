@@ -1,3 +1,8 @@
+---
+title: Audit acceptance
+translation: /docs/en/audit-status.html
+---
+
 # Приёмка аудита
 
 Candidate base: `f490df7562bd4f054066d5b0a5a8bfbefa6bdff5` (merged PR #44).
@@ -33,3 +38,8 @@ Candidate base: `f490df7562bd4f054066d5b0a5a8bfbefa6bdff5` (merged PR #44).
 PR #37/#38/#42 конфликтуют с базой. Их native runners, APK policy и release/restore контракты рассматриваются для rebase-adopt в T12–T14 после чтения кода; параллельные publisher/restore механизмы не допускаются. Непроверенный WIP исключён, включая чужой observability build override. Candidate использует tracked overrides PR #44.
 
 Полная инвентаризация: `tools/fixtures/issue19-admission.json`. Соседний #1 остаётся docs-only; #15 использует tracked examples/files до сверки T17; #2/#9 используют единый Python executor. Чужие исходные файлы не перезаписываются.
+
+### Срез исполнения
+Исходные срезы T1–T19 подготовлены ordered patches от f490df7. Git metadata в этом сеансе read-only, поэтому task-коммиты не созданы. Runtime/live acceptance — NOTRUN: verification deferred to CI/gates. Частичные границы: T10 не собирает state-transfer/delivery/effect и source-secret audit; T16 сохраняет существующие doctor checks и описывает новые непроверенные provider/native facts. Issue #19 остаётся открытой до committed-candidate и внешней приёмки.
+
+Локальная проверка исходников: 418 tests, 368 PASS / 50 SKIP; 8 filesystem tests явно отложены после отказа в доступе. Затем прошли затронутые image/provider (52 tests) и doctor (71 tests, 1 skip) suites; JS client — 5 PASS. Наборы пересекаются. См. tools/fixtures/issue19-local-verification.json. Image/native/browser/POSIX/restore/live acceptance не заявлена.

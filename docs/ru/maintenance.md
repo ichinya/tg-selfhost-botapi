@@ -729,3 +729,11 @@ Doctor остаётся token-free и не проверяет авторизац
 
 ### Приёмка Kuma
 Включайте существующий observability overlay явно. Kuma опрашивает приватные token-free /health/live и /health/ready в разрешённой management-сети; отказ или устаревшие upstream/observer inputs должны давать неготовность. Live не означает ready или Telegram delivery. API listener запрещает management routes. Raw statistics и bot/user/chat identifiers не становятся публичными labels или status fields. После обновления повторяйте check_observability.py на exact Bot API/observer pair; отключённая статистика поддерживается и не означает отсутствие авторизации.
+
+### Актуальная документация adapters
+Разделы migration guide «Явный полный профиль webhook», «Восстановление и authority», «Bash-вход и legacy recovery», «Публичный URL мигратора» и «Ограниченные Compose checkpoints» описывают текущую Python authority. Прежние raw-curl diagnostics — исторические инструменты; они не возобновляют engine operation и не подтверждают миграцию.
+
+### Необязательная reviewed local build
+Из committed checkout один раз выполните `python3 tools/image_inputs.py --build-env /private/build.env`. Файл содержит только публичные build arguments, без API credentials. Затем используйте `docker compose --env-file .env --env-file /private/build.env -f docker-compose.yml -f docker-compose.build.yml up -d --build`. Соответствующие observability/downloads build overlays добавляются только при выборе этих компонентов; используйте тот же build.env. Без APK_REFRESH_ID build overlay отказывает до сборки, исключая незаметное сохранение старых APK layers. Обычная установка через pull по-прежнему требует только API_ID/API_HASH.
+
+Doctor проверяет actual image architecture, wrapper revision и APK-generation labels. Отсутствие metadata остаётся UNKNOWN; labels не доказывают native runtime, confinement или package freshness. Для старой установки дополнительные metadata checks носят advisory характер; наблюдаемая неподдерживаемая платформа блокирует готовность.

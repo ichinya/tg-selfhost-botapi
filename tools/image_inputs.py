@@ -10,7 +10,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 RECIPE = (
-    "image-inputs.lock.json", "tools/apk_policy.json", "nginx-main.conf", "docker-compose.secrets.yml", "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
+    "docker-compose.downloads.build.yml", "image-inputs.lock.json", "tools/apk_policy.json", "nginx-main.conf", "docker-compose.secrets.yml", "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
     "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
     "tools/test_webhook_user_agent.py",
     "docker-compose.yml", "docker-compose.build.yml", "docker-compose.nonroot.yml", "docker-compose.files.yml",
@@ -112,9 +112,13 @@ def resolve(clock=None, policy=None, platform='linux/amd64'):
     if now.tzinfo is None or platform not in ('linux/amd64','linux/arm64'):
         raise ValueError('aware UTC clock and explicit platform required')
     saved=json.loads((ROOT/'image-inputs.lock.json').read_text(encoding='utf-8'))
-    if saved.get('schema')!=1 or saved.get('selected_release') is not None:
+    expected={'bot_api_revision','submodules','bot_api_version','alpine_image','python_image','observer_base'}
+    if (set(saved)!={'schema','inputs','selected_release'} or type(saved['schema']) is not int or saved['schema']!=1
+            or not isinstance(saved['inputs'],dict) or set(saved['inputs'])!=expected or saved['selected_release'] is not None):
         raise ValueError('reviewed candidate snapshot required')
     inputs={k:saved['inputs'][k] for k in ('bot_api_revision','submodules','bot_api_version','alpine_image','python_image','observer_base')}
+    if not isinstance(inputs['submodules'],dict) or set(inputs['submodules']) != {'td'} or not re.fullmatch(r'[0-9]+\.[0-9]+(?:\.[0-9]+)?',inputs['bot_api_version']):
+        raise ValueError('reviewed source version/submodule map required')
     if not re.fullmatch('[0-9a-f]{40}',inputs['bot_api_revision']) or not re.fullmatch('[0-9a-f]{40}',inputs['submodules']['td']):
         raise ValueError('pinned source/submodule required')
     for name in ('alpine_image','python_image','observer_base'):
@@ -129,10 +133,28 @@ def resolve(clock=None, policy=None, platform='linux/amd64'):
                   apk_refresh_id=f"v{policy['policy_version']}-{window}-g{policy['generation']}")
     inputs['downloads_key']=build_key({'python_image':inputs['python_image']},
                                     {name:(ROOT/name).read_bytes() for name in DOWNLOADS_RECIPE})
-    inputs['build_key']=build_key(inputs,recipe_files())
+    files=recipe_files()
+    inputs['recipe_sha256']=hashlib.sha256(b''.join(name.encode()+b'\0'+hashlib.sha256(raw).digest() for name,raw in sorted(files.items()))).hexdigest()
+    inputs['build_key']=build_key(inputs,files)
     return inputs
 
 
+def build_environment(inputs):
+    return {'BOT_API_REVISION':inputs['bot_api_revision'],'ALPINE_IMAGE':inputs['alpine_image'],
+            'PYTHON_IMAGE':inputs['python_image'],'OBSERVER_BASE':inputs['observer_base'],
+            'BUILD_FINGERPRINT':inputs['build_key'],'DOWNLOADS_FINGERPRINT':inputs['downloads_key'],
+            'APK_REFRESH_ID':inputs['apk_refresh_id'],'WRAPPER_REVISION':inputs['wrapper_revision'],
+            'BOT_API_VERSION':inputs['bot_api_version']}
+
 if __name__ == "__main__":
-    for key, value in resolve(platform=os.environ.get("BUILD_PLATFORM", "linux/amd64")).items():
-        print(f"{key}={json.dumps(value,sort_keys=True,separators=(chr(44),chr(58))) if isinstance(value,dict) else value}")
+    import argparse
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--build-env',type=Path)
+    args=parser.parse_args()
+    if args.build_env and Path(command('git','rev-parse','--show-toplevel')).resolve()!=ROOT:
+        raise ValueError('build projection requires its own committed checkout')
+    inputs=resolve(platform=os.environ.get('BUILD_PLATFORM','linux/amd64'))
+    if args.build_env:
+        args.build_env.write_text(''.join(f'{name}={value}\n' for name,value in build_environment(inputs).items()),encoding='utf-8',newline='\n')
+    for key,value in inputs.items():
+        print(f"{key}={json.dumps(value,sort_keys=True,separators=(',',':')) if isinstance(value,dict) else value}")
