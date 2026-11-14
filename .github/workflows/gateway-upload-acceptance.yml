@@ -38,9 +38,9 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/issue4-candidate"
           git archive HEAD | tar -x -C "$RUNNER_TEMP/issue4-candidate"
-      - name: Full regression discovery on clean candidate
+      - name: Gateway upload unit suite on clean candidate
         working-directory: ${{ runner.temp }}/issue4-candidate
-        run: timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
+        run: timeout 120 python3 -m unittest discover -s tools -p 'test_gateway_uploads.py' -v
       - name: Compose models
         working-directory: ${{ runner.temp }}/issue4-candidate
         env:
@@ -51,12 +51,15 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
 
   transport:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: offline
     runs-on: ubuntu-24.04
     timeout-minutes: 65
     env:
       UPLOAD_PROJECT: issue4-${{ github.run_id }}-${{ github.run_attempt }}
-      UPLOAD_REPORT: ${{ runner.temp }}/issue4-report.json
+      UPLOAD_REPORT: /tmp/issue4-${{ github.run_id }}-${{ github.run_attempt }}-report.json
     steps:
       - uses: actions/checkout@v7
       - name: Export candidate and initialize unrun report

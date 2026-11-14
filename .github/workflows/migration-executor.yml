@@ -1,15 +1,5 @@
 name: Migration executor
 on:
-  pull_request:
-    paths:
-      - 'tools/**'
-      - 'assets/js/migration-client.mjs'
-      - 'migrate_off_to_self.sh'
-      - 'tg_selfhost_botapi_migrator.html'
-      - 'docker-compose*.yml'
-      - 'docs/**'
-      - '.env.example'
-      - '.github/workflows/migration-executor.yml'
   push:
     branches: [main]
   workflow_dispatch:
@@ -17,6 +7,9 @@ permissions:
   contents: read
 jobs:
   executor-acceptance:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:

@@ -1,18 +1,6 @@
 name: Issue 17 privacy
 on:
   pull_request:
-    paths:
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'patches/**'
-      - 'docker-entrypoint.sh'
-      - 'docker-compose*.yml'
-      - 'nginx*.conf'
-      - 'tools/**'
-      - 'assets/js/migration-client.mjs'
-      - 'migrate_off_to_self.sh'
-      - 'tg_selfhost_botapi_migrator.html'
-      - '.github/workflows/issue17-security.yml'
   push:
     branches: [main]
   workflow_dispatch:
@@ -38,6 +26,10 @@ jobs:
           test "$(id -u)" != 0
       - name: Clean candidate unit acceptance
         run: python3 tools/issue17_security_gate.py --unit
+      - name: Default installation contract
+        run: python3 -m unittest discover -s tools -p 'test_default_install.py' -v
+      - name: Compose model contracts
+        run: python3 tools/check_compose_models.py
       - name: Current Compose and real HTTP logs
         run: python3 tools/issue17_security_gate.py --runtime --manifest "$RUNNER_TEMP/issue17-current.json"
       - name: Minimum Compose 2.24.4 acceptance

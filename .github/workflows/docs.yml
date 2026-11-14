@@ -20,6 +20,7 @@ on:
       - '.env.example'
       - 'docker-entrypoint.sh'
       - 'nginx.conf'
+      - 'nginx.observability.conf'
       - 'tools/test_docs_privacy.py'
       - 'tools/test_issue17_security_docs.py'
       - 'tools/test_issue11_docs.py'
@@ -43,6 +44,7 @@ on:
       - '.env.example'
       - 'docker-entrypoint.sh'
       - 'nginx.conf'
+      - 'nginx.observability.conf'
       - 'tools/test_docs_privacy.py'
       - 'docker-compose.nonroot.yml'
       - 'docker-compose.files.yml'
@@ -94,6 +96,9 @@ jobs:
           test ! -e .site-check/media/issue21-sentinel.txt
           test ! -e .site-check/media
           test ! -e .site-check/secrets
+          test ! -e .site-check/nginx.observability.conf
+          test ! -e .site-check/docker-compose.observability.yml
+          test ! -e .site-check/docker-compose.observability.build.yml
           test ! -e .site-check/nginx-main.conf
           test ! -e .site-check/docker-compose.secrets.yml
 
