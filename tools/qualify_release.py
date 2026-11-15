@@ -15,6 +15,9 @@ from image_inputs import ROOT, recipe_files, nginx_version, validate_resolved, c
 from release_contract import GATES, validate_checks, validate_receipt
 
 
+GATE_TIMEOUT = 1800
+
+
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
@@ -116,7 +119,7 @@ def qualify(image, inputs, directory, observer, downloads, sender):
         with path.open('wb') as output:
             for command in commands:
                 subprocess.run(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT,
-                               check=True, timeout=1800)
+                               check=True, timeout=GATE_TIMEOUT)
                 output.write(json.dumps({'command': command[1:], 'exit_code': 0}).encode() + b'\n')
         if name == 'unit' and b'skipped=' in path.read_bytes():
             raise ValueError('Required POSIX tests did not execute')

@@ -9,6 +9,7 @@ QUALIFICATION_VERSION = 1
 GATES = ("unit", "static", "image", "runtime_ua", "restore", "apk_policy")
 SHA = r"[0-9a-f]{40}"
 DIGEST = r"sha256:[0-9a-f]{64}"
+IMAGE_REF = r"[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9._-]+)?@" + DIGEST
 
 
 def match(value, pattern, name):
@@ -106,7 +107,7 @@ def validate_receipt(receipt, expected, approved=False):
     for name, component in components.items():
         if not isinstance(component, dict) or set(component) != {'image', 'config_id', 'rootfs_sha256'}:
             raise ValueError('Invalid component: ' + name)
-        match(component['image'], r'[^\s@]+@' + DIGEST, 'component reference')
+        match(component['image'], IMAGE_REF, 'component reference')
         match(component['config_id'], DIGEST, 'component config')
         match(component['rootfs_sha256'], r'[0-9a-f]{64}', 'component rootfs')
     if (components['botapi']['config_id'] != receipt['config_id']
@@ -153,7 +154,7 @@ def validate_selected(record, inputs, receipt=None):
     if not isinstance(selected, dict) or set(selected) != {"botapi_image", "observer_image", "downloads_image", "nginx_image", "receipt_sha256"}:
         raise ValueError("Invalid selection fields")
     for name in ("botapi_image", "observer_image", "downloads_image", "nginx_image"):
-        match(selected[name], r"[^\s@]+@" + DIGEST, name)
+        match(selected[name], IMAGE_REF, name)
     match(selected["receipt_sha256"], r"[0-9a-f]{64}", "receipt hash")
     if receipt is None:
         raise ValueError("Selection requires the actual receipt bytes")

@@ -11,6 +11,17 @@ from image_inputs import ROOT
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_component_image_rejects_shell_substitution(self):
+        from release_contract import validate_receipt
+        from test_issue12_contract import ReleaseManifestTest
+        fixture = ReleaseManifestTest()
+        fixture.setUp()
+        receipt = fixture.fixture()
+        for name in ('x$(touch t)', 'x$(id)', 'x"quoted'):
+            receipt['components']['observer']['image'] = name + '@sha256:' + 'a' * 64
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'component reference'):
+                validate_receipt(receipt, fixture.inputs)
+
     def test_second_patch_evidence_must_match_recipe(self):
         from check_release import image_evidence
         from image_inputs import resolve
@@ -89,7 +100,7 @@ class ReviewRegressionTests(unittest.TestCase):
         required = set(re.findall(r'test -n "\$([A-Z_]+)"', dockerfile))
         args = set(re.findall(r'^\s+([A-Z_]+)=\$\{\{ env\.\1 \}\}$', workflow, re.M))
         self.assertTrue(required)
-        self.assertEqual(required - args, set())
+        self.assertEqual(required - args, {'TARGETPLATFORM'})
 
     def test_effective_compose_port_must_match_gateway(self):
         ref = lambda name: name + '@sha256:' + 'a' * 64

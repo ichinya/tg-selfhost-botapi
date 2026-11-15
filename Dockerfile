@@ -100,6 +100,7 @@ ENV TELEGRAM_WORK_DIR="/var/lib/telegram-bot-api" \
     TELEGRAM_TEMP_DIR="/tmp/telegram-bot-api"
 RUN test -n "$BUILD_FINGERPRINT" && test -n "$WRAPPER_REVISION" \
  && test -n "$BOT_API_REVISION" && test -n "$BOT_API_VERSION" && test -n "$TDLIB_REVISION" \
+ && test -n "$TARGETPLATFORM" \
  && addgroup -g 101 -S telegram-bot-api \
  && adduser -S -D -H -u 101 -h /var/lib/telegram-bot-api -s /sbin/nologin -G telegram-bot-api telegram-bot-api \
  && mkdir -p /var/lib/telegram-bot-api /tmp/telegram-bot-api /var/lib/telegram-bot-api-files \

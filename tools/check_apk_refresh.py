@@ -9,6 +9,9 @@ import uuid
 from image_inputs import ROOT, refresh_id, validate_lock
 
 
+BUILD_TIMEOUT = 200
+
+
 def run(*args):
     return subprocess.check_output(args, timeout=400)
 
@@ -30,7 +33,7 @@ def check(inputs):
                            '--build-arg', 'BUILD_FINGERPRINT=' + inputs['build_key']]
                           if stage == 'observer' else ['--target', stage + '-deps', '--build-arg', 'ALPINE_IMAGE=' + inputs['alpine_image']])
                 subprocess.run(['docker', 'build', *target, '--build-arg', 'APK_REFRESH_ID=' + identity,
-                    '--tag', tag, str(ROOT)], check=True, timeout=400)
+                    '--tag', tag, str(ROOT)], check=True, timeout=BUILD_TIMEOUT)
                 config = run('docker', 'image', 'inspect', '--format', '{{.Id}}', tag).decode().strip()
                 path = '/usr/share/tg-selfhost-botapi/' + stage + '/'
                 actual = run('docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat', config,

@@ -5,6 +5,11 @@ from image_inputs import ROOT, build_key, resolve, read_policy
 
 
 class ApkPolicyTest(unittest.TestCase):
+    def test_build_timeout_fits_qualification_gate(self):
+        from check_apk_refresh import BUILD_TIMEOUT
+        from qualify_release import GATE_TIMEOUT
+        self.assertLess(6 * BUILD_TIMEOUT, GATE_TIMEOUT)
+
     def test_cleanup_failure_does_not_mask_stale_layer(self):
         from subprocess import CalledProcessError, CompletedProcess
         from check_apk_refresh import check

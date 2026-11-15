@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 
 from image_inputs import recipe_files, RECIPE, ROOT, build_key, resolve, validate_lock
-from release_contract import GATES, QUALIFICATION_VERSION, validate_receipt, validate_selected
+from release_contract import GATES, IMAGE_REF, QUALIFICATION_VERSION, validate_receipt, validate_selected
 
 
 def validate_compose_config(config, inputs, *, local=False, selected=None):
@@ -50,7 +50,7 @@ def validate_compose_config(config, inputs, *, local=False, selected=None):
     if api.get('image') != expected_api or gateway.get('image') != expected_gateway:
         raise ValueError('Effective Compose image references differ from the release')
     for image in ([expected_gateway] if local else [expected_api, expected_gateway]):
-        if not re.fullmatch(r'[^\s@]+@sha256:[a-f0-9]{64}', image):
+        if not re.fullmatch(IMAGE_REF, image):
             raise ValueError('Registry image references must be immutable')
     if not local:
         for name in ('observer', 'downloads'):
@@ -58,7 +58,7 @@ def validate_compose_config(config, inputs, *, local=False, selected=None):
                 expected = selected.get(name + '_image')
                 service = services[name]
                 if (not isinstance(expected, str)
-                        or not re.fullmatch(r'[^\s@]+@sha256:[a-f0-9]{64}', expected)
+                        or not re.fullmatch(IMAGE_REF, expected)
                         or not isinstance(service, dict) or service.get('image') != expected):
                     raise ValueError('Effective Compose image references differ from the release')
     environment = api.get('environment', {})
@@ -135,7 +135,7 @@ def command(*args):
 
 
 def image_evidence(ref, inputs, require_registry=True):
-    if require_registry and not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', ref):
+    if require_registry and not re.fullmatch(IMAGE_REF, ref):
         raise ValueError('Image verification requires a registry digest')
     info = json.loads(command('docker', 'image', 'inspect', ref))[0]
     if (info.get('Os') != 'linux' or info.get('Architecture') != 'amd64'

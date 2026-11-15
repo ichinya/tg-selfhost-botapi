@@ -9,6 +9,10 @@ from image_inputs import build_key, digest, revision
 
 
 class SavedInputsTest(unittest.TestCase):
+    def test_recipe_entries_are_unique(self):
+        from image_inputs import RECIPE
+        self.assertEqual(len(RECIPE), len(set(RECIPE)))
+
     def test_locked_base_images_reject_shell_substitutions(self):
         import json
         from image_inputs import ROOT, validate_lock

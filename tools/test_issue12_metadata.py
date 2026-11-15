@@ -3,6 +3,12 @@ from release_metadata import parse_installed, validate_packages
 
 
 class InventoryTests(unittest.TestCase):
+    def test_platform_label_has_build_time_guard(self):
+        from image_inputs import ROOT
+        dockerfile = (ROOT / 'Dockerfile').read_text()
+        self.assertIn('io.tg-selfhost.platform="${TARGETPLATFORM}"', dockerfile)
+        self.assertIn('test -n "$TARGETPLATFORM"', dockerfile)
+
     def test_cmake_and_runtime_version_must_agree(self):
         from image_inputs import extract_source_version
         cmake = 'project(TelegramBotApi VERSION 10.3 LANGUAGES CXX)'

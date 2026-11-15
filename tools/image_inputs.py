@@ -45,6 +45,7 @@ RECIPE = (
     'docker-compose.observability.yml', 'docker-compose.observability.build.yml', 'nginx.observability.conf',
     "docker-compose.files.yml",
 )
+RECIPE = tuple(dict.fromkeys(RECIPE))
 DOWNLOADS_RECIPE = ('Dockerfile.downloads', 'tools/file_access.py', 'tools/file_contract.py',
                     'tools/download_server.py', 'examples/files/local_reader.py')
 QUALIFICATION_RECIPE = ('tools/check_release.py', 'tools/qualify_release.py',

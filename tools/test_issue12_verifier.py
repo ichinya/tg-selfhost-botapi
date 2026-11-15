@@ -99,6 +99,7 @@ class ReleaseCheckTest(unittest.TestCase):
             for name, bad in [('org.opencontainers.image.revision', 'a' * 40),
                               ('org.opencontainers.image.version', '0.0'),
                               ('io.tg-selfhost.privacy-policy', 'missing'),
+                              ('io.tg-selfhost.platform', ''),
                               ('io.tg-selfhost.tdlib-revision', 'a' * 40),
                               ('io.tg-selfhost.wrapper-revision', 'a' * 40)]:
                 old = labels[name]
