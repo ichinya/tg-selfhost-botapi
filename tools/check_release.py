@@ -219,8 +219,12 @@ def image_evidence(ref, inputs, require_registry=True):
                                 ref, '-ec', 'apk info -vv | sort')
             if installed != data:
                 raise ValueError('Actual runtime packages differ from installed inventory')
-        if name == 'patch.sha256' and data.decode().split()[0] != sha((ROOT / 'patches/webhook-user-agent.patch').read_bytes()):
-            raise ValueError('Image patch evidence differs from recipe')
+        if name == 'patch.sha256':
+            lines = [line.split() for line in data.decode().splitlines()]
+            patches = ('webhook-user-agent.patch', 'botapi-secrets-redaction.patch')
+            if len(lines) != len(patches) or any(not line or line[0] != sha((ROOT / 'patches' / patch).read_bytes())
+                                                  for line, patch in zip(lines, patches)):
+                raise ValueError('Image patch evidence differs from recipe')
         if name == 'source.txt':
             lines = data.decode().splitlines()
             if (not lines or lines[0] != inputs['bot_api_revision']

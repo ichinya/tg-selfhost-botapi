@@ -53,7 +53,8 @@ class ReleaseCheckTest(unittest.TestCase):
                 return (ROOT / ('tools/botapi_healthcheck.sh' if args[-1].endswith('botapi-healthcheck') else 'docker-entrypoint.sh')).read_bytes()
             if args[-1].endswith('/patch.sha256'):
                 import hashlib
-                return (hashlib.sha256((ROOT / 'patches/webhook-user-agent.patch').read_bytes()).hexdigest() + '  patch\n').encode()
+                return ''.join(hashlib.sha256((ROOT / 'patches' / name).read_bytes()).hexdigest() + '  ' + name + '\n'
+                               for name in ('webhook-user-agent.patch', 'botapi-secrets-redaction.patch')).encode()
             if args[-1].endswith('/source.txt'):
                 return (inputs['bot_api_revision'] + '\n' + ''.join(' ' + sha + ' ' + path + '\n' for path, sha in inputs['submodules'].items()) + inputs['bot_api_version'] + '\n').encode()
             if args[-1].endswith('-repositories.txt'):

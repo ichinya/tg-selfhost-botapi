@@ -2,12 +2,57 @@
 import re
 import unittest
 import copy
+import json
+import hashlib
+from unittest.mock import patch
 
 from check_release import validate_compose_config
 from image_inputs import ROOT
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_second_patch_evidence_must_match_recipe(self):
+        from check_release import image_evidence
+        from image_inputs import resolve
+        inputs = resolve()
+        labels = {'org.opencontainers.image.revision': inputs['bot_api_revision'],
+                  'io.tg-selfhost.bot-api-revision': inputs['bot_api_revision'],
+                  'org.opencontainers.image.version': inputs['bot_api_version'],
+                  'io.tg-selfhost.tdlib-revision': inputs['submodules']['td'],
+                  'io.tg-selfhost.wrapper-revision': inputs['wrapper_revision'],
+                  'io.tg-selfhost.build-key': inputs['build_key'],
+                  'io.tg-selfhost.base': inputs['alpine_image'],
+                  'io.tg-selfhost.platform': inputs['platform'],
+                  'io.tg-selfhost.privacy-policy': 'issue17-v1',
+                  'io.tg-selfhost.verification-contract': '1'}
+        info = {'Os': 'linux', 'Architecture': 'amd64',
+                'Config': {'Labels': labels, 'Entrypoint': ['/docker-entrypoint.sh']}}
+        first = hashlib.sha256((ROOT / 'patches/webhook-user-agent.patch').read_bytes()).hexdigest()
+        evidence = (first + '  /tmp/webhook-user-agent.patch\n' +
+                    '0' * 64 + '  /tmp/botapi-secrets-redaction.patch\n').encode()
+
+        def fake(*args):
+            path = args[-1]
+            if args[:3] == ('docker', 'image', 'inspect'):
+                return json.dumps([info]).encode()
+            if path == '--version':
+                return inputs['bot_api_version'].encode()
+            if path == '/usr/local/bin/telegram-bot-api':
+                return b'\x7fELF\x02\x01' + b'\x00' * 12 + b'\x3e\x00WebhookDelivery/1.0'
+            if path in ('/docker-entrypoint.sh', '/usr/local/bin/botapi-healthcheck'):
+                return (ROOT / ('tools/botapi_healthcheck.sh' if path.endswith('botapi-healthcheck') else 'docker-entrypoint.sh')).read_bytes()
+            if path.endswith('/patch.sha256'):
+                return evidence
+            if path.endswith('-repositories.txt'):
+                return b'https://dl-cdn.alpinelinux.org/alpine/v3.22/main\n'
+            if path.endswith('-apk.txt'):
+                return (inputs['apk_refresh_id'] + '\n').encode()
+            return b'inventory\n'
+
+        with patch('check_release.command', side_effect=fake):
+            with self.assertRaisesRegex(ValueError, 'Image patch evidence differs from recipe'):
+                image_evidence('candidate:local', inputs, require_registry=False)
+
     def test_local_components_must_match_saved_inputs(self):
         from image_inputs import build_environment, resolve
         inputs = resolve()

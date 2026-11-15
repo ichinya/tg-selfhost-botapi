@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Public image release records v1",
-  "description": "Receipts: releases/receipts/<build_key>.json. Cross-record identity and approval are validated by release_contract.py; schema validity alone is not qualification.",
+  "description": "Receipts: releases/receipts/<receipt_sha256>.json. Cross-record identity and approval are validated by release_contract.py; schema validity alone is not qualification.",
   "oneOf": [
     {
       "$ref": "#/$defs/candidate"
