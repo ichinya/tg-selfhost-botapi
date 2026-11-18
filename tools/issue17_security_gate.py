@@ -29,6 +29,11 @@ MARKERS=list(CASES['markers'].values())
 class GateFailure(Exception): pass
 
 
+class UnitGateFailure(GateFailure):
+    def __init__(self, stage):
+        self.stage = stage
+
+
 def command(args, *, env=None, data=None, timeout=120, check=True):
     try:
         result=subprocess.run(args,cwd=ROOT,env=env,input=data,capture_output=True,timeout=timeout)
@@ -46,18 +51,27 @@ def require_clean_candidate():
 
 
 def unit_gate():
-    require_clean_candidate()
-    # The full discovery is intentionally restricted to a clean checkout.
-    command([sys.executable,'-m','unittest','discover','-s','tools','-p','test_*.py'],timeout=900)
-    command(['node','tools/embed_webhook_profile.cjs','--check'])
-    command(['node','tools/test_issue17_security_browser.cjs'])
-    command(['node','tools/test_issue17_security_shell.cjs'])
-    command(['node','tools/webhook_profile_ui_harness.cjs'],timeout=120)
-    command(['node','tools/test_migration_ui.mjs'])
-    for script in ('tools/webhook_profile_runtime.sh','tools/migration_diagnostics_main.sh','migrate_off_to_self.sh','tools/migration_executor.sh'):
-        command(['bash','-n',script])
-    command(['sh','-n','docker-entrypoint.sh'])
-    command(['git','diff','--check'])
+    try:
+        require_clean_candidate()
+    except GateFailure:
+        raise UnitGateFailure('clean_candidate') from None
+    steps = [
+        ('discovery', [sys.executable,'-m','unittest','discover','-s','tools','-p','test_*.py'], 900),
+        ('embed_profile', ['node','tools/embed_webhook_profile.cjs','--check'], 120),
+        ('security_browser', ['node','tools/test_issue17_security_browser.cjs'], 120),
+        ('security_shell', ['node','tools/test_issue17_security_shell.cjs'], 120),
+        ('profile_ui', ['node','tools/webhook_profile_ui_harness.cjs'], 120),
+        ('migration_ui', ['node','tools/test_migration_ui.mjs'], 120),
+    ]
+    for index, script in enumerate(('tools/webhook_profile_runtime.sh','tools/migration_diagnostics_main.sh','migrate_off_to_self.sh','tools/migration_executor.sh')):
+        steps.append(('bash_syntax_' + str(index + 1), ['bash','-n',script], 120))
+    steps.extend([('entrypoint_syntax', ['sh','-n','docker-entrypoint.sh'], 120),
+                  ('diff_check', ['git','diff','--check'], 120)])
+    for stage, args, timeout in steps:
+        try:
+            command(args, timeout=timeout)
+        except GateFailure:
+            raise UnitGateFailure(stage) from None
     return {'clean_candidate':True}
 
 
@@ -67,6 +81,7 @@ def compose_models(compose):
         for name in ('id','hash'):
             (root/name).write_text('synthetic_issue17_'+name);(root/name).chmod(0o600)
         env=dict(os.environ,API_ID='legacy_id_canary',API_HASH='legacy_hash_canary',
+            APK_REFRESH_ID='v1-2000-01-01-g0',
             TELEGRAM_API_ID_SECRET_PATH=str(root/'id'),TELEGRAM_API_HASH_SECRET_PATH=str(root/'hash'))
         for build in ([],['-f','docker-compose.build.yml']):
             base=compose+['-f','docker-compose.yml']+build
@@ -78,10 +93,15 @@ def compose_models(compose):
             if environment.get('TELEGRAM_API_ID_FILE')!='/run/secrets/telegram_api_id' or environment.get('TELEGRAM_API_HASH_FILE')!='/run/secrets/telegram_api_hash': raise GateFailure('file_mount_contract')
             if model['services']['gateway'].get('secrets'): raise GateFailure('gateway_secret_grant')
             assert_private_absent(json.dumps(model),['legacy_id_canary','legacy_hash_canary'])
-    return {'models':4}
+            overlay=json.loads(output(base+['-f','docker-compose.secrets.yml','-f','docker-compose.observability.yml','config','--format','json'],env=env))
+            if any(overlay['services'][name].get('secrets') for name in ('gateway','observer')): raise GateFailure('overlay_secret_grant')
+            assert_private_absent(json.dumps(overlay),['legacy_id_canary','legacy_hash_canary'])
+    return {'models':6}
 
 
 def entrypoint_gate():
+    if os.getuid() == 0:
+        raise GateFailure('nonroot_fixture_owner_required')
     name='issue17-entrypoint-'+uuid.uuid4().hex[:12]
     with tempfile.TemporaryDirectory(prefix='issue17-entrypoint-') as directory:
         root=Path(directory)
@@ -90,8 +110,8 @@ def entrypoint_gate():
         binary=root/'telegram-bot-api'
         binary.write_text('#!/bin/sh\nset -eu\n[ "$TELEGRAM_API_ID" = "$(cat /run/secrets/id)" ]\n[ "$TELEGRAM_API_HASH" = "$(cat /run/secrets/hash)" ]\n[ "$(ulimit -c)" = 0 ]\necho entrypoint_child_pass\n')
         binary.chmod(0o755)
-        (root/'chown').write_text('#!/bin/sh\nexit 0\n');(root/'chown').chmod(0o755)
         args=['docker','create','--name',name,'--label','io.tg-selfhost.issue17=synthetic','--network','none',
+              '--user',f'{os.getuid()}:{os.getgid()}',
               '--ulimit','core=0','--mount',f'type=bind,src={root},dst=/privacy-bin,readonly',
               '--mount',f'type=bind,src={ROOT/"docker-entrypoint.sh"},dst=/entrypoint,readonly',
               '--mount',f'type=bind,src={root},dst=/run/secrets,readonly','--entrypoint','/bin/sh',
@@ -130,8 +150,10 @@ def gateway_gate(compose):
     with tempfile.TemporaryDirectory(prefix=project) as directory:
         root=Path(directory);evidence=root/'evidence';evidence.mkdir()
         config=root/'gateway.conf'
-        config.write_text((ROOT/'nginx.conf').read_text().replace('proxy_http_version 1.1;',
-            'proxy_http_version 1.1; proxy_read_timeout 1s; proxy_connect_timeout 1s; client_max_body_size 1k;'))
+        production_config = (ROOT/'nginx.conf').read_text()
+        fixture_config = production_config.replace('client_max_body_size 1m;', 'client_max_body_size 1k;', 1)
+        fixture_config = re.sub(r'(?m)^(\s*proxy_read_timeout) \d+s;', r'\1 1s;', fixture_config)
+        config.write_text(fixture_config)
         env=dict(os.environ,ISSUE17_ROOT=str(ROOT),ISSUE17_EVIDENCE=str(evidence),ISSUE17_GATEWAY_CONFIG=str(config))
         base=compose+['-p',project,'-f',str(ROOT/'tools/fixtures/issue17_security/compose.yml')]
         started=False
@@ -237,6 +259,8 @@ def main(argv=None):
     failed=False
     for name,run in gates:
         try:manifest['gates'][name]={'status':'PASS','evidence':run()}
+        except UnitGateFailure as exc:
+            failed=True;manifest['gates'][name]={'status':'FAIL','reason':'required_gate_failed','stage':exc.stage}
         except (GateFailure,AssertionError,ValueError,KeyError,OSError):
             failed=True;manifest['gates'][name]={'status':'FAIL','reason':'required_gate_failed'}
     if args.runtime or args.models:

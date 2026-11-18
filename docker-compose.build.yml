@@ -1,22 +1,13 @@
-# Generate .env.build using tools/image_inputs.py before local compilation.
+# Advanced reviewed local build; generate public build.env with tools/image_inputs.py.
 services:
   botapi:
     image: tg-selfhost-botapi:local
-    platform: ${BUILD_PLATFORM:-linux/amd64}
     build:
       context: .
       args:
-        BOT_API_REVISION: ${BOT_API_REVISION:-}
-        ALPINE_IMAGE: ${ALPINE_IMAGE:-}
-        BUILD_FINGERPRINT: ${BUILD_FINGERPRINT:-}
-        APK_REFRESH_ID: ${APK_REFRESH_ID:-}
-        APK_POLICY_VERSION: ${APK_POLICY_VERSION:-}
-        APK_REFRESH_WINDOW: ${APK_REFRESH_WINDOW:-}
-        APK_REFRESH_GENERATION: ${APK_REFRESH_GENERATION:-}
-  observer:
-    image: tg-selfhost-botapi-observer:local
-    build:
-      context: .
-      dockerfile: tools/observability/Dockerfile
-      args:
-        OBSERVER_BASE: ${OBSERVER_BASE:-alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f}
+        BOT_API_REVISION: ${BOT_API_REVISION:-e3e9dd8e5b3d7ab8537cd5a10dc31d5ffa8f82d1}
+        ALPINE_IMAGE: ${ALPINE_IMAGE:-alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f}
+        BUILD_FINGERPRINT: ${BUILD_FINGERPRINT:-local-unqualified}
+        WRAPPER_REVISION: ${WRAPPER_REVISION:-unqualified}
+        BOT_API_VERSION: ${BOT_API_VERSION:-unqualified}
+        APK_REFRESH_ID: ${APK_REFRESH_ID:?Generate build.env using tools/image_inputs.py --build-env}

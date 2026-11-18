@@ -64,7 +64,7 @@ class RefreshTests(unittest.TestCase):
         with self.assertRaises(ValueError): refresh.transform('FROM alpine', 'http://example.invalid')
 
     def test_cache_log_must_identify_both_result_and_stage(self):
-        prefix = '#12 [build-deps 3/5] RUN --mount=type=bind,target=/tmp/capture_apk_metadata.sh command\n'
+        prefix = '#12 [build-deps 3/5] RUN test -n "$APK_REFRESH_ID" && apk upgrade --no-cache\n'
         self.assertTrue(refresh.installation_cached(prefix + '#12 CACHED\n', 'build-deps'))
         self.assertFalse(refresh.installation_cached(prefix + '#12 DONE 1.0s\n', 'build-deps'))
         with self.assertRaises(ValueError): refresh.installation_cached(prefix, 'build-deps')
@@ -74,7 +74,7 @@ class RefreshTests(unittest.TestCase):
         recipe = refresh.transform((refresh.ROOT / 'Dockerfile').read_text(), 'http://host.docker.internal:12345/current')
         for stage in ('build-deps', 'runtime-deps'):
             broken = refresh.remove_refresh_consumption(recipe, stage, 'v1-2026-11-10-g0')
-            self.assertEqual(broken.count('ARG APK_REFRESH_ID\n'), recipe.count('ARG APK_REFRESH_ID\n') - 1)
+            self.assertEqual(broken.count('ARG APK_REFRESH_ID='), recipe.count('ARG APK_REFRESH_ID=') - 1)
             section = broken.split(' AS ' + stage + '\n')[1].split('\nFROM ')[0]
             self.assertNotIn('$APK_REFRESH_ID', section)
             self.assertIn('apk upgrade --no-cache', section)

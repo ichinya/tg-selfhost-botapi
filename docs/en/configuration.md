@@ -81,6 +81,10 @@ persistent work mount and writable separate temp path. A local-build image need
 not have a RepoDigest; temp storage need not be persistent. `_FILE` credentials
 are supported. Managed Docker diagnostics perform explicit tiny write probes as
 the runtime user; they are not read-only. The HTTP helper cannot select containers.
+Managed readiness observes the server at PID 1 and verifies the probe's UID,
+GID and normalized supplementary groups before reading secret files or writing.
+Identity mismatch or process drift blocks evidence. The external v1 evidence
+retains UID/GID and does not separately attest the group set.
 Local webhook mode must match deployment evidence: HTTP/private IP/any port is
 allowed in local mode; cloud requires HTTPS, a supported port and public IPv4.
 Unsupported profiles fail before source mutations. Transport has bounded DNS,
@@ -93,14 +97,36 @@ connect/read/total time and body size, no redirects, inherited proxy or retries.
 | Gateway port on the host | `18080` |
 | Internal Bot API endpoint | `http://botapi:8081` |
 | Persistent state on the host | `./data` |
+| Gateway upload spool | Project-scoped `gateway_client_temp` volume at `/var/cache/nginx/client_temp` |
 | State directory inside the container | `/var/lib/telegram-bot-api` |
-| Container user/group IDs | `101:101` |
+| Default server user/group IDs | `101:101` |
 | Local mode | Enabled by Compose |
+
+By default the container starts as root only to initialize new or empty state and
+temp roots, then runs the server as `101:101`. Non-empty roots and their contents
+are not re-owned or recursively repaired. Alternatively, Docker `--user UID:GID`
+or Compose `user: "UID:GID"` runs directly as that identity; prepare both roots
+for it in advance. Paths must be dedicated absolute paths without symlink
+components. Startup checks access as the server user. New private roots are
+`0700` and the server uses umask `0027`; existing modes are unchanged. Secret
+files supplied with `_FILE` must be readable by the final server identity. Log
+file access is checked by the server. Explicit entrypoint arguments such as
+`--version` bypass normal startup and run as the container user.
 
 The Bot API endpoint receives method calls. The webhook URL belongs to your
 application and receives updates sent by the server. They are different addresses.
 
 ## Compose environment
+
+The optional `docker-compose.nonroot.yml` requires `BOTAPI_UID`, `BOTAPI_GID`,
+`BOTAPI_STATE_SOURCE` and `BOTAPI_TEMP_SOURCE`; these select Compose identity
+and prepared bind sources, not runtime remapping. See [Getting started](getting-started.md).
+
+`TELEGRAM_FILES_DIR` optionally selects a separate upstream `--files-dir`; when
+empty, the upstream working-directory default is retained. The work, HTTP temp
+and media roots must be separate absolute paths without symlink components.
+Changing this setting does not move existing files or cached paths. The media
+override requires the non-root overlay and a prepared `BOTAPI_MEDIA_SOURCE`.
 
 | Variable in `.env` | Purpose |
 | --- | --- |
@@ -159,18 +185,19 @@ headers or a header on `setWebhook` do not configure this outgoing header.
 
 ## Files in local mode
 
-Split storage is opt-in: add `-f docker-compose.files.yml` after the base Compose
-file. Bot API alone writes `./media` at `/var/lib/telegram-bot-api-files` via
+Split storage is opt-in: add `-f docker-compose.nonroot.yml` and then
+`-f docker-compose.files.yml` after the base Compose file. Bot API alone writes
+`BOTAPI_MEDIA_SOURCE` at `/var/lib/telegram-bot-api-files` via
 `TELEGRAM_FILES_DIR` / `--files-dir`. Without it the legacy combined layout stays
 private. State, absolute private temp, logs and credential files must not overlap
 media. Relative logs, noncanonical paths and symlink ancestors are rejected.
-New directories use umask `007`; the supported server identity is `101:101`.
+New directories use umask `0027`; the configured non-root UID/GID owns the media.
 Existing cache permissions are never changed recursively.
 
 `--help` / `--version` remain credential-free. Explicit server CLI arguments are
 not supplemented from environment variables: split CLI requires long-form
 `--files-dir`, `--dir`, `--temp-dir`, matching any configured directory/log env
-values. Duplicate directory flags fail. Use the default entrypoint for identity
+values. Duplicate directory flags fail. Use the supported non-root overlay for identity
 setup; arbitrary Compose `user:` overrides are not supported.
 The short `-f` files-directory option is rejected; use validated long-form flags.
 
@@ -210,8 +237,39 @@ or application mapping: those remain UNKNOWN until independently checked with
 `tools/check_file_contract.py`. A supplied JSON receipt cannot grant READY.
 
 - nginx returns 404 for `/file` and `/file/` requests; it does not serve the state directory.
-- No upload-size override is configured in nginx. Large multipart requests can
-  receive HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
+- File-capable Bot API methods have a `2048m` (2,147,483,648 bytes) body limit, including
+  multipart fields and all attachments; larger requests receive HTTP 413. Request
+  buffering is on and uses the separate disk-backed spool before forwarding.
+  Upload body and upstream send idle timeouts are 300 seconds, upstream read is
+  600 seconds, and upstream connect is 5 seconds. These are not total deadlines.
+  Upstream describes local-mode uploads up to 2000 MB per file; the gateway limit
+  applies to the entire body, so several attachments share it. The 2048 MiB body
+  budget leaves 48 MiB beyond 2000 MiB for multipart overhead. Method, image,
+  client and external ingress limits still apply; this does not guarantee a
+  successful Telegram upload. The pinned upstream has its own approximately
+  500-second idle limit; nginx cannot extend it.
+
+  Buffering adds disk I/O and delays forwarding until the body is received. For
+  N concurrent uploads budget up to N × 2 GiB plus reserve for nginx alone: N=2
+  means approximately 4 GiB plus reserve. Add Bot API temp/work/cache needs on
+  the same filesystem. The volume reserves no space or quota, and Doctor's 1 GiB
+  default reserve does not qualify a large upload. Check free bytes and inodes,
+  including the Docker Desktop disk image. Spool may contain sensitive uploads;
+  restrict access. The gateway admits at most two uploads per source address and
+  four in total: reserve at least 8 GiB plus operational headroom. Upload starts
+  are limited to 2/s per address (burst 4) and 10/s overall (burst 20); excess
+  requests receive 429. Source addresses must be preserved by the ingress; nginx
+  does not trust forwarded addresses. GET, HEAD and POST are allowed, but GET/HEAD
+  bodies are rejected. Other methods receive 403.
+
+  Ordinary RPC bodies are limited to 1 MiB, with 15-second body/send and 30-second
+  read idle timeouts. `getUpdates` has a separate 600-second read timeout. Public
+  port 80 rejects transfer-encoded requests with 411 before reading the body;
+  send uploads with Content-Length. Internal port 82 accepts chunked uploads and
+  is not published by Compose: expose it only to trusted clients. These idle
+  timeouts are not absolute deadlines: a slow Content-Length upload can still
+  hold a slot indefinitely. For untrusted access use an ingress that enforces an
+  absolute request deadline or minimum rate, and admission before reading bodies.
 - The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`
   only if remote clients, such as a webhook receiver, must reach it; protect external
   access with HTTPS and appropriate network controls.
@@ -219,11 +277,11 @@ or application mapping: those remain UNKNOWN until independently checked with
   Request-bearing error logs are discarded through `/dev/null`; detailed nginx
   request errors are unavailable. External proxy logs need a separate policy.
 
-[Getting started](getting-started.md) В· [Maintenance](maintenance.md)
+[Getting started](getting-started.md) · [Maintenance](maintenance.md)
 
 ## Complete webhook profile inputs
 
-Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON array of strings), `WEBHOOK_MAX_CONNECTIONS` and `WEBHOOK_TARGET_LOCAL=true|false`. Unknown secret/IP and unavailable custom certificates stop preflight. `fixed` is an alias for pinned canonical IPv4. Source `ip_address` does not reveal pinning intent. Explicit inputs override source; omitted optional updates become the documented `[]` default. `[]` excludes chat_member, message_reaction and message_reaction_count; it is not every update type. Null or invalid values fail. Per-bot max_connections is 1вЂ“100; up to 100000 requires explicit local-mode capability (`TELEGRAM_LOCAL`/`--local`), independently of server `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. A self-host URL does not establish this capability.
+Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`, `WEBHOOK_IP_MODE=dns|pinned`, `WEBHOOK_CERTIFICATE_MODE=provided|none`, `WEBHOOK_ALLOWED_UPDATES` (JSON array of strings), `WEBHOOK_MAX_CONNECTIONS` and `WEBHOOK_TARGET_LOCAL=true|false`. Unknown secret/IP and unavailable custom certificates stop preflight. `fixed` is an alias for pinned canonical IPv4. Source `ip_address` does not reveal pinning intent. Explicit inputs override source; omitted optional updates become the documented `[]` default. `[]` excludes chat_member, message_reaction and message_reaction_count; it is not every update type. Null or invalid values fail. Per-bot max_connections is 1–100; up to 100000 requires explicit local-mode capability (`TELEGRAM_LOCAL`/`--local`), independently of server `TELEGRAM_MAX_WEBHOOK_CONNECTIONS`. A self-host URL does not establish this capability.
 
 Use `WEBHOOK_SECRET_TOKEN` or `WEBHOOK_SECRET_TOKEN_FILE`, exactly one for provided mode; none asserts an intentionally unprotected webhook. Secret files allow one final LF/CRLF; inline secrets are never trimmed. Use `WEBHOOK_CERTIFICATE_FILE` for a public PEM, never a private key. Protected files (including `BOT_TOKEN_FILE`) must be outside checkout/webroot, with operator-only access. Values from the process override trusted `ENV_FILE` (default: helper directory `.env`), including explicitly empty values; value/file pairs are selected at one tier. Positional URLs remain highest priority. Polling has no webhook profile.
 
@@ -239,16 +297,6 @@ seconds. Process settings take precedence over the trusted environment file;
 only an unset setting uses its default. Unlike the endpoint settings, an
 explicitly empty timeout is invalid. These settings are not passed to containers.
 
-## Local build inputs
-
-Local compilation needs Python 3.11+, Git and Docker Buildx. Resolve with
-`python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build`
-immediately before each new build. Pass both `--env-file .env --env-file .env.build`
-with the build override, including repeated `--env-file` options in doctor commands.
-The generated file holds only public inputs; runtime credentials stay in `.env`.
-Compose config/doctor work without generated inputs; a real build requires pinned
-source/base and refresh arguments. A stale file is never regenerated implicitly.
-Published-image pull/up do not use the build override or generated build file.
 ### Gateway logs
 
 The base Compose mounts `nginx-main.conf` read-only for every profile. Access logs
@@ -288,8 +336,7 @@ Before Compose up, prepare inputs on the Linux host:
 install -d -m 0700 .observability
 install -d -m 0755 .observability/runtime .observability/migration
 sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
-python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
-docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 The observer shares only Bot API's network namespace. It runs as 101:101 with a
@@ -317,3 +364,27 @@ Python image digest to reproduce the release base. Host producer supervision,
 registry/credential permissions and ownership/rotation are described in
 [maintenance](maintenance.md). A section's ready state describes its observation
 source; inspect migration outcomes separately from process readiness.
+## Opt-in observability
+
+Prepare the private `.observability` inputs as described above, then run `docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d`. Management binds to `127.0.0.1:18081` by default; keep it private. `TELEGRAM_STAT` controls both components only with this overlay. For a local observer build also include `docker-compose.build.yml` and `docker-compose.observability.build.yml`.
+
+When combining file secrets with observability, list `docker-compose.secrets.yml` before `docker-compose.observability.yml`, and verify the effective configuration does not contain inline credentials.
+
+## Configuration interfaces
+
+Compose reads `API_ID`, `API_HASH`, `BOTAPI_IMAGE`, `GATEWAY_BIND`, `TELEGRAM_HTTP_IP_ADDRESS` and `TELEGRAM_HTTP_PORT`. The gateway defaults to loopback; changing the backend port also requires matching nginx configuration. The observability overlay reads `TELEGRAM_STAT`, `MGMT_BIND`, `OBSERVER_IMAGE`, `OBSERVER_MIGRATION_DIR` and `OBSERVER_REGISTRY`; its build overlay reads `OBSERVER_BASE`. Pin the botapi and observer images to matching build keys.
+
+Non-root and files overlays read `BOTAPI_UID`, `BOTAPI_GID`, `BOTAPI_STATE_SOURCE`, `BOTAPI_TEMP_SOURCE` and `BOTAPI_MEDIA_SOURCE`. The secrets overlay reads `TELEGRAM_API_ID_SECRET_PATH` and `TELEGRAM_API_HASH_SECRET_PATH`. The downloads and reader overlays use `DOWNLOADS_IMAGE`, `BOT_A_ROOT`, `BOT_A_HOST_ROOT`, `BOT_TOKEN_FILE`, `DOWNLOAD_BOT_TOKEN_FILE`, `DOWNLOAD_AUTH_TOKEN_FILE`, `DOWNLOADS_BIND`, `DOWNLOAD_MAX_DURATION`, `DOWNLOAD_WORKERS`, `BOT_TEST_DC` and `BOT_COLON_LAYOUT`; keep credentials in private files and bind downloads to loopback unless protected ingress is configured.
+
+Migration helpers have their own process environment: `SELF_BOT_URL`, `WEBHOOK_URL`, `DROP_PENDING_UPDATES`, `WEBHOOK_SECRET_MODE`, `WEBHOOK_SECRET_TOKEN_FILE`, `WEBHOOK_IP_MODE`, `WEBHOOK_ALLOWED_UPDATES`, `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL`, `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE`, `BOT_TOKEN_FILE`, `MIGRATION_CONNECT_TIMEOUT`, `MIGRATION_REQUEST_DEADLINE`, `MIGRATION_STATUS_DIR` and `MIGRATION_STATUS_ALIAS`. Make the pending-update decision explicitly; see [migration](migration.md).
+
+Container inputs `TELEGRAM_VERBOSITY`, `TELEGRAM_WORK_DIR` and `TELEGRAM_TEMP_DIR` require an explicit container environment override: adding them to `.env` alone does not pass them through. `TELEGRAM_FILES_DIR` and `TELEGRAM_LOG_FILE` are set by the files overlay. Keep state, temporary and media roots separate.
+
+### Upload acceptance boundary
+The gateway retains 2048m for the entire request body, including multipart overhead; this is not a promise of a 2048 MiB Telegram file. Upload connect/send/read/idle values remain 5s/300s/600s/300s. Four admitted bodies need at least 8 GiB plus reserve on dedicated spool storage. Listener 82 is trusted internal transport. Run existing quick/full/slow/storage profiles; mock transport receipts and real Telegram upload receipts are separate. Upstream retries are disabled.
+
+### Two file access contracts
+Keep both per-bot read-only shared media and authenticated `POST /v1/files/download` for remote clients. The remote request contains file_id; the handler resolves getFile for its configured bot after checking its independent credential. It accepts no client pathname. State, temp and secrets are never media. Use existing `examples/files` and exact-pair `tools/check_file_contract.py` acceptance. Linux openat2 FD confinement is mandatory; unsupported platforms fail closed. Do not expose the old token-in-URL /file alias.
+
+### Internal port
+The bundled Compose stack uses fixed internal API port 8081. TELEGRAM_HTTP_PORT remains an entrypoint/binary option for custom deployments; it does not automatically reconfigure nginx or downloads. External bind changes need a network/TLS access policy.

@@ -68,7 +68,7 @@ class MigrationTests(unittest.TestCase):
 
     def test_helpers_are_not_certified(self):
         result = report("self-to-official", migration_checks("self-to-official", self.complete()))
-        self.assertEqual("not_certified", result["migration"]["executor_support"]["helpers"])
+        self.assertEqual("runtime_acceptance_required", result["migration"]["executor_support"]["helpers"])
         self.assertIn("authorize_cloud", pending_actions("self-to-official"))
 
     def test_private_json_errors_are_usage_errors_and_redacted(self):

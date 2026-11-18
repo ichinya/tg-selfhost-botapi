@@ -5,6 +5,23 @@ translation: /docs/en/getting-started.html
 
 # Установка
 
+Нужны Docker Compose v2 и API ID/hash приложения Telegram с [my.telegram.org](https://my.telegram.org).
+
+```sh
+git clone https://github.com/ichinya/tg-selfhost-botapi.git
+cd tg-selfhost-botapi
+cp .env.example .env
+```
+
+Заполните `API_ID` и `API_HASH` в `.env`, затем выполните:
+
+```sh
+docker compose up -d
+docker compose ps
+```
+
+Botapi должен стать healthy, gateway должен работать. По умолчанию API доступен на `127.0.0.1:18080`. HTTP-ответ подтверждает доступность, но не авторизацию бота или доставку webhook. Дополнительные возможности описаны в [настройках](configuration.md) и [обслуживании](maintenance.md).
+
 Для скачивания файлов нужен явный split-storage override и scoped reader:
 см. [настройки](configuration.md) и
 [исполняемые примеры](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
@@ -14,13 +31,14 @@ translation: /docs/en/getting-started.html
 Во всех командах file-enabled установки сохраняйте порядок Compose-файлов:
 
 ```sh
-sudo install -d -m 0770 -o 101 -g 101 ./media
-docker compose -f docker-compose.yml -f docker-compose.files.yml up -d
+# Подготовьте BOTAPI_STATE_SOURCE, BOTAPI_TEMP_SOURCE и BOTAPI_MEDIA_SOURCE
+# для BOTAPI_UID:BOTAPI_GID по инструкции ниже и задайте их в .env.
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml up -d
 # Локальный reader после настройки private bindings из примера:
-docker compose -f docker-compose.yml -f docker-compose.files.yml \
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml \
   -f examples/files/compose.local.yml run --rm reader '<FILE_ID>' > downloaded.bin
 # Per-bot handler: нужны проверенный DOWNLOADS_IMAGE и защищённые файлы:
-docker compose -f docker-compose.yml -f docker-compose.files.yml \
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml \
   -f docker-compose.downloads.yml up -d
 ```
 
@@ -57,7 +75,6 @@ UI/API работают с одного origin. Pages только объясн�
 
 ## Требования
 
-- Для локальной компиляции: Python 3.11+, Git и Docker Buildx.
 - Docker с Compose v2.
 - Для doctor: Python 3.11+ на host (только stdlib). Полная runtime-проверка требует
   локального Linux Engine с доступом к bridge; pure-проверки работают и на Windows.
@@ -77,24 +94,73 @@ API ID/hash приложения и токен бота от BotFather — ра�
 git clone https://github.com/ichinya/tg-selfhost-botapi.git
 cd tg-selfhost-botapi
 cp .env.example .env
-install -d -m 0700 .observability
-install -d -m 0755 .observability/runtime .observability/migration
-sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
 ```
 
 Заполните `API_ID` и `API_HASH` в `.env`. Не публикуйте этот файл.
 
 По умолчанию gateway слушает `127.0.0.1` и не раздаёт каталог состояния.
+
+Перед большими загрузками подготовьте место и inode для отдельного volume
+`gateway_client_temp` и хранилища Bot API. Worker nginx должен иметь право записи
+в spool. Расчёт приведён в [настройках](configuration.md).
 Если удалённым клиентам, включая получатель webhook, нужен доступ к Bot API,
 задайте `GATEWAY_BIND=0.0.0.0` в `.env` и обеспечьте HTTPS и сетевые ограничения.
 
 ## Запуск
 
+Для произвольных UID/GID создайте отдельные пустые bind-каталоги вне webroot:
+
+```sh
+sudo install -d -m 0700 -o 1000 -g 1000 /srv/botapi/data /srv/botapi/scratch
+```
+
+В `.env` задайте `BOTAPI_UID=1000`, `BOTAPI_GID=1000`,
+`BOTAPI_STATE_SOURCE=/srv/botapi/data` и `BOTAPI_TEMP_SOURCE=/srv/botapi/scratch`.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml up -d
+```
+
+Для локальной сборки добавьте после override `-f docker-compose.build.yml` и
+`--build`. Оба bind-каталога должны существовать заранее. Для именованных томов
+нужна отдельная конфигурация Compose. Каждый новый пустой том можно один раз
+подготовить root-контейнером, подставив имя тома и ID:
+
+```sh
+docker run --rm --user 0:0 -v botapi-state:/volume alpine:3.22 sh -c 'chown 1000:1000 /volume && chmod 700 /volume'
+```
+
+Повторите для отдельного временного тома. Не применяйте команду к существующим
+данным; владелец в слое образа не подготавливает монтируемый том.
+
+Для ограниченного чтения media используйте writer с основной группой `2000`:
+подготовьте приватные state и scratch для `1000:2000`, отдельный media-каталог
+владельца `1000:2000` с правами `0700`. Задайте `BOTAPI_UID=1000`,
+`BOTAPI_GID=2000`, абсолютный `BOTAPI_MEDIA_SOURCE` и добавьте после non-root
+override файл `-f docker-compose.files.yml`. Gateway не получает storage.
+Передавайте reader только одно конечное поддерево media бота, не корень бота,
+download temp, приватный state или соседних ботов. Приватно задайте
+`BOT_MEDIA_SUBDIR` как путь к поддереву бота на хосте: имя может содержать
+чувствительные данные. Для подготовленного при остановленных writers поддерева
+`documents` каталоги должны разрешать группе чтение и поиск (не шире `0750`),
+файлы — чтение (не шире `0640`). Проверка на синтетическом файле:
+
+```sh
+docker run --rm --user 2001:3000 --group-add 2000 \
+  --mount "type=bind,src=$BOT_MEDIA_SUBDIR/documents,dst=/media,readonly" \
+  alpine:3.22 cat /media/synthetic.txt
+```
+
+Предварительно создайте там синтетический файл от writer с правом чтения для
+группы. Не выводите приватный путь в публичный журнал. Временные файлы загрузки
+находятся внутри media, не в `TELEGRAM_TEMP_DIR`; основная группа writer
+сохраняется при rename внутри файловой системы. Reader не получает Docker socket
+или права монтирования. Проверка не подтверждает реальную загрузку Telegram.
+
 До первой публикации в GHCR используйте локальную сборку:
 
 ```sh
-python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
-docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Когда готовый образ опубликован:
@@ -181,6 +247,8 @@ state через alias, файловый сервер или монтирова�
 Для файловых credentials используйте [secrets-профиль Compose](configuration.md#файловые-секреты-docker-compose), храните файлы вне checkout и применяйте secrets после build overlay.
 
 
+Автономный экспортированный план требует Bash 4+ в Linux/WSL; сохранённый файл запускается командой `bash ./migration-plan.sh`. PowerShell и cmd не поддерживаются.
+
 ## Health без входа ботом
 
 Management listener отдаёт точные GET/HEAD `/health/live` и `/health/ready`
@@ -190,3 +258,20 @@ success дают отказ. При stats off глубина `http_handler_only`
 Ни одна глубина не авторизует бота и не подтверждает связь с Telegram или доставку.
 `/status` — документ, а не общий UP. Внутренний `/selfz` проверяет scheduler
 observer и недоступен через management gateway.
+
+### Проверка VPS
+Registry проекта — GHCR. Public pull может быть анонимным; необязательный Docker Hub login решает access/rate limits этого registry и не переносит образ проекта. Используйте credential store или `--password-stdin`; различайте unauthorized, rate limit и сетевой отказ.
+Приватно выберите qualified immutable digest в BOTAPI_IMAGE и зафиксируйте точный порядок Compose overrides. На целевом host запишите `docker version`, `docker compose version`, затем выполните `docker compose config --quiet`, `docker compose pull`, `docker compose up -d` и проверьте image IDs, health и опубликованные listeners. Необязательная local build использует reviewed source/base inputs и APK refresh ID; успешная локальная сборка не означает qualified release.
+Порты базы: Bot API 8081 внутри, gateway 18080 на loopback host. Management 18081 существует только с явным observability overlay; downloads использует отдельный контракт. Compose-набор закрепляет внутренний API port 8081. При прямом запуске binary менять его можно только вместе с gateway/download upstreams.
+Проверяйте readiness без токенов бота. Сохраняйте только безопасную version/image/network metadata. VPS pull/build/run и реальная Telegram delivery остаются отдельными NOTRUN gates до фактического выполнения.
+
+### Три профиля приложения
+Untracked layout examples/profiles соседнего #15 здесь superseded: используем shipped examples/files и принятый handler, чтобы не вводить конкурирующий ingress/credential contract.
+
+| Приложение | API и файлы | Граница | Проверка |
+| --- | --- | --- | --- |
+| На host | loopback :18080; per-bot RO media mapping и examples/files/local_reader.py | одинаковые numeric UID/GID, только dedicated media | existing file fixture + local reader |
+| В Docker рядом | gateway:80; examples/files/compose.local.yml и per-bot RO mount | без state mount, согласованные permissions | merged Compose + exact-image file fixture |
+| Удалённое | защищённый HTTPS ingress; examples/files/remote_client.py POST download | независимый download credential, TLS verification, без общего server pathname | existing authenticated/TLS file fixture |
+
+Везде одинаковые base/nonroot/files overrides в опубликованном порядке; secrets overlay при включении идёт последним. Поддержка платформы требует native platform/kernel qualification. Config validation не доказывает startup или доступ к файлам.

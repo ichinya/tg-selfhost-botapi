@@ -193,6 +193,54 @@ def receipt(args, name):
     return private_json(path) if path else getattr(args,name+'_receipt',None)
 
 
+def publish_observation(j, state):
+    """Publish only a bounded projection, independently of the migration result."""
+    import hashlib
+    import hmac
+    import json
+    from pathlib import Path
+    import secrets
+    import uuid
+    from observability import schema
+    directory = os.environ.get('MIGRATION_STATUS_DIR')
+    if not directory:
+        return
+    label = schema.alias(os.environ.get('MIGRATION_STATUS_ALIAS', ''))
+    expected = Path(__file__).resolve().parent.parent / '.observability' / 'migration'
+    if Path(directory) != expected or os.name != 'posix':
+        raise ValueError('unsafe projection directory')
+    parent = expected.parent
+    if parent.is_symlink() or expected.is_symlink():
+        raise ValueError('unsafe projection directory')
+    fd = os.open(expected, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    name = '.status.' + secrets.token_hex(16)
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o755:
+            raise ValueError('unsafe projection directory')
+        saved = view(j, state)
+        outcome = saved['aggregate']
+        now = schema.utcnow()
+        operation = str(uuid.UUID(bytes=hmac.new(j.key, state['plan']['operation_id'].encode(), hashlib.sha256).digest()[:16], version=4))
+        projection = dict(schema_version=1, observed_at=now, operations=[dict(
+            operation_id=operation, alias=label, observed_at=now,
+            stage='finished' if outcome == 'confirmed' else 'unknown', outcome=outcome,
+            delivery_evidence='confirmed' if state['results']['delivery_verification'] == 'live' else 'not_observed')])
+        out = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+        try:
+            with os.fdopen(out, 'w', encoding='utf-8') as stream:
+                json.dump(projection, stream, separators=(',', ':'))
+                stream.flush()
+                os.fchmod(stream.fileno(), 0o644)
+                os.fsync(stream.fileno())
+            os.replace(name, 'status.json', src_dir_fd=fd, dst_dir_fd=fd)
+        finally:
+            try: os.unlink(name, dir_fd=fd)
+            except FileNotFoundError: pass
+    finally:
+        os.close(fd)
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == 'legacy':
@@ -230,7 +278,8 @@ def main(argv=None):
         needs_verifier=online or args.command=='reconcile'
         verifier=TrustedReceipts(private_json(verifier_path)) if verifier_path and needs_verifier else None
         if args.command=='status' and not args.refresh:
-            print(canonical(view(j,j.load(args.operation))))
+            s=j.load(args.operation)
+            print(canonical(view(j,s)))
             return 0
         if args.command=='export':
             print(canonical(export_operation(j.load(args.operation))))
@@ -308,6 +357,11 @@ def main(argv=None):
         print(canonical({'reason':'operator_cancelled','exit_code':2}))
         return 2
     finally:
+        if j and s and os.environ.get('MIGRATION_STATUS_DIR'):
+            try:
+                publish_observation(j, j.load(s['plan']['operation_id']))
+            except (OSError, ValueError, StateError, KeyError, TypeError):
+                print('Monitoring projection unavailable', file=sys.stderr)
         if store:
             store.close()
 

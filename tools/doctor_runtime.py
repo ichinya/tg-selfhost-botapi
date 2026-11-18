@@ -400,6 +400,8 @@ class Installation:
             status, reason = container_state(container)
             self.add(service + ".running", status, reason, "Selected service process state.", required=required)
             self.image_data[service] = self.json(["docker", "image", "inspect", container["Image"]])[0]
+            from doctor_checks import qualification_metadata_checks
+            self.checks.extend(qualification_metadata_checks(self.image_data[service],self.role+'.'+service,apk=service in {'botapi','observer'}))
             desired = services[service]
             actual = container.get("Config", {})
             actual_env = environment(actual.get("Env"))
@@ -842,6 +844,8 @@ class Installation:
                 if 81 in listens:
                     private = bool(management) and all(b.get('HostIp') in {'127.0.0.1', '::1'} for b in management)
                     self.add('management_binding', 'pass' if private else 'fail', 'loopback_only' if private else 'management_exposed', 'Management must use a loopback binding or separately verified private ingress.')
+                elif management:
+                    self.add('management_binding', 'fail', 'listener_mismatch', 'Management is published without its expected listener.')
                 # Mount-backed roots could hide symlinks into another mount. Never read their contents.
                 for root in roots:
                     if backing(root, mounts):

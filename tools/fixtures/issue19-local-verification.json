@@ -1,0 +1,51 @@
+{
+  "base": "f490df7562bd4f054066d5b0a5a8bfbefa6bdff5",
+  "local_discovery": {
+    "tests": 418,
+    "passed": 368,
+    "skipped": 50,
+    "failures": 0,
+    "errors": 0,
+    "filesystem_deferred": [
+      "test_docs_privacy.PrivateSitePathsTest.test_download_assets_are_private_at_every_depth",
+      "test_docs_privacy.PrivateSitePathsTest.test_media_artifacts_are_private",
+      "test_docs_privacy.PrivateSitePathsTest.test_nested_private_content_is_rejected",
+      "test_docs_privacy.PrivateSitePathsTest.test_nonroot_artifacts_are_private",
+      "test_issue11_diagnostics_docs.PublishedDiagnosticsTests.test_published_logs_are_rejected_and_retained_html_is_byte_checked",
+      "test_issue11_docs.DiagnosticPublicationTest.test_logs_are_rejected_from_complete_site",
+      "test_issue17_security_docs.SecretDocs.test_nested_configs_and_dossiers_cannot_be_published",
+      "test_migrator_requests.PublishedDiagnosticsTests.test_published_logs_are_rejected_and_retained_html_is_byte_checked"
+    ]
+  },
+  "later_regressions": [
+    {
+      "scope": "image inputs, provider authenticated journal, native publication, full profile",
+      "tests": 52,
+      "failed": 0
+    },
+    {
+      "scope": "doctor metadata and existing doctor contract",
+      "tests": 71,
+      "skipped": 1,
+      "failed": 0
+    }
+  ],
+  "javascript": {
+    "tests": 5,
+    "failed": 0
+  },
+  "acceptance": {
+    "clean_committed_checkout": "NOTRUN",
+    "POSIX_safety": "NOTRUN",
+    "native_amd64": "NOTRUN",
+    "native_arm64": "NOTRUN",
+    "full_images": "NOTRUN",
+    "full_upload": "NOTRUN",
+    "rendered_site_browser": "NOTRUN",
+    "cold_restore_runtime": "NOTRUN",
+    "VPS": "NOTRUN",
+    "real_Telegram": "NOTRUN"
+  },
+  "commit_status": "NOTRUN: protected Git metadata",
+  "note": "verification deferred to CI/gates; distinct suites overlap and must not be summed as unique tests"
+}

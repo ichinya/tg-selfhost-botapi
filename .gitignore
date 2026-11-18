@@ -2,6 +2,7 @@
 !/.github/
 /.env
 /data
+/scratch
 /media
 /secrets
 /files
@@ -16,11 +17,10 @@
 __pycache__/
 /_site/
 /.jekyll-cache/
-
-/.env.build
-
-/.build-inputs.json
-
 *.pem
 *.key
 *.crt
+
+**/.migration-provider/
+**/provider-key.json
+**/bootstrap.txt

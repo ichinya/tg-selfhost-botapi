@@ -10,6 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DiagnosticPublicationTest(unittest.TestCase):
+    def test_update_instructions_keep_nonroot_and_files_overrides(self):
+        for language, heading in (('en', '## Update an installation'), ('ru', '## Обновление установки')):
+            with self.subTest(language=language):
+                text = (ROOT / 'docs' / language / 'maintenance.md').read_text(encoding='utf-8')
+                section = text.split(heading, 1)[1].split('\n## ', 1)[0]
+                for value in ('docker-compose.nonroot.yml', 'docker-compose.files.yml', 'BOTAPI_STATE_SOURCE'):
+                    self.assertIn(value, section)
+
     def test_private_storage_stays_excluded_from_git_and_pages(self):
         self.assertIn('/logs', (ROOT / '.gitignore').read_text(encoding='utf-8').splitlines())
         config = (ROOT / '_config.yml').read_text(encoding='utf-8')
@@ -54,9 +62,9 @@ class DiagnosticPublicationTest(unittest.TestCase):
                 path.write_text("<!doctype html><html></html>", encoding="utf-8")
             (site / "tg_selfhost_botapi_migrator.html").write_bytes(
                 (ROOT / "tg_selfhost_botapi_migrator.html").read_bytes())
-            client = site / "assets/js/migration-client.mjs"
-            client.parent.mkdir(parents=True, exist_ok=True)
-            client.write_bytes((ROOT / "assets/js/migration-client.mjs").read_bytes())
+            asset = site / 'assets/js/migration-client.mjs'
+            asset.parent.mkdir(parents=True, exist_ok=True)
+            asset.write_bytes((ROOT / 'assets/js/migration-client.mjs').read_bytes())
             command = [sys.executable, str(ROOT / "tools/check_docs.py"), str(site)]
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)

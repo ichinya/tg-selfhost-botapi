@@ -37,7 +37,7 @@ class ProfileContractTests(unittest.TestCase):
                                 text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         html = (ROOT / "tg_selfhost_botapi_migrator.html").read_text(encoding="utf-8")
-        self.assertEqual(html.count("<script>"), 1)
+        self.assertEqual(html.count("<script>"), 0)
         self.assertNotIn('<script src=', html)
 
 

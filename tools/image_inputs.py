@@ -1,10 +1,8 @@
 """Resolve immutable build inputs and fingerprint the image recipe (stdlib only)."""
-import argparse
 from datetime import datetime, timezone
+import os
 import hashlib
 import json
-import os
-import tempfile
 from pathlib import Path
 import re
 import subprocess
@@ -12,34 +10,33 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 RECIPE = (
-    "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
-    "tools/apk_policy.json", "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
+    "docker-compose.downloads.build.yml", "image-inputs.lock.json", "tools/apk_policy.json", "nginx-main.conf", "docker-compose.secrets.yml", "Dockerfile", ".dockerignore", "docker-entrypoint.sh", "patches/webhook-user-agent.patch",
+    "tools/image_inputs.py", "tools/test_image_inputs.py", "tools/test_entrypoint.py",
     "tools/test_webhook_user_agent.py",
+    "docker-compose.yml", "docker-compose.build.yml", "docker-compose.nonroot.yml", "docker-compose.files.yml",
+    "tools/check_nonroot.py", "tools/check_nonroot_compose.py",
+    "tools/test_check_nonroot.py", "tools/test_nonroot_compose.py",
+    "tools/fixtures/nonroot/compose.yml", "tools/fixtures/nonroot/media-probe.sh",
+    "tools/fixtures/nonroot/source-semantics.sh",
+    "tools/migration_probe.py", "tools/migration_contract.py",
+    "tools/check_migration_volumes.py", "tools/fixtures/migration/fake-bot-api.sh",
+    "tools/fixtures/migration/docker-compose.volumes.yml",
     "patches/botapi-secrets-redaction.patch",
     "tools/fixtures/issue17_security/botapi_log_driver.cpp",
     "tools/fixtures/issue17_security/cases.json",
     "tools/issue17_security_gate.py", "tools/issue17_security_checks.py",
     ".github/workflows/image.yml",
-    "tools/capture_apk_metadata.sh",
-    "tools/test_apk_docker_contract.py",
-    "tools/capture_link_metadata.py",
-    "tools/image_metadata.py",
-    "tools/image_receipt.py",
-    "tools/test_image_metadata.py",
-    "tools/apk_candidate.py",
-    "tools/test_apk_candidate.py",
-    "tools/check_apk_refresh.py",
-    "tools/test_apk_refresh.py",
-    "tools/apk_refresh_fixture/fixture.c",
-    "tools/apk_refresh_fixture/consumer.c",
-    "tools/apk_refresh_fixture/APKBUILD.in",
+    "tools/multiarch_publish.py",
+    "tools/multiarch_verify.py",
+    "tools/check_apk_refresh.py", "tools/test_apk_refresh.py",
+    "tools/apk_refresh_fixture/APKBUILD.in", "tools/apk_refresh_fixture/LICENSE",
+    "tools/apk_refresh_fixture/README.md", "tools/apk_refresh_fixture/SHA256SUMS",
+    "tools/apk_refresh_fixture/consumer.c", "tools/apk_refresh_fixture/fixture.c",
     "tools/apk_refresh_fixture/package.sh",
-    "tools/apk_refresh_fixture/SHA256SUMS",
-    "tools/apk_refresh_fixture/LICENSE",
-    "tools/apk_refresh_fixture/README.md",
     'tools/botapi_healthcheck.sh', 'tools/check_stats_source.py',
     'tools/observability/Dockerfile', 'tools/observability/status.schema.json',
     'docker-compose.yml', 'docker-compose.build.yml', 'nginx.conf',
+    'docker-compose.observability.yml', 'docker-compose.observability.build.yml', 'nginx.observability.conf',
     "docker-compose.files.yml",
 )
 DOWNLOADS_RECIPE = (
@@ -73,6 +70,8 @@ RECIPE = tuple(dict.fromkeys((*RECIPE, *DOWNLOADS_RECIPE,
 
 def recipe_files():
     names = set(RECIPE)
+    names.update('tools/webhook_sender/'+name for name in ('CMakeLists.txt','receiver.py','webhook_sender_test.cpp'))
+    names.update(('tools/multiarch_publish.py',))
     names.update(str(p.relative_to(ROOT)).replace('\\', '/') for p in (ROOT / 'tools/observability').glob('*.py'))
     return {name: (ROOT / name).read_bytes() for name in sorted(names)}
 
@@ -113,79 +112,61 @@ def validate_policy(policy):
     return policy
 
 
-def read_policy(path):
-    with open(path, encoding="utf-8") as handle:
-        return validate_policy(json.load(handle))
-
-
-def check_generation(current, previous):
-    validate_policy(current)
-    if previous is not None and current["generation"] < validate_policy(previous)["generation"]:
-        raise ValueError("APK refresh generation cannot decrease")
-
-
-def resolve(clock=None, policy=None, platform="linux/amd64"):
-    policy = read_policy(ROOT / "tools/apk_policy.json") if policy is None else validate_policy(policy)
-    now = (clock or (lambda: datetime.now(timezone.utc)))()
-    if now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError("Clock must be timezone-aware")
-    window = now.astimezone(timezone.utc).date().isoformat()
-    inputs = {
-        "snapshot_version": 1,
-        "bot_api_revision": revision("tdlib/telegram-bot-api"),
-        "alpine_image": "alpine:3.22@" + digest("alpine:3.22"),
-        "platform": platform,
-        **policy,
-        "apk_refresh_window": window,
-        "apk_refresh_id": f"v{policy['policy_version']}-{window}-g{policy['generation']}",
-        "python_image": "python:3.12-slim@" + digest("python:3.12-slim"),
-    }
-    inputs['observer_base'] = 'python:3.13.5-alpine3.22@' + digest('python:3.13.5-alpine3.22')
-    inputs['downloads_key'] = build_key({'python_image': inputs['python_image']},
-                                       {name: (ROOT / name).read_bytes() for name in DOWNLOADS_RECIPE})
-    inputs["build_key"] = build_key(inputs, recipe_files())
+def resolve(clock=None, policy=None, platform='linux/amd64'):
+    # Reviewed source/base snapshot: discovery does not silently promote master.
+    policy=validate_policy(policy or json.loads((ROOT/'tools/apk_policy.json').read_text(encoding='utf-8')))
+    now=(clock or (lambda:datetime.now(timezone.utc)))()
+    if now.tzinfo is None or platform not in ('linux/amd64','linux/arm64'):
+        raise ValueError('aware UTC clock and explicit platform required')
+    saved=json.loads((ROOT/'image-inputs.lock.json').read_text(encoding='utf-8'))
+    expected={'bot_api_revision','submodules','bot_api_version','alpine_image','python_image','observer_base'}
+    if (set(saved)!={'schema','inputs','selected_release'} or type(saved['schema']) is not int or saved['schema']!=1
+            or not isinstance(saved['inputs'],dict) or set(saved['inputs'])!=expected or saved['selected_release'] is not None):
+        raise ValueError('reviewed candidate snapshot required')
+    inputs={k:saved['inputs'][k] for k in ('bot_api_revision','submodules','bot_api_version','alpine_image','python_image','observer_base')}
+    if not isinstance(inputs['submodules'],dict) or set(inputs['submodules']) != {'td'} or not re.fullmatch(r'[0-9]+\.[0-9]+(?:\.[0-9]+)?',inputs['bot_api_version']):
+        raise ValueError('reviewed source version/submodule map required')
+    if not re.fullmatch('[0-9a-f]{40}',inputs['bot_api_revision']) or not re.fullmatch('[0-9a-f]{40}',inputs['submodules']['td']):
+        raise ValueError('pinned source/submodule required')
+    for name in ('alpine_image','python_image','observer_base'):
+        if not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}',inputs[name]):
+            raise ValueError('immutable base required')
+    wrapper=os.environ.get('GITHUB_SHA') or command('git','rev-parse','HEAD')
+    if not re.fullmatch('[0-9a-f]{40}',wrapper):
+        raise ValueError('committed wrapper identity required')
+    window=now.astimezone(timezone.utc).date().isoformat()
+    inputs.update(platform=platform,wrapper_revision=wrapper,apk_policy_version=policy['policy_version'],
+                  apk_refresh_window=window,apk_refresh_generation=policy['generation'],
+                  apk_refresh_id=f"v{policy['policy_version']}-{window}-g{policy['generation']}")
+    inputs['downloads_key']=build_key({'python_image':inputs['python_image']},
+                                    {name:(ROOT/name).read_bytes() for name in DOWNLOADS_RECIPE})
+    files=recipe_files()
+    inputs['recipe_sha256']=hashlib.sha256(b''.join(name.encode()+b'\0'+hashlib.sha256(raw).digest() for name,raw in sorted(files.items()))).hexdigest()
+    inputs['build_key']=build_key(inputs,files)
     return inputs
 
 
-def atomic_write(path, content):
-    destination = Path(path)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n",
-                                         dir=destination.parent, delete=False) as stream:
-            temporary = Path(stream.name)
-            stream.write(content)
-        os.replace(temporary, destination)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--json-out")
-    parser.add_argument("--build-env-out")
-    args = parser.parse_args()
-    if args.json_out and args.build_env_out and Path(args.json_out).resolve() == Path(args.build_env_out).resolve():
-        parser.error("JSON and build env must use different paths")
-    inputs = resolve()
-    if args.json_out:
-        atomic_write(args.json_out, json.dumps(inputs, sort_keys=True, indent=2) + "\n")
-    if args.build_env_out:
-        public = {
-            "BOT_API_REVISION": inputs["bot_api_revision"],
-            "ALPINE_IMAGE": inputs["alpine_image"],
-            "BUILD_FINGERPRINT": inputs["build_key"],
-            "APK_REFRESH_ID": inputs["apk_refresh_id"],
-            "APK_POLICY_VERSION": inputs["policy_version"],
-            "APK_REFRESH_WINDOW": inputs["apk_refresh_window"],
-            "APK_REFRESH_GENERATION": inputs["generation"],
-            "BUILD_PLATFORM": inputs["platform"],
-        }
-        atomic_write(args.build_env_out, "".join(f"{key}={value}\n" for key, value in public.items()))
-    for key, value in inputs.items():
-        print(f"{key}={value}")
-
+def build_environment(inputs):
+    return {'BOT_API_REVISION':inputs['bot_api_revision'],'ALPINE_IMAGE':inputs['alpine_image'],
+            'PYTHON_IMAGE':inputs['python_image'],'OBSERVER_BASE':inputs['observer_base'],
+            'BUILD_FINGERPRINT':inputs['build_key'],'DOWNLOADS_FINGERPRINT':inputs['downloads_key'],
+            'APK_REFRESH_ID':inputs['apk_refresh_id'],'WRAPPER_REVISION':inputs['wrapper_revision'],
+            'BOT_API_VERSION':inputs['bot_api_version']}
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--build-env',type=Path)
+    parser.add_argument('--as-of',type=datetime.fromisoformat)
+    parser.add_argument('--snapshot',type=Path)
+    args=parser.parse_args()
+    if args.build_env and Path(command('git','rev-parse','--show-toplevel')).resolve()!=ROOT:
+        raise ValueError('build projection requires its own committed checkout')
+    clock = None if args.as_of is None else lambda: args.as_of
+    inputs=resolve(clock=clock,platform=os.environ.get('BUILD_PLATFORM','linux/amd64'))
+    if args.snapshot:
+        args.snapshot.write_text(json.dumps(inputs, sort_keys=True) + '\n', encoding='utf-8')
+    if args.build_env:
+        args.build_env.write_text(''.join(f'{name}={value}\n' for name,value in build_environment(inputs).items()),encoding='utf-8',newline='\n')
+    for key,value in inputs.items():
+        print(f"{key}={json.dumps(value,sort_keys=True,separators=(',',':')) if isinstance(value,dict) else value}")

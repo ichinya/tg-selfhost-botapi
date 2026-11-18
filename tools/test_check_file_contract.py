@@ -57,7 +57,14 @@ class CheckerTests(unittest.TestCase):
         with self.assertRaises(ValueError): checker.pin_nginx({'FILE_NGINX_IMAGE': 'other.invalid/nginx:latest'})
 
     def test_unsafe_mount_and_alias_are_rejected(self):
-        safe = {'services': {'gateway': {'volumes': [{'target': '/etc/nginx/conf.d/default.conf', 'read_only': True}]}}}
+        mounts = [
+            {'type': 'bind', 'source': str(checker.ROOT / 'nginx-main.conf'),
+             'target': '/etc/nginx/nginx.conf', 'read_only': True},
+            {'type': 'bind', 'source': str(checker.ROOT / 'nginx.conf'),
+             'target': '/etc/nginx/conf.d/default.conf', 'read_only': True},
+            {'type': 'volume', 'source': 'gateway_client_temp', 'target': '/var/cache/nginx/client_temp'},
+        ]
+        safe = {'services': {'botapi': {}, 'gateway': {'volumes': mounts}}}
         nginx = 'location = /file { return 404; } location /file/ { return 404; }'
         checker.validate(safe, nginx)
         with self.assertRaises(ValueError): checker.validate(safe, nginx + ' alias /data;')
@@ -65,12 +72,20 @@ class CheckerTests(unittest.TestCase):
         with self.assertRaises(ValueError): checker.validate(safe, nginx)
 
     def test_runtime_gateway_mounts_must_match_shipped_config(self):
-        mount = {'Destination': '/etc/nginx/conf.d/default.conf',
-                 'Source': str(checker.ROOT / 'nginx.conf'), 'RW': False}
-        checker.validate_gateway_runtime({'Mounts': [mount]})
-        for mounts in ([], [dict(mount, RW=True)], [mount, {'Destination': '/state'}]):
-            with self.subTest(mounts=mounts), self.assertRaises(ValueError):
-                checker.validate_gateway_runtime({'Mounts': mounts})
+        def bind(target, source):
+            return {'Destination': target, 'Source': str(checker.ROOT / source), 'RW': False}
+        mounts = [bind('/etc/nginx/nginx.conf', 'nginx-main.conf'),
+                  bind('/etc/nginx/conf.d/default.conf', 'nginx.conf'),
+                  {'Destination': '/var/cache/nginx/client_temp', 'Type': 'volume', 'RW': True}]
+        checker.validate_gateway_runtime({'Mounts': mounts})
+        management = bind('/etc/nginx/conf.d/observability.conf', 'nginx.observability.conf')
+        checker.validate_gateway_runtime({'Mounts': mounts + [management]})
+        for bad in ([], mounts[:-1], mounts + [{'Destination': '/state', 'RW': False}],
+                    mounts + [{'Destination': '/var/lib/telegram-bot-api', 'RW': False}],
+                    mounts + [dict(management, RW=True)]):
+            with self.subTest(mounts=bad), self.assertRaises(ValueError):
+                checker.validate_gateway_runtime({'Mounts': bad})
+
 
 
 if __name__ == '__main__': unittest.main()

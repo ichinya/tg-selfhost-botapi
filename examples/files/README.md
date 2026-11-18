@@ -4,8 +4,9 @@ Linux/amd64 and a kernel supporting openat2 are required. The Bot API is a trust
 local API, not a tenant sandbox. Each application sees only its own bot subtree.
 The host/writer is trusted; no nested mounts are permitted beneath that subtree.
 
-1. Prepare an empty media directory with `sudo install -d -m 0770 -o 101 -g 101 ./media`,
-   then enable split storage: `docker compose -f docker-compose.yml -f docker-compose.files.yml up -d`.
+1. Prepare state, temp and media sources for `BOTAPI_UID:BOTAPI_GID` as described in
+   Getting started. Configure them in `.env`, then enable split storage:
+   `docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml up -d`.
 2. Call getFile on the trusted private API. Set `BOT_A_ROOT` to the exact bot
    directory in its absolute file_path and `BOT_A_HOST_ROOT` to its existing host
    backing. Verify the full suffix, including token, `:` / `~` and test-DC suffix.
@@ -17,7 +18,7 @@ The host/writer is trusted; no nested mounts are permitted beneath that subtree.
 4. Set `DOWNLOADS_IMAGE` to the qualified image containing the reader, then run:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.files.yml \
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml \
   -f examples/files/compose.local.yml run --rm reader '<FILE_ID>' > downloaded.bin
 ```
 
@@ -35,7 +36,7 @@ credential (letters, digits, `.`, `_`, `~`, `-`), never the Telegram token.
 Use the same qualified `DOWNLOADS_IMAGE`, `BOT_A_ROOT`, `BOT_A_HOST_ROOT` as above.
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.files.yml \
+docker compose -f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml \
   -f docker-compose.downloads.yml up -d
 ```
 

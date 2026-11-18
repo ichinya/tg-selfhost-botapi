@@ -83,6 +83,10 @@ persistent work mount и отдельный доступный temp. Для loca
 не обязателен; temp не обязан быть persistent. Credentials через `_FILE`
 поддерживаются. Явная Docker-диагностика создаёт маленькие write probes от
 runtime user и не является read-only; HTTP-helper не выбирает контейнеры.
+Managed readiness наблюдает сервер с PID 1 и сверяет UID, GID и нормализованный
+набор дополнительных групп probe до чтения секретов и записи. Несовпадение или
+смена процесса блокирует evidence. Внешний формат v1 сохраняет UID/GID и не
+удостоверяет набор групп отдельным полем.
 Local mode подтверждается deployment: HTTP/private IP/любой порт разрешены
 в local; cloud требует HTTPS, допустимый порт и публичный IPv4.
 Несовместимый профиль блокируется до мутаций source. Транспорт ограничивает
@@ -95,14 +99,38 @@ DNS/connect/read/total time и body, не наследует proxy, не дел�
 | Порт gateway на хосте | `18080` |
 | Внутренний адрес Bot API | `http://botapi:8081` |
 | Постоянные данные на хосте | `./data` |
+| Временные загрузки gateway | Project-scoped volume `gateway_client_temp` в `/var/cache/nginx/client_temp` |
 | Каталог данных в контейнере | `/var/lib/telegram-bot-api` |
-| UID/GID пользователя контейнера | `101:101` |
+| UID/GID сервера по умолчанию | `101:101` |
 | Local mode | Включён в Compose |
+
+По умолчанию контейнер начинает работу от root только для подготовки новых или
+пустых каталогов состояния и временных файлов, затем запускает сервер как
+`101:101`. Владельцы непустых каталогов и их содержимого не меняются. Docker
+`--user UID:GID` или Compose `user: "UID:GID"` запускает сервер сразу с указанной
+identity; оба каталога нужно подготовить заранее. Используйте отдельные абсолютные
+пути без символических ссылок в компонентах. Доступ проверяется от пользователя
+сервера. Новые приватные каталоги имеют `0700`, umask сервера — `0027`; права
+существующих каталогов не меняются. Файлы секретов `_FILE` должны читаться
+конечным пользователем сервера. Доступ к файлу журнала проверяет сам сервер.
+Явные аргументы entrypoint, например `--version`, обходят обычную подготовку и
+выполняются от пользователя контейнера.
 
 Bot API endpoint принимает вызовы методов. Webhook URL находится в вашем
 приложении и принимает обновления от сервера. Это разные адреса.
 
 ## Переменные Compose
+
+Необязательный `docker-compose.nonroot.yml` требует `BOTAPI_UID`, `BOTAPI_GID`,
+`BOTAPI_STATE_SOURCE` и `BOTAPI_TEMP_SOURCE`. Они задают пользователя Compose и
+подготовленные bind-каталоги, а не меняют учётные записи в образе. Порядок и
+подготовка описаны в разделе [установки](getting-started.md).
+
+Необязательный `TELEGRAM_FILES_DIR` задаёт отдельный upstream `--files-dir`;
+без него используется рабочий каталог по умолчанию. Каталоги состояния, HTTP
+temp и media должны быть отдельными абсолютными путями без символических ссылок.
+Изменение настройки не переносит старые файлы и пути кеша. Media override требует
+non-root override и подготовленный `BOTAPI_MEDIA_SOURCE`.
 
 | Переменная в `.env` | Назначение |
 | --- | --- |
@@ -161,19 +189,20 @@ nginx или запрос `setWebhook` этот исходящий заголо�
 
 ## Файлы в local mode
 
-Разделение storage включается явно: добавьте `-f docker-compose.files.yml` после
-базового Compose. Только Bot API пишет `./media` в `/var/lib/telegram-bot-api-files`
+Разделение storage включается явно: после базового Compose добавьте
+`-f docker-compose.nonroot.yml`, затем `-f docker-compose.files.yml`. Только Bot API
+пишет `BOTAPI_MEDIA_SOURCE` в `/var/lib/telegram-bot-api-files`
 через `TELEGRAM_FILES_DIR` / `--files-dir`. Без override прежний combined layout
 остаётся приватным. State, абсолютный private temp, логи и файлы учётных данных
 не должны пересекаться с media. Относительные логи, неканонические пути и symlink
-в предках отклоняются. Для новых каталогов действует umask `007`, identity —
-`101:101`. Права существующего cache рекурсивно не меняются.
+в предках отклоняются. Для новых каталогов действует umask `0027`, media принадлежит
+настроенным non-root UID/GID. Права существующего cache рекурсивно не меняются.
 
 `--help` / `--version` работают без credentials. Явные server CLI arguments не
 дополняются из env: split CLI требует длинные `--files-dir`, `--dir`, `--temp-dir`,
 совпадающие с заданными directory/log env. Повтор directory-флага — ошибка.
-Для настройки identity используйте обычный entrypoint; произвольный Compose
-`user:` не поддерживается.
+Для настройки identity используйте поддерживаемый non-root override; произвольный
+Compose `user:` не поддерживается.
 
 `getFile` может вернуть абсолютный путь внутри контейнера. Для прямого чтения
 приложению бота нужен согласованный общий volume/путь. Нельзя превращать
@@ -213,8 +242,38 @@ media/private backings и проверяет scoped RO mounts consumers. Сво�
 не даёт READY.
 
 - nginx возвращает 404 для запросов `/file` и `/file/` и не раздаёт каталог состояния.
-- В nginx не задан увеличенный лимит загрузки. Большие multipart-запросы могут
-  получить HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
+- Для методов Bot API, принимающих файлы, лимит тела — `2048m` (2 147 483 648 байт),
+  включая multipart-поля и все вложения; превышение даёт HTTP 413. Буферизация
+  запроса включена: до передачи upstream тело сохраняется на отдельном дисковом
+  volume. Для загрузок таймауты простоя чтения от клиента и отправки upstream — 300 секунд,
+  чтения ответа — 600 секунд, соединения — 5 секунд. Это не общие deadlines.
+  Upstream указывает до 2000 MB на файл в local mode; лимит gateway относится ко
+  всему телу, поэтому вложения делят общий бюджет. Из 2048 MiB остаётся 48 MiB
+  сверх 2000 MiB для multipart. Ограничения метода, образа, клиента и внешнего
+  ingress сохраняются; успешная загрузка в Telegram не гарантирована. У pinned
+  upstream есть собственный предел простоя около 500 секунд, nginx его не продлевает.
+
+  Буферизация добавляет дисковый I/O и задерживает передачу до полного приёма.
+  Для N параллельных загрузок рассчитывайте до N × 2 GiB плюс резерв только для
+  nginx: при N=2 это около 4 GiB плюс резерв. Добавьте потребности Bot API в
+  temp/work/cache на той же файловой системе. Volume не резервирует место или
+  квоту, а стандартный резерв Doctor 1 GiB не подтверждает готовность к большим
+  загрузкам. Проверяйте байты и inode, включая диск Docker Desktop. Spool может
+  содержать конфиденциальные данные; ограничьте доступ. Допускаются две загрузки
+  на адрес и четыре всего: зарезервируйте минимум 8 GiB плюс рабочий запас. Частота
+  начала загрузок — 2/с на адрес (burst 4) и 10/с общая (burst 20); превышение
+  возвращает 429. Ingress должен сохранять адрес клиента: nginx не доверяет
+  forwarded-заголовкам. Разрешены GET, HEAD и POST; тела GET/HEAD отклоняются,
+  остальные методы получают 403.
+
+  Обычные RPC ограничены 1 MiB; таймаут простоя тела/отправки — 15 секунд,
+  чтения ответа — 30 секунд. Для `getUpdates` чтение — 600 секунд. Публичный
+  порт 80 до чтения тела отклоняет Transfer-Encoding с 411: передавайте загрузки
+  с Content-Length. Внутренний порт 82 принимает chunked и не опубликован в
+  Compose; открывайте его только доверенным клиентам. Idle-таймаут не ограничивает
+  полное время: медленный Content-Length может удерживать слот неограниченно.
+  Для недоверенного доступа используйте ingress с абсолютным deadline или
+  минимальной скоростью и проверкой допуска до чтения тела.
 - По умолчанию gateway доступен только на localhost. Установите в `.env`
   `GATEWAY_BIND=0.0.0.0`, только если удалённым клиентам, например получателю
   webhook, нужен доступ; защитите внешний доступ с помощью HTTPS и сетевых ограничений.
@@ -243,17 +302,6 @@ media/private backings и проверяет scoped RO mounts consumers. Сво�
 переменной. В отличие от адресов, явно пустой таймаут недопустим. Настройки
 не передаются в контейнеры.
 
-## Входы локальной сборки
-
-Для локальной компиляции нужны Python 3.11+, Git и Docker Buildx. Непосредственно
-перед каждой новой сборкой выполните
-`python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build`.
-Передавайте оба `--env-file .env --env-file .env.build` с build override, в том числе
-повторяемые `--env-file` в командах doctor. Generated-файл содержит только public
-inputs; runtime credentials остаются в `.env`. Compose config/doctor работают без
-generated inputs, но реальная сборка требует pinned source/base и refresh. Старый
-файл не обновляется автоматически. Pull/up опубликованного образа не используют
-build override и generated build env.
 ### Журналы gateway
 
 Базовый Compose монтирует `nginx-main.conf` read-only во всех профилях. Access log
@@ -293,8 +341,7 @@ unknown, сумма выборки — нижняя граница, а не гл
 install -d -m 0700 .observability
 install -d -m 0755 .observability/runtime .observability/migration
 sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
-python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
-docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Observer делит только network namespace Bot API, работает как 101:101 с read-only
@@ -321,3 +368,27 @@ OBSERVER_BASE с approved Python image digest. Supervision host producer,
 права registry/credentials и ownership/rotation описаны в
 [обслуживании](maintenance.md). Ready секции описывает её источник наблюдения;
 исходы миграции проверяются отдельно от готовности процесса.
+## Подключение observability
+
+Подготовьте приватные входы `.observability`, описанные выше, затем выполните `docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d`. По умолчанию management доступен на `127.0.0.1:18081`; сохраняйте его приватным. `TELEGRAM_STAT` управляет обоими компонентами только с этим overlay. Для локальной сборки observer подключите также `docker-compose.build.yml` и `docker-compose.observability.build.yml`.
+
+При совместном использовании файловых секретов и observability указывайте `docker-compose.secrets.yml` перед `docker-compose.observability.yml` и проверяйте, что итоговая конфигурация не содержит inline credentials.
+
+## Интерфейсы настройки
+
+Compose читает `API_ID`, `API_HASH`, `BOTAPI_IMAGE`, `GATEWAY_BIND`, `TELEGRAM_HTTP_IP_ADDRESS` и `TELEGRAM_HTTP_PORT`. По умолчанию gateway доступен только на loopback; изменение порта backend требует согласованной настройки nginx. Overlay observability читает `TELEGRAM_STAT`, `MGMT_BIND`, `OBSERVER_IMAGE`, `OBSERVER_MIGRATION_DIR` и `OBSERVER_REGISTRY`; build overlay читает `OBSERVER_BASE`. Закрепляйте образы botapi и observer с одинаковым ключом сборки.
+
+Overlay non-root и files читают `BOTAPI_UID`, `BOTAPI_GID`, `BOTAPI_STATE_SOURCE`, `BOTAPI_TEMP_SOURCE` и `BOTAPI_MEDIA_SOURCE`. Overlay секретов читает `TELEGRAM_API_ID_SECRET_PATH` и `TELEGRAM_API_HASH_SECRET_PATH`. Downloads и reader используют `DOWNLOADS_IMAGE`, `BOT_A_ROOT`, `BOT_A_HOST_ROOT`, `BOT_TOKEN_FILE`, `DOWNLOAD_BOT_TOKEN_FILE`, `DOWNLOAD_AUTH_TOKEN_FILE`, `DOWNLOADS_BIND`, `DOWNLOAD_MAX_DURATION`, `DOWNLOAD_WORKERS`, `BOT_TEST_DC` и `BOT_COLON_LAYOUT`; храните секреты в приватных файлах и оставляйте downloads на loopback без защищённого ingress.
+
+У миграционных helper собственное окружение процесса: `SELF_BOT_URL`, `WEBHOOK_URL`, `DROP_PENDING_UPDATES`, `WEBHOOK_SECRET_MODE`, `WEBHOOK_SECRET_TOKEN_FILE`, `WEBHOOK_IP_MODE`, `WEBHOOK_ALLOWED_UPDATES`, `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL`, `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE`, `BOT_TOKEN_FILE`, `MIGRATION_CONNECT_TIMEOUT`, `MIGRATION_REQUEST_DEADLINE`, `MIGRATION_STATUS_DIR` и `MIGRATION_STATUS_ALIAS`. Решение об ожидающих обновлениях принимайте явно; см. [миграцию](migration.md).
+
+Для `TELEGRAM_VERBOSITY`, `TELEGRAM_WORK_DIR` и `TELEGRAM_TEMP_DIR` необходимо явное переопределение окружения контейнера: добавления в `.env` недостаточно. `TELEGRAM_FILES_DIR` и `TELEGRAM_LOG_FILE` задаёт overlay files. Храните state, временные файлы и media раздельно.
+
+### Граница приёмки загрузок
+Gateway сохраняет 2048m на всё тело запроса, включая multipart overhead; это не обещание файла Telegram размером 2048 МиБ. Connect/send/read/idle для uploads остаются 5s/300s/600s/300s. Четыре тела требуют минимум 8 ГиБ и запас на отдельном spool. Listener 82 — доверенный внутренний транспорт. Используйте существующие quick/full/slow/storage profiles; mock transport и реальная загрузка Telegram учитываются отдельно. Повтор upstream-запроса отключён.
+
+### Два контракта доступа к файлам
+Поддерживаются per-bot read-only media и авторизованный `POST /v1/files/download` для удалённого клиента. Запрос содержит file_id; handler после проверки независимого credential вызывает getFile закреплённого бота. Pathname от клиента не принимается. State, temp и secrets не являются media. Используйте существующие `examples/files` и exact-pair проверку `tools/check_file_contract.py`. Обязателен Linux openat2 FD confinement; неподдерживаемая платформа отказывает. Старый /file alias с токеном в URL публиковать нельзя.
+
+### Внутренний порт
+Compose-набор использует фиксированный API port 8081. TELEGRAM_HTTP_PORT остаётся параметром entrypoint/binary для собственных deployment; nginx и downloads автоматически не перенастраиваются. Внешний bind требует политики доступа и TLS.

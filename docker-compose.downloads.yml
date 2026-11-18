@@ -1,4 +1,4 @@
-# Merge after base + docker-compose.files.yml. One instance per bot.
+# Merge after base + nonroot + files overrides. One instance per bot.
 services:
   downloads:
     image: ${DOWNLOADS_IMAGE:?Set a qualified immutable downloads image}

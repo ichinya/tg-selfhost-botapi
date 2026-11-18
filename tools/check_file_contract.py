@@ -37,10 +37,7 @@ def prefix(project):
 
 
 def validate(model, nginx):
-    gateway = model['services']['gateway']
-    mounts = gateway.get('volumes', [])
-    if len(mounts) != 1 or mounts[0]['target'] != '/etc/nginx/conf.d/default.conf' or not mounts[0].get('read_only'):
-        raise ValueError('gateway has unexpected storage')
+    validate_base(model)
     nginx = re.sub(r'#[^\n]*', '', nginx)
     if re.search(r'\b(?:alias|root|include)\s', nginx):
         raise ValueError('gateway filesystem configuration')
@@ -52,18 +49,47 @@ def validate(model, nginx):
 def validate_base(model):
     services = model['services']
     mounts = services['gateway'].get('volumes', [])
-    if (len(mounts) != 1 or mounts[0]['target'] != '/etc/nginx/conf.d/default.conf'
-            or not mounts[0].get('read_only') or services['botapi'].get('ports')
-            or Path(mounts[0]['source']).resolve() != (ROOT / 'nginx.conf').resolve()):
+    allowed = {
+        '/etc/nginx/nginx.conf': ROOT / 'nginx-main.conf',
+        '/etc/nginx/conf.d/default.conf': ROOT / 'nginx.conf',
+        '/etc/nginx/conf.d/observability.conf': ROOT / 'nginx.observability.conf',
+    }
+    found = set()
+    for mount in mounts:
+        target = mount.get('target')
+        if target in found:
+            raise ValueError('duplicate gateway mount')
+        found.add(target)
+        if target == '/var/cache/nginx/client_temp':
+            if mount.get('type') != 'volume' or mount.get('read_only'):
+                raise ValueError('unexpected spool mount')
+        elif (target not in allowed or mount.get('type') != 'bind' or not mount.get('read_only')
+              or Path(mount.get('source', '')).resolve() != allowed[target].resolve()):
+            raise ValueError('unexpected gateway mount')
+    if not {'/etc/nginx/nginx.conf', '/etc/nginx/conf.d/default.conf', '/var/cache/nginx/client_temp'} <= found or services['botapi'].get('ports'):
         raise ValueError('base gateway or backend exposure')
 
 
 def validate_gateway_runtime(container):
-    mounts = container.get('Mounts', [])
-    if (len(mounts) != 1 or mounts[0].get('Destination') != '/etc/nginx/conf.d/default.conf'
-            or mounts[0].get('RW') is not False
-            or Path(mounts[0].get('Source', '')).resolve() != (ROOT / 'nginx.conf').resolve()):
-        raise ValueError('runtime gateway storage exposure')
+    allowed = {
+        '/etc/nginx/nginx.conf': ROOT / 'nginx-main.conf',
+        '/etc/nginx/conf.d/default.conf': ROOT / 'nginx.conf',
+        '/etc/nginx/conf.d/observability.conf': ROOT / 'nginx.observability.conf',
+    }
+    found = set()
+    for mount in container.get('Mounts', []):
+        target = mount.get('Destination')
+        if target in found:
+            raise ValueError('duplicate gateway mount')
+        found.add(target)
+        if target == '/var/cache/nginx/client_temp':
+            if mount.get('Type') != 'volume' or mount.get('RW') is not True:
+                raise ValueError('unexpected spool mount')
+        elif (target not in allowed or mount.get('RW') is not False
+              or Path(mount.get('Source', '')).resolve() != allowed[target].resolve()):
+            raise ValueError('runtime gateway storage exposure')
+    if not {'/etc/nginx/nginx.conf', '/etc/nginx/conf.d/default.conf', '/var/cache/nginx/client_temp'} <= found:
+        raise ValueError('missing runtime gateway mount')
 
 
 PROBE = r'''
@@ -112,6 +138,7 @@ def check(report=None):
         raise NotRun('Docker CLI unavailable')
     env = {k: v for k, v in os.environ.items() if not k.startswith(('COMPOSE_', 'BOTAPI_', 'GATEWAY_', 'API_'))}
     env['FIXTURE_NGINX'] = str(ROOT / 'nginx.conf')
+    env['FIXTURE_NGINX_MAIN'] = str(ROOT / 'nginx-main.conf')
     env['API_ID'] = '12345'
     env['API_HASH'] = 'SYNTHETIC_ONLY'
     try:
@@ -195,14 +222,22 @@ def exercise(botapi_image, downloads_image, report):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('COMPOSE_', 'BOTAPI_', 'DOWNLOAD', 'FIXTURE_', 'FILE_', 'API_', 'GATEWAY_'))}
     env.update(BOTAPI_TEST_IMAGE=botapi_image, DOWNLOADS_TEST_IMAGE=downloads_image,
                FILE_FIXTURE_IMAGE=project + '-fixture', FIXTURE_NGINX=str(ROOT / 'nginx.conf'),
+               FIXTURE_NGINX_MAIN=str(ROOT / 'nginx-main.conf'),
                FIXTURE_TLS_CONFIG=str(FIXTURE / 'nginx.downloads.conf'))
     env['FILE_NGINX_IMAGE'] = report['fixture_images']['nginx']
     compose = ['docker', 'compose', '-p', project, '--env-file', str(FIXTURE / 'synthetic.env'),
                '-f', str(FIXTURE / 'compose.full.yml')]
     validate_full(json.loads(command(compose + ['config', '--format', 'json'], env)))
-    base = ['docker', 'compose', '-p', project, '--env-file', str(FIXTURE / 'synthetic.env'),
-            '-f', str(ROOT / 'docker-compose.yml'), '-f', str(ROOT / 'docker-compose.files.yml')]
-    validate_split(json.loads(command(base + ['config', '--format', 'json'], env)))
+    with tempfile.TemporaryDirectory(prefix=project) as directory:
+        storage = Path(directory)
+        split_env = {**env, 'BOTAPI_UID': '101', 'BOTAPI_GID': '101',
+                     'BOTAPI_STATE_SOURCE': str(storage / 'state'),
+                     'BOTAPI_TEMP_SOURCE': str(storage / 'temp'),
+                     'BOTAPI_MEDIA_SOURCE': str(storage / 'media')}
+        base = ['docker', 'compose', '-p', project, '--env-file', str(FIXTURE / 'synthetic.env'),
+                '-f', str(ROOT / 'docker-compose.yml'), '-f', str(ROOT / 'docker-compose.nonroot.yml'),
+                '-f', str(ROOT / 'docker-compose.files.yml')]
+        validate_split(json.loads(command(base + ['config', '--format', 'json'], split_env)))
     report['source_sha256'] = source_hashes()
     report['images'] = {}
     for name, image in (('botapi', botapi_image), ('downloads', downloads_image)):

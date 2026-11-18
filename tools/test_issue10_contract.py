@@ -32,7 +32,9 @@ class ContractTests(unittest.TestCase):
     def test_existing_standalone_migrator_url_is_kept(self):
         page = ROOT / 'tg_selfhost_botapi_migrator.html'
         html = page.read_text(encoding='utf-8')
-        self.assertIn('assets/js/migration-client.mjs', html)
+        self.assertIn('tools/migration_helper.py', html)
+        self.assertNotIn('<script', html)
+        self.assertNotIn('<input', html)
         for language in ('en', 'ru'):
             doc = (ROOT / 'docs' / language / 'migration.md').read_text(encoding='utf-8')
             self.assertIn('../../tg_selfhost_botapi_migrator.html', doc)

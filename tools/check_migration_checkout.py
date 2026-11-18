@@ -4,7 +4,7 @@ import subprocess
 import sys
 from check_migration_safety import PATTERNS
 
-REQUIRED = ['tools/migration_executor.sh','tools/migration_executor.html','migrate_off_to_self.sh','tg_selfhost_botapi_migrator.html','assets/js/migration-client.mjs',
+REQUIRED = ['tools/migration_adapter.sh','tools/migration_entry.html','tools/migration_compose_provider.py','tools/migration_executor.sh','tools/migration_executor.html','migrate_off_to_self.sh','tg_selfhost_botapi_migrator.html','assets/js/migration-client.mjs',
             'nginx-main.conf','docker-compose.secrets.yml','patches/botapi-secrets-redaction.patch',
             'tools/issue17_security_gate.py','tools/issue17_security_checks.py',
             'tools/test_issue17_security_browser.cjs','tools/test_issue17_security_shell.cjs',
@@ -16,6 +16,10 @@ REQUIRED = ['tools/migration_executor.sh','tools/migration_executor.html','migra
             'tools/check_docs.py','tools/check_migration_safety.py','tools/check_migration_volumes.py',
             'tools/migrator_request_mock.py', 'tools/migrator_ui_harness.js', 'tools/html_migrator_mock.js',
             'tools/test_html_migrator.cjs', 'tools/test_html_migrator.py', 'tools/test_migrator_ui.py',
+            'tools/issue8_shell_harness.cjs', 'tools/fixtures/issue8-shell-cases.json',
+            'tools/issue10_ui_harness.cjs', 'tools/webhook_profile_http_mock.py',
+            'tools/webhook_profile_runtime.sh', 'tools/webhook_profile_resolver.js',
+            'tools/migration_diagnostics_main.sh', 'tools/embed_webhook_profile.cjs',
             '.github/workflows/html-migrator.yml', '.github/workflows/migration-safety.yml',
             'tools/fixtures/migration/docker-compose.volumes.yml','tools/fixtures/migration/fake-bot-api.sh',
             'tools/fixtures/migration-executor-cases.json','.github/workflows/migration-executor.yml']
@@ -23,6 +27,10 @@ REQUIRED = ['tools/migration_executor.sh','tools/migration_executor.html','migra
 
 def main():
     root=Path(__file__).resolve().parents[1]
+    top=subprocess.run(['git','rev-parse','--show-toplevel'],cwd=root,capture_output=True,check=True).stdout.decode().strip()
+    if Path(top).resolve()!=root:
+        print('Candidate must be its own committed checkout',file=sys.stderr)
+        return 1
     tracked=subprocess.run(['git','ls-files','-z'],cwd=root,capture_output=True,check=True).stdout.decode().split('\0')
     missing=sorted(set(REQUIRED)-set(tracked))
     if missing:

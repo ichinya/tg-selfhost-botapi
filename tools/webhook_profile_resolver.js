@@ -36,7 +36,7 @@ function resolveWebhookProfile(input) {
     } catch {r.invalid.push('certificate');}
   }else if(p.certificate_mode==='none') {if((d.certificate?.value ?? '')!=='')r.invalid.push('certificate');}
   else if(p.certificate_mode==='unknown')r.missing.push('certificate_mode');else r.invalid.push('certificate_mode');
-  if(own(p,'url') && typeof p.url!=='string')r.invalid.push('url');
+  if(own(p,'url') && (typeof p.url!=='string' || /[\x00-\x20\x7f]/.test(p.url)))r.invalid.push('url');
   if(own(p,'allowed_updates') && (!Array.isArray(p.allowed_updates)||!p.allowed_updates.every(x=>typeof x==='string')))r.invalid.push('allowed_updates');
   if(own(p,'max_connections') && (!Number.isInteger(p.max_connections)||p.max_connections<1||p.max_connections>(input.target_local===true?100000:100)))r.invalid.push('max_connections');
   for(const k of Object.keys(r.provenance))if(r.provenance[k]==='explicit'&&input.provenance?.[k])r.provenance[k]=input.provenance[k];

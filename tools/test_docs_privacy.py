@@ -7,6 +7,24 @@ from check_docs import private_site_paths
 
 
 class PrivateSitePathsTest(unittest.TestCase):
+    def test_media_artifacts_are_private(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "media").mkdir()
+            (root / "media" / "sentinel").write_text("synthetic")
+            (root / "docker-compose.files.yml").write_text("synthetic")
+            self.assertEqual({p.as_posix() for p in private_site_paths(root)},
+                             {"media", "media/sentinel", "docker-compose.files.yml"})
+
+    def test_nonroot_artifacts_are_private(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scratch").mkdir()
+            (root / "scratch" / "sentinel").write_text("synthetic")
+            (root / "docker-compose.nonroot.yml").write_text("synthetic")
+            self.assertEqual({p.as_posix() for p in private_site_paths(root)},
+                             {"scratch", "scratch/sentinel", "docker-compose.nonroot.yml"})
+
     def test_nested_private_content_is_rejected(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

@@ -18,7 +18,6 @@ import threading
 import uuid
 
 from image_inputs import ROOT, recipe_files, build_key
-from image_metadata import parse_installed
 
 
 FIXTURE = ROOT / 'tools/apk_refresh_fixture'
@@ -39,22 +38,31 @@ def verify_fixture():
 
 
 def transform(recipe, url):
-    """Only isolated context: install v1 before keyed RUN; never add it inside that RUN."""
-    if recipe.count(' && apk upgrade --no-cache') != 2 or recipe.count('sh /tmp/capture_apk_metadata.sh') != 2:
+    """Run both production APK stages in a fixture context without compiling TDLib."""
+    build, separator, _ = recipe.partition('\nWORKDIR /usr/src/telegram-bot-api')
+    runtime_start = '\nFROM ${ALPINE_IMAGE} AS runtime-base\n'
+    runtime_end = '\nCOPY --from=source /usr/share/tg-selfhost-botapi/build-packages.txt '
+    _, runtime_marker, runtime_tail = recipe.partition(runtime_start)
+    runtime, end_marker, _ = runtime_tail.partition(runtime_end)
+    if not all((separator, runtime_marker, end_marker)):
+        raise ValueError('Production dependency stage boundaries changed')
+    if (build.count(' && apk upgrade --no-cache') != 1 or runtime.count(' && apk upgrade --no-cache') != 1
+            or 'build-packages.txt' not in build or 'runtime-packages.txt' not in runtime):
         raise ValueError('Production installation structure changed')
-    result = recipe
-    for stage in ('build-deps', 'runtime-deps'):
-        marker = ' AS ' + stage + '\nARG APK_REFRESH_ID'
-        if result.count(marker) != 1:
-            raise ValueError('Missing exact production deps stage')
-        before = (' AS ' + stage + '\n'
-                  'COPY fixture-key.pub /etc/apk/keys/issue23.rsa.pub\n'
-                  f'RUN printf \'%s\\n\' \'{url}\' >> /etc/apk/repositories && apk add --no-cache issue23-fixture\n'
-                  'ARG APK_REFRESH_ID')
-        result = result.replace(marker, before)
+
+    # Force installation of v1 before the production RUN. A warm cache of this
+    # step retains v1 after publishing v2, so only the real upgrade can get v2.
+    seed = ('COPY fixture-key.pub /etc/apk/keys/issue23.rsa.pub\n'
+            f'RUN printf \'%s\\n\' \'{url}\' >> /etc/apk/repositories && apk add --no-cache issue23-fixture\n')
+    marker = '\nARG APK_REFRESH_ID='
+    if build.count(marker) != 1 or runtime.count(marker) != 1:
+        raise ValueError('Missing exact production refresh argument')
+    build = build.replace(' AS source\n', ' AS build-deps\n', 1).replace(marker, '\n' + seed + marker.lstrip(), 1)
+    runtime = runtime.replace(marker, '\n' + seed + marker.lstrip(), 1)
     build_consumer = '''
 COPY fixture-consumer.c /tmp/issue23.c
-RUN cc /tmp/issue23.c -lissue23 -o /tmp/issue23-dynamic \\
+RUN mkdir -p /usr/share/tg-selfhost-botapi/build \\
+ && cc /tmp/issue23.c -lissue23 -o /tmp/issue23-dynamic \\
  && cc -static /tmp/issue23.c /usr/lib/libissue23.a -Wl,-Map=/tmp/issue23.map -o /tmp/issue23-static \\
  && /tmp/issue23-dynamic > /usr/share/tg-selfhost-botapi/build/fixture-dynamic \\
  && /tmp/issue23-static > /usr/share/tg-selfhost-botapi/build/fixture-static \\
@@ -64,12 +72,11 @@ RUN cc /tmp/issue23.c -lissue23 -o /tmp/issue23-dynamic \\
 '''
     runtime_consumer = '''
 COPY --from=build-deps /tmp/issue23-dynamic /tmp/issue23-dynamic
-RUN /tmp/issue23-dynamic > /usr/share/tg-selfhost-botapi/runtime/fixture-dynamic \\
+RUN mkdir -p /usr/share/tg-selfhost-botapi/runtime \\
+ && /tmp/issue23-dynamic > /usr/share/tg-selfhost-botapi/runtime/fixture-dynamic \\
  && sha256sum /usr/lib/libissue23.so.1 > /usr/share/tg-selfhost-botapi/runtime/fixture-hashes
 '''
-    result = result.replace('\nFROM build-deps AS source', build_consumer + '\nFROM build-deps AS source')
-    result = result.replace('\nFROM runtime-deps AS runtime', runtime_consumer + '\nFROM runtime-deps AS runtime')
-    return result
+    return build + build_consumer + '\nFROM ${ALPINE_IMAGE} AS runtime-deps\n' + runtime + runtime_consumer
 
 
 
@@ -80,16 +87,15 @@ def remove_refresh_consumption(recipe, stage, frozen):
     if end < 0:
         end = len(recipe)
     section = recipe[start:end]
-    if 'ARG APK_REFRESH_ID\n' not in section or '$APK_REFRESH_ID' not in section:
+    if '\nARG APK_REFRESH_ID=' not in section or '$APK_REFRESH_ID' not in section:
         raise ValueError('Cannot construct refresh negative control')
-    section = section.replace('ARG APK_REFRESH_ID\n', '')
-    section = section.replace('${APK_REFRESH_ID:?Run tools/image_inputs.py --build-env-out .env.build first}', frozen)
-    section = section.replace('$APK_REFRESH_ID', frozen)
+    section = re.sub(r'^ARG APK_REFRESH_ID=.*\n', '', section, flags=re.M)
+    section = section.replace('${APK_REFRESH_ID}', frozen).replace('$APK_REFRESH_ID', frozen)
     return recipe[:start] + section + recipe[end:]
 
 
 def installation_cached(log, stage):
-    identifiers = re.findall(r'^#(\d+) \[' + re.escape(stage) + r' \d+/\d+\] RUN .*capture_apk_metadata\.sh', log, re.M)
+    identifiers = re.findall(r'^#(\d+) \[' + re.escape(stage) + r' \d+/\d+\] RUN .*apk upgrade --no-cache', log, re.M)
     if len(set(identifiers)) != 1:
         raise ValueError('Installation RUN cannot be identified in BuildKit plain log: ' + stage)
     number = identifiers[0]
@@ -155,6 +161,14 @@ def extract(image, directory):
         command(['docker', 'rm', '-f', container])
 
 
+def fixture_version(evidence, stage):
+    inventory = (evidence / (stage + '-packages.txt')).read_text()
+    versions = re.findall(r'^issue23-fixture-(\d+-r\d+)$', inventory, re.M)
+    if len(versions) != 1:
+        raise ValueError('Fixture version missing or ambiguous in the production inventory')
+    return versions[0]
+
+
 def integration(inputs, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     manifest = verify_fixture()
@@ -183,17 +197,8 @@ def integration(inputs, output):
                      '-v', str(packaging) + ':/work',
                      inputs['alpine_image'], 'sh', '/work/source/package.sh'], output.parent / 'fixture-packaging.log')
             shutil.copytree(packaging / 'repo-v1', served / 'current')
-            for name in ('tools/capture_apk_metadata.sh', 'tools/capture_link_metadata.py'):
-                destination = context / name
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(ROOT / name, destination)
             shutil.copy2(packaging / 'issue23.rsa.pub', context / 'fixture-key.pub')
             shutil.copy2(FIXTURE / 'consumer.c', context / 'fixture-consumer.c')
-            # Source/entrypoint stages are not built, but keep exact recipe context files available.
-            for name in ('docker-entrypoint.sh', 'patches/webhook-user-agent.patch'):
-                destination = context / name
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(ROOT / name, destination)
             url = 'http://host.docker.internal:' + str(server.server_port) + '/current'
             transformed = transform(recipe, url)
             (context / 'Dockerfile').write_text(transformed, encoding='utf-8', newline='\n')
@@ -207,9 +212,9 @@ def integration(inputs, output):
                      '--driver-opt', 'memory=3g', '--driver-opt', 'cpu-period=100000', '--driver-opt', 'cpu-quota=200000',
                      '--buildkitd-config', str(config), '--bootstrap'], output.parent / 'fixture-builder.log')
             host_mapping = 'host.docker.internal:' + builder_gateway(namespace)
-            previous_cache = {}
-            next_identity = {**identity, 'generation': identity['generation'] + 1}
-            next_identity['apk_refresh_id'] = f"v{identity['policy_version']}-{identity['apk_refresh_window']}-g{next_identity['generation']}"
+            generation = identity['apk_refresh_generation'] + 1
+            next_identity = {**identity, 'apk_refresh_generation': generation}
+            next_identity['apk_refresh_id'] = f"v{identity['apk_policy_version']}-{identity['apk_refresh_window']}-g{generation}"
             if build_key(next_identity, files) == inputs['build_key']:
                 raise ValueError('Refresh did not change build key')
             for phase, refresh, expected, cached in [('A', inputs['apk_refresh_id'], '1', False),
@@ -225,28 +230,21 @@ def integration(inputs, output):
                 for target, stage in [('build-deps', 'build'), ('runtime-deps', 'runtime')]:
                     tag = namespace + ':' + phase.lower() + '-' + target
                     images.append(tag)
-                    cache = temp / (phase + '-' + target + '-cache')
                     args = ['docker', 'buildx', 'build', '--builder', namespace, '--progress', 'plain', '--load',
                             '--platform', inputs['platform'], '--add-host', host_mapping,
-                            '--target', target, '--tag', tag, '--cache-to', 'type=local,dest=' + str(cache) + ',mode=max',
+                            '--target', target, '--tag', tag,
                             '--build-arg', 'ALPINE_IMAGE=' + inputs['alpine_image'],
-                            '--build-arg', 'BOT_API_REVISION=' + inputs['bot_api_revision'], '--build-arg', 'APK_REFRESH_ID=' + refresh]
-                    if target in previous_cache:
-                        args += ['--cache-from', 'type=local,src=' + str(previous_cache[target])]
-                    args.append(str(context))
+                            '--build-arg', 'BOT_API_REVISION=' + inputs['bot_api_revision'],
+                            '--build-arg', 'APK_REFRESH_ID=' + refresh, str(context)]
                     log_path = output.parent / (phase + '-' + target + '.log')
                     log = command(args, log_path, timeout=1200)
-                    previous_cache[target] = cache
                     if installation_cached(log, target) != cached:
                         raise ValueError('Unexpected installation cache state: ' + phase + '/' + target)
                     evidence = output.parent / (phase + '-' + target)
                     evidence.mkdir()
                     extract(tag, evidence)
-                    inventory = parse_installed((evidence / stage / 'installed').read_text())
-                    if (evidence / stage / 'refresh-id').read_text().strip() != refresh:
-                        raise ValueError('Inventory is from a different refresh')
-                    fixture = next(p for p in inventory if p['name'] == 'issue23-fixture')
-                    if fixture['version'] != expected + '-r0':
+                    version = fixture_version(evidence, stage)
+                    if version != expected + '-r0':
                         raise ValueError('Fixture upgrade did not reach production installation layer')
                     if (evidence / stage / 'fixture-dynamic').read_text().strip() != expected:
                         raise ValueError('Dynamic consumer uses old library')
@@ -256,7 +254,7 @@ def integration(inputs, output):
                         if ('libissue23.so.1' not in (evidence / stage / 'fixture-needed').read_text()
                                 or 'libissue23.a' not in (evidence / stage / 'fixture-link-map').read_text()):
                             raise ValueError('Fixture linkage effect is not established')
-                    records.append({'phase': phase, 'target': target, 'refresh_id': refresh, 'version': fixture['version'],
+                    records.append({'phase': phase, 'target': target, 'refresh_id': refresh, 'version': version,
                                     'cached': cached, 'hashes': (evidence / stage / 'fixture-hashes').read_text()})
             negative_controls = []
             for target in ('build-deps', 'runtime-deps'):
@@ -289,8 +287,7 @@ def integration(inputs, output):
                     directory.mkdir()
                     extract(tag, directory)
                     kind = 'build' if stage == 'build-deps' else 'runtime'
-                    inventory = parse_installed((directory / kind / 'installed').read_text())
-                    version = next(p['version'] for p in inventory if p['name'] == 'issue23-fixture')
+                    version = fixture_version(directory, kind)
                     versions.append(version)
                     if (directory / kind / 'fixture-dynamic').read_text().strip() != '1':
                         raise ValueError('Negative control did not retain the old dynamic input')

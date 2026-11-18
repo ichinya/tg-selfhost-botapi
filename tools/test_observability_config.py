@@ -6,7 +6,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ConfigTests(unittest.TestCase):
     def test_observer_has_only_dedicated_inputs(self):
-        text = (ROOT/'docker-compose.yml').read_text()
+        text = (ROOT/'docker-compose.observability.yml').read_text()
+        base = (ROOT/'docker-compose.yml').read_text()
+        self.assertNotIn('  observer:', base)
+        self.assertNotIn('18081:81', base)
         section = text.split('  observer:')[1].split('  gateway:')[0]
         self.assertIn('network_mode: service:botapi', section)
         for bad in ['docker.sock', './data:', '/var/lib/telegram-bot-api', 'ports:', 'privileged:', 'pid:']:
@@ -16,6 +19,6 @@ class ConfigTests(unittest.TestCase):
 
     def test_build_context_is_allowlisted(self):
         text = (ROOT/'.dockerignore').read_text()
-        self.assertTrue(text.startswith(('*\n', '**\n')))
+        self.assertTrue(text.startswith('*\n'))
         self.assertIn('!tools/botapi_healthcheck.sh', text)
         self.assertNotIn('!tools/**', text)

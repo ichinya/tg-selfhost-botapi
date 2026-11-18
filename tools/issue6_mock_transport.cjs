@@ -1,7 +1,18 @@
 'use strict';
-// Return API refusals before the fixture applies any remote effect.
+// Wrap the existing network-isolated page fixture with a deterministic API refusal.
 const {page} = require('./issue10_ui_harness.cjs');
 function refusingPage(method, code, retryAfter, options = {}) {
-  return page({...options, refusal:{method, code, retryAfter}});
+  const p = page(options);
+  p.run(`{
+    const originalFetch = fetch;
+    fetch = async (url, request) => {
+      const response = await originalFetch(url, request);
+      if (new URL(url).pathname.endsWith('/' + ${JSON.stringify(method)})) {
+        return {ok:false, status:${code}, text:async () => JSON.stringify({ok:false,error_code:${code},parameters:{retry_after:${JSON.stringify(retryAfter)}}})};
+      }
+      return response;
+    };
+  }`);
+  return p;
 }
 module.exports = {page, refusingPage};

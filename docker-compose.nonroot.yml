@@ -1,0 +1,14 @@
+services:
+  botapi:
+    user: "${BOTAPI_UID:?Set BOTAPI_UID}:${BOTAPI_GID:?Set BOTAPI_GID}"
+    volumes:
+      - type: bind
+        source: ${BOTAPI_STATE_SOURCE:?Set BOTAPI_STATE_SOURCE}
+        target: /var/lib/telegram-bot-api
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${BOTAPI_TEMP_SOURCE:?Set BOTAPI_TEMP_SOURCE}
+        target: /tmp/telegram-bot-api
+        bind:
+          create_host_path: false

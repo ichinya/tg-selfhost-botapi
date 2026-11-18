@@ -6,10 +6,11 @@ from urllib.parse import unquote, urlsplit
 
 
 BASE = "/tg-selfhost-botapi"
-PRIVATE_CONTENT = ("Dockerfile", "Dockerfile.downloads", "nginx.conf", "docker-entrypoint.sh",
+PRIVATE_CONTENT = ("Dockerfile", "Dockerfile.downloads", "nginx.conf", "nginx.observability.conf",
+                   "docker-compose.observability.yml", "docker-compose.observability.build.yml", "docker-entrypoint.sh",
                    "docker-compose.yml", "docker-compose.build.yml", "docker-compose.files.yml",
                    "docker-compose.downloads.yml", "migrate_off_to_self.sh", "tools", "data",
-                   "examples", "media", "secrets", "files", "logs", ".observability", ".issue-flow", ".stats-source")
+                   "examples", "media", "secrets", "files", "logs", ".observability", ".issue-flow", ".stats-source", ".safety-work", ".migration-provider")
 
 
 def check_private_content(root):
@@ -22,9 +23,9 @@ def private_site_paths(root, sentinels=()):
     root = Path(root)
     for path in root.rglob("*"):
         relative = path.relative_to(root)
-        if any(part in (".migration-state", ".migration-private", "files", "secrets", "examples", "logs", ".issue-flow") for part in relative.parts) or (
+        if any(part in (".safety-work", ".migration-provider", ".migration-state", ".migration-private", "files", "secrets", "examples", "data", "scratch", "media", "logs", ".issue-flow") for part in relative.parts) or (
             path.name == ".env" or path.name.startswith(".env.") and path.name != ".env.example"
-        ) or path.name in ("binding.key", "migration-helper.env", "Dockerfile.downloads", "docker-compose.downloads.yml", "docker-compose.secrets.yml", "nginx-main.conf") or (
+        ) or path.name in ("binding.key", "migration-helper.env", "Dockerfile.downloads", "docker-compose.downloads.yml", "docker-compose.nonroot.yml", "docker-compose.files.yml", "docker-compose.secrets.yml", "nginx-main.conf", "nginx.observability.conf", "docker-compose.observability.yml", "docker-compose.observability.build.yml") or (
             path.name.startswith("downloads.config.")
         ):
             yield relative

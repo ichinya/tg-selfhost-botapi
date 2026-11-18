@@ -5,6 +5,97 @@ translation: /docs/en/maintenance.html
 
 # Обслуживание
 
+## Хранение загрузок gateway и применение изменений
+
+Project-scoped volume `gateway_client_temp` содержит буферизованные тела запросов,
+отделён от состояния Bot API и может содержать конфиденциальные загрузки. Проверяйте
+место и inode на каждой файловой системе, включая диск Docker Desktop, и право
+записи worker nginx. Расчёт параллельных запросов приведён в
+[настройках](configuration.md); volume не резервирует ёмкость. Резервную копию
+состояния Bot API ведите отдельно от spool.
+
+До применения проверьте модель Compose и конфигурацию nginx. Для нового mount
+нужно пересоздать gateway; активные загрузки прервутся:
+
+```sh
+docker compose config --quiet
+docker compose run --rm --no-deps gateway nginx -t
+docker compose up -d --no-deps --force-recreate gateway
+docker compose exec gateway nginx -T
+```
+
+Проверьте загруженные настройки приватно и работоспособность синтетическим запросом.
+Для отката восстановите согласованную предыдущую пару файлов nginx и Compose,
+проверьте и снова пересоздайте gateway; сохраните данные Bot API. Не используйте
+`down -v` на рабочем стеке. Очищайте только точно выбранный spool volume при
+отсутствии запросов; не удаляйте вручную файлы активных тел.
+
+HTTP 411 означает отказ публичного listener для transfer encoding; 429 — превышение
+частоты или числа одновременных загрузок. Перед изменением лимитов проверьте
+адреса клиентов, видимые nginx, бюджет spool и deadlines ingress. Лимит слотов
+сам по себе не гарантирует справедливость или полное время загрузки.
+HTTP 413 может указывать на лимит тела или ingress, 408 — на таймаут тела клиента,
+504 — на таймаут upstream. Проверяйте также ограничения клиента и внешнего proxy,
+свободное место и inode. При `error_log crit` обычные ошибки nginx не записываются;
+перед передачей фильтруйте диагностические данные.
+
+
+## Синтетическая приёмка загрузок gateway
+
+Запускайте из корня репозитория с Python 3.11+, Docker Compose, Linux containers,
+доступом к registry и writable temp. Credentials Telegram не используются.
+
+```sh
+python3 tools/check_gateway_uploads.py --profile quick --revision candidate --report /tmp/issue4-quick.json
+python3 tools/check_gateway_uploads.py --profile full --revision candidate --report /tmp/issue4-full.json
+python3 tools/check_gateway_uploads.py --profile slow --revision candidate --report /tmp/issue4-slow.json
+python3 tools/check_gateway_uploads.py --profile storage --revision candidate --report /tmp/issue4-storage.json
+timeout 2700 python3 tools/check_gateway_uploads.py --profile all --revision candidate --report /tmp/issue4-all.json
+```
+
+Замените `candidate` на SHA проверяемого коммита. `quick` (alias `fast`) проверяет
+файлы 2/4 MiB и малые границы 8 MiB; реальный предел 2048 MiB этим не доказан.
+`full` передаёт настоящие тела 2048 MiB ±1 байт обоими способами framing и файл
+2000 MiB. Резервируйте минимум 10 GiB на файловых системах входов и Docker;
+суммарная запись последовательных сценариев может быть намного больше. Оба
+framing в этих transport-профилях используют изолированный доверенный порт 82;
+публичный порт 80 отклоняет chunked. WSL gateway unit tests также проверяют
+публичный admission на локальном nginx, если он установлен. `slow`
+проверяет реальные паузы больше 60 секунд и отдельные controls 2 секунды.
+`storage` — права worker, linked/open spool, возврат блоков, disconnect/crash
+recovery и ENOSPC на маленькой одноразовой файловой системе. `all` требует все профили.
+
+Для полного POSIX discovery используйте WSL/Linux или CI. Бюджеты unit и integration
+45 минут независимы. Синтетические отчёты относятся только к записанным revision,
+image IDs/digests и hashes конфигурации; храните их вне webroot. NOTRUN, отказ
+сценария или очистки оставляют приёмку открытой. При отсутствии локальных условий
+отмечайте `verification deferred to CI/gates`. Mock проверяет transport gateway;
+приёмка реальных Bot API, Telegram и VPS остаётся отдельной.
+Экспорт чистого candidate, scoped unit tests, image overrides и границы аварийной
+очистки описаны в [инструкции участника](../../CONTRIBUTING.md).
+
+## Смена identity сервера
+
+Перед сменой ID остановите writer и автоматические перезапуски. Создайте
+согласованную резервную копию с числовыми владельцами и правами. Проверьте
+отдельные абсолютные пути, символические ссылки и чужие mounts; подготовьте
+offline-копию под новые UID/GID и проверьте вложенные binlog и session, а не
+только корневой каталог. Проведите storage smoke и запустите одного writer.
+Для rollback сохраните старую копию с прежними ID и совместимым образом. Не
+меняйте рекурсивно права работающей или общей базы. Старые кешированные пути
+автоматически не переносятся.
+
+Подготовьте state и HTTP temp под фактическую identity сервера. Bind mount,
+именованный том и tmpfs имеют собственные владельца и права; права слоя образа
+не исправляют mount. Новые файлы получают effective UID; без наследования файловой
+системы GID берётся из основной группы, а setgid или ACL могут его изменить.
+Umask `0027` ограничивает новые права, но не добавляет групповое чтение и не
+меняет существующие файлы. Досье миграции остаются доступными только владельцу.
+При прямом non-root запуске Docker сохраняет дополнительные группы. Для другого
+UID используйте ограниченное RO-поддерево media из инструкции установки.
+
+## Раздельное хранилище
+
 Перед первым включением split storage создайте новый пустой host-каталог командой
 `sudo install -d -m 0770 -o 101 -g 101 ./media`: Compose отказывает при отсутствии
 root. Не применяйте эту команду рекурсивно к существующему cache.
@@ -69,24 +160,28 @@ combinations, state isolation, local/TLS/security integration и docs checks.
 Workflow проверяет официальный исходник tdlib и digest Alpine 3.22 каждую ночь
 около **04:37 Asia/Yekaterinburg** (23:37 UTC), при изменении основной ветки и
 вручную. GitHub может задерживать запуск по расписанию.
+Этот workflow также выполняет обязательные проверки безопасности мигратора;
+зависимости описаны в [Contributing](../../CONTRIBUTING.md).
 
-Ключ сборки учитывает ревизии/digest, рецепт, entrypoint, патч, dependency policy,
-инструменты сбора/валидации и проверки образа. Существующая сборка скачивается по
-digest и снова проверяется перед reuse. Неоднозначный ответ registry останавливает
-запуск; только подтверждённое отсутствие разрешает новую компиляцию.
+Ключ сборки учитывает ревизии/digest, рецепт, entrypoint, патч и проверки образа.
+Если соответствующий образ уже опубликован, компиляция пропускается; candidate
+скачивается по digest и проходит проверку заново. Acceptance scripts, fixtures,
+оба storage override и их тесты включены в ключ сборки.
+Если проверка registry не подтвердила наличие образа, выполняется новая сборка.
 
 Для нового образа workflow:
 
 1. Проверяет применимость патча User-Agent к выбранной официальной ревизии.
 2. Компилирует весь сервер.
 3. Выполняет `--version`, проверяет строку заголовка в бинарнике и синтаксис entrypoint.
-4. Проверяет package/compile evidence и warm-cache gate, сохраняет артефакты,
-   затем публикует и сверяет уникальный candidate digest до назначения
-   `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` и продвижения `latest`.
-4. Собирает downloads, проверяет точную пару через synthetic local/TLS/security
+4. Проверяет выбранную ревизию исходников и TDLib submodule: download modes
+   `0640/0750`, внутренний media temp и rename.
+5. Проверяет точный image ID матрицей non-root storage и существующим migration
+   volume gate.
+6. Собирает downloads, проверяет точную пару через synthetic local/TLS/security
    matrix и actual startup без сети, сохраняет IDs/source hashes и проверяет Pages.
-5. Публикует проверенные Bot API/downloads `build-<key>` и продвигает их `latest`
-   без пересборки.
+7. Публикует проверенные Bot API/downloads `build-<key>` и продвигает их `latest`
+   без пересборки. Повторно используемые сборки также проходят все проверки.
 
 Ошибка проверки оставляет прежний опубликованный `latest`. Из PR публикации нет.
 Наличие строки в бинарнике не заменяет проверку доставки реального webhook.
@@ -95,6 +190,36 @@ digest и снова проверяется перед reuse. Неоднозна
 использует `GITHUB_TOKEN` с `packages: write`. После первого выпуска настройте
 публичность пакета либо авторизацию клиентов.
 
+## Квалификация non-root candidate
+
+Для локального rootful Linux Docker Engine с POSIX filesystem, Python 3.11+
+и актуальным Compose v2 запустите проверки явно собранного candidate:
+
+```sh
+python3 tools/check_nonroot_compose.py --deadline 120
+python3 tools/check_nonroot.py --image <candidate> --deadline 1200
+python3 tools/check_migration_volumes.py --require-docker --image <candidate> --receipt /tmp/migration-volume-gate.json
+```
+
+Runner использует случайные ресурсы с labels, изоляцию сети, synthetic credentials,
+ограниченные сроки вызовов и проверку владельца перед очисткой. Матрица проверяет
+root bootstrap в `101:101`, явные `101:101`, `1000:1000`, `1000:2000` без passwd
+entry, дополнительные группы, PID 1 и token-free HTTP, migration evidence, новые
+и подготовленные bind/named volumes, restart/recreate, сохранность canary, denied
+и read-only state/temp, чужого владельца, групповой доступ и недоступный binlog,
+который сервер действительно открывает. Compose проверяется по production files:
+отсутствующие inputs, aliases backing и `base+files` без non-root слоя отклоняются.
+
+Media fixture проверяет inode/GID/modes при внутреннем temp-to-final rename,
+ограниченный RO-доступ другого UID, запрет POSIX-записи отдельно от RO mount и
+отказ чужой группе. Download temp на другом mount отклоняется. Synthetic fixture
+подтверждает рецепт прав; source assertions сверяются с выбранной ревизией в CI.
+Эти проверки не подтверждают реальную загрузку Telegram. Unit-тесты не запускают
+Docker; real-image acceptance, CI и production — отдельные наблюдения. Недоступные
+проверки — NOTRUN: verification deferred to CI/gates. Для Docker Desktop,
+rootless/user namespaces и сетевых filesystem нужна отдельная квалификация.
+Не запускайте harness с production mounts.
+
 ## Обновление установки
 
 ### Включение split storage и откат
@@ -102,9 +227,10 @@ digest и снова проверяется перед reuse. Неоднозна
 1. Остановите клиентов, downloads, writers Bot API и supervisors, которые их
    перезапускают. Согласованно сохраните private state, identity образа, Compose/env,
    secret files и отдельно media для уже разделённой установки.
-2. В окно обслуживания включите `docker-compose.files.yml` с проверенным образом
+2. В окно обслуживания включите non-root и `docker-compose.files.yml` с проверенным образом
    и конфигурацией. Не копируйте state/binlogs в media и не исправляйте пути TDLib
-   DB вручную. По умолчанию переход создаёт новый media cache.
+   DB вручную. По умолчанию переход создаёт новый media cache. Подготовьте media source
+   для настроенных UID/GID по инструкции установки; Compose требует существующий каталог.
 3. Повторите getFile по сохранённым file_id. Перед доступом consumers проверьте
    новую media subtree, bytes/digest, ownership и mapping. Если upstream вернул
    старый private path, оставьте отказ и разберитесь в причине; доступ к state
@@ -115,7 +241,7 @@ digest и снова проверяется перед reuse. Неоднозна
    отката образа недостаточно. При self-to-self снимки media и state согласуются.
 
 Не меняйте права cache рекурсивно и не открывайте его всем. Проверьте реальные
-TDLib modes и UID/GID 101:101; reader использует ту же identity либо отдельно
+TDLib modes и настроенные UID/GID writer; reader использует ту же identity либо отдельно
 проверенную read/traverse ACL. Каждому reader/handler — одна RO subtree, без parent,
 соседних ботов, private temp/log/secrets и nested mounts. Local API и writer
 доверенные; взаимно недоверенным операторам нужны отдельные instances/storage.
@@ -126,31 +252,40 @@ TDLib modes и UID/GID 101:101; reader использует ту же identity �
 не обещаются. Не вставляйте token-bearing paths в отчёты.
 
 Публикация в registry не перезапускает VPS. Выберите проверенный тег/digest через
-`BOTAPI_IMAGE` и соответствующий `OBSERVER_IMAGE` в `.env`, затем:
+`BOTAPI_IMAGE` ? ??????????????? `OBSERVER_IMAGE` в `.env`. Каждая команда обновления должна использовать ровно тот
+же набор файлов Compose в том же порядке, что и установка. Выберите `COMPOSE_FILES`:
 
 ```sh
-docker compose stop observer botapi
-# Здесь сделайте согласованную копию ./data и приватной конфигурации.
-docker compose pull botapi observer gateway
-docker compose up -d --force-recreate botapi observer gateway
-docker compose logs --tail=100 botapi
+# base
+COMPOSE_FILES='-f docker-compose.yml'
+# base + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.build.yml'
+# base + nonroot
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml'
+# base + nonroot + files
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml'
+# base + nonroot + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.build.yml'
+# base + nonroot + files + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml -f docker-compose.build.yml'
 ```
 
-Для локальной сборки последовательно используйте build override:
+Выберите только одну строку выше. Без слоёв nonroot/files identity сервера
+вернётся к `101:101`, состояние подключится из `./data`, а media mount исчезнет.
+Для установки из registry:
 
 ```sh
-python3 tools/image_inputs.py --json-out .build-inputs.json --build-env-out .env.build
-docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml stop botapi
-# До замены бинарника сохраните ./data и приватную конфигурацию.
-docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml build botapi
-docker compose --env-file .env --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
-docker compose -f docker-compose.yml -f docker-compose.build.yml stop observer botapi
-# До замены бинарника сохраните ./data и приватную конфигурацию.
-docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi observer
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --force-recreate botapi observer gateway
+docker compose $COMPOSE_FILES stop observer botapi
+# Сделайте согласованную копию фактического источника состояния и приватной конфигурации.
+docker compose $COMPOSE_FILES pull botapi observer gateway
+docker compose $COMPOSE_FILES up -d --force-recreate botapi observer gateway
+docker compose $COMPOSE_FILES logs --tail=100 botapi
 ```
 
-Сохраните `./data`, владельца `101:101`, endpoint и local mode.
+Для локальной сборки замените `pull` на `build` с теми же выбранными файлами.
+Сохраните фактический источник состояния (`$BOTAPI_STATE_SOURCE` для nonroot,
+`./data` для базовой модели), владельца выбранной identity сервера (по умолчанию `101:101`),
+endpoint и local mode.
 Не запускайте два процесса Bot API с одним каталогом данных. Для возврата старого
 образа может понадобиться совместимая резервная копия состояния: одного отката
 бинарника недостаточно для гарантии.
@@ -237,7 +372,7 @@ fixture перед отдельным synthetic Docker gate.
 
 ```sh
 python3 tools/doctor.py -f docker-compose.yml -f docker-compose.build.yml \
-  --env-file /private/installation.env --env-file /private/stack/.env.build --project-directory /private/stack \
+  --env-file /private/installation.env --project-directory /private/stack \
   -p installation --scenario official-to-self \
   --migration-input /private/decisions.json --format json
 ```
@@ -331,102 +466,6 @@ Image/default upstream logger qualification, multipart через shipped nginx,
 удалять lock ради повтора неизвестного запроса. Незавершённый probe без токена
 и сохранившегося lock не блокирует запуск; незавершённые запросы с токеном блокируют.
 
-
-### Идентичность обновления APK
-
-Resolver входных данных использует суточное UTC-окно обновления apk и поколение
-из `tools/apk_policy.json`. Для срочного обновления в те же сутки увеличьте
-поколение коммитом; уменьшать его нельзя. Это идентификатор сборки, а не снимок
-пакетов и не доказательство воспроизводимости. Окно меняется в 00:00 UTC и
-фиксируется один раз; переход через полночь во время компиляции не меняет inputs.
-
-### Стадии установки APK
-
-Оба независимых target `build-deps` и `runtime-deps` требуют `APK_REFRESH_ID`
-перед installation RUN. Сначала обновляются все установленные пакеты, затем
-устанавливаются зависимости из stable-ветки Alpine 3.22 с проверкой подписей.
-`apk --no-cache` не отключает Docker layer cache: refresh-аргумент инвалидирует
-обе установки. Исходная база пакетов, world, repositories, версия apk,
-архитектура, версия Alpine и refresh ID сохраняются в final image под
-`/usr/share/tg-selfhost-botapi/build/` и `runtime/`.
-
-
-### Доказательства состава бинарника
-
-Build evidence сохраняет фактические source/submodule revisions, версии compiler,
-CMake/linker и Release-настройки, команду и map финальной линковки, SHA256 до strip
-и установленного бинарника после strip, ELF NEEDED, hashes и package ownership
-static inputs и разрешённых dynamic libraries. Python/binutils нужны только builder.
-Извлечение и проверка без credentials:
-`python3 tools/image_metadata.py --image IMAGE --inputs inputs.json --output receipt.json`.
-Отсутствующие evidence, другой бинарник, refresh mismatch или неизвестный owner
-использованного архива блокируют qualification. Внешний receipt связывает inventories
-с config образа; внутренний compile record не включает собственный hash или digest.
-
-
-### Qualification и повторное использование кандидата
-
-CI разрешает один замороженный JSON-снимок. Ошибки авторизации/сети registry
-останавливают запуск; сборка выбирается только при подтверждённом отсутствии
-manifest. Reuse получает image по digest и повторяет metadata validation и smoke
-(`--version`, строка заголовка, shell syntax entrypoint). PR собирается локально
-без registry writes. Unit, Compose, metadata, smoke и отдельная cache regression
-должны иметь PASS до публикации. Build tag нельзя заменить другим содержимым.
-Уникальный candidate публикуется без повторной компиляции; проверяются registry
-config, загрузка артефактов и продвижение latest по digest с readback.
-Изменение default branch и более новый refresh latest блокируют старый rerun.
-Переход UTC-полуночи сохраняет замороженные inputs. Artifacts хранятся 30 дней,
-evidence внутри образа — весь срок хранения digest. Старые образы без evidence
-требуют нового окна/generation.
-
-
-### Подготовка каждой локальной пересборки
-
-Генерируйте `.env.build` и `.build-inputs.json` resolver-ом непосредственно перед
-каждой локальной сборкой; передавайте оба env-файла, как показано выше.
-`up --build` не обновляет файл. Для внеочередного обновления увеличьте `generation`
-в `tools/apk_policy.json`, закоммитьте и снова выполните resolver. Config/doctor
-не запускают сетевое разрешение inputs.
-
-
-### Подписанная regression с тёплым cache
-
-CI явно запускает `tools/check_apk_refresh.py` с frozen inputs; unit discovery
-никогда не вызывает Docker. Восстановленный runner использует изолированную
-копию Dockerfile (документированный fallback): production upgrade/add/capture RUN
-не меняются, перед refresh устанавливается подписанный synthetic v1 package.
-URL repository, source/base и bytes context фиксированы. A/A доказывает cache hit
-обеих установок; после появления v2 контроль со старым ID сохраняет v1, а новое
-generation обновляет обе ветки. Dynamic и пересобранный static consumer должны
-вернуть v2. Отдельные negative variants убирают refresh каждой установки и должны
-выявить устаревшие evidence. Собственный builder ограничен 2 CPU/3 GiB и удаляет
-только свои ресурсы. Cache purge/bypass не применяется. Logs, версии inventory,
-hashes и receipts доказывают synthetic regression, а не статус CVE или VPS.
-
-
-### Воспроизводимость и разбор scanner findings
-
-Mutable stable repositories могут измениться внутри одних UTC-суток. Build key
-обозначает выбранные inputs и refresh policy, registry digest — фактический образ.
-Совпадение ключа не гарантирует побайтовой воспроизводимости. Ошибка или задержка
-schedule откладывает обновление: исправление за 24 часа не гарантируется. Gateway
-`nginx:alpine` имеет независимую dependency policy; этот срез не подтверждает весь
-stack и не меняет совместимость состояния.
-
-Каждую находку scanner разбирайте по точному digest, package name/version/Alpine
-revision/architecture, advisory/backport status, фактической static/dynamic linkage,
-версии scanner и timestamp его базы. Фиксируйте affected, fixed, not-applicable
-или UNKNOWN со ссылкой на evidence. Одного runtime package scan недостаточно
-для исключения статически включённой уязвимости. Применимая подтверждённая находка
-требует update/rebuild и всех gates либо явно обоснованного исключения; неразобранная
-находка остаётся unresolved и блокирует promotion. Без scan статус NOTRUN;
-отсутствие вывода не считается clean scan. Универсальный scanner в #23 не вводится.
-
-При missing legacy evidence или коллизии build tag увеличьте generation и разрешите
-новый snapshot. Не перезаписывайте существующий build tag. UNKNOWN latest readback
-требует проверки registry; автоматический rollback не заявляется. Registry publication,
-synthetic regression, actual-image smoke и production — разные результаты.
-Dependency refresh не требует миграции бота или token-bearing вызовов.
 ## Схема операционного статуса v1
 
 Observer выдаёт независимые наблюдения `process`, `migration`, `webhook`, `queue`,
@@ -550,11 +589,11 @@ settings; наблюдайте UP, остановите Bot API и получи�
 `observer-build-<same-key>` либо точные digest. Сохраняйте project и Compose overrides:
 
 ```sh
-docker compose pull botapi observer gateway
-docker compose up -d --force-recreate botapi observer gateway
+docker compose -f docker-compose.yml -f docker-compose.observability.yml pull botapi observer gateway
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --force-recreate botapi observer gateway
 ```
 
-Для local builds используйте оба `-f docker-compose.yml -f docker-compose.build.yml`
+Для local builds используйте `docker-compose.yml`, `docker-compose.build.yml`, `docker-compose.observability.yml` и `docker-compose.observability.build.yml`
 при build/up. Пересоздавайте observer при смене владельца namespace и gateway для
 обновления routing. Rollback выбирает прежнюю совместимую пару и ту же процедуру;
 при необходимости нужна совместимая backup состояния. Обновление только botapi
@@ -643,3 +682,70 @@ native image. Image workflow повторно квалифицирует сущ�
 отдельные проверки. Недоступный локальный запуск: NOTRUN, verification deferred
 to CI/gates. Synthetic tests не развёртывают сервис и не используют реального
 Telegram-бота. Внешнее развёртывание требует отдельного разрешения.
+
+
+## Проверка регрессий shell-экспорта
+
+Матрица issue #8 запускается в Linux/WSL от обычного пользователя с Bash 4+,
+Python 3.11+, Node 24+, jq, curl и openssl:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_checkout.py
+python3 tools/check_migration_safety.py --require-posix
+```
+
+Suite использует синтетические `.invalid` значения, curl без сети и отдельный
+HTTP-сервер на loopback. Снимки остаются в приватных временных каталогах.
+Обязательный gate отклоняет skips и отсутствие runtime. Пропуски на Windows и
+локальные NOTRUN означают verification deferred to CI/gates. После merge
+отдельно проверьте прежний URL мигратора и совпадение байтов опубликованного
+файла; проверки ветки не подтверждают деплой или доставку реальному боту.
+
+### Аудит: установленный gateway
+Перед обновлением проверьте effective Compose model, mounts контейнера и опубликованные listeners. Gateway нужны только конфигурация и отдельный spool; state, media, secrets и Docker socket монтировать нельзя. Запустите `python3 tools/check_file_contract.py --state-isolation-only` с искусственными данными. Проверьте `/file`, encoded/traversal варианты и management paths через API listener; сравните ответы с sentinel-файлами. По умолчанию host bindings остаются loopback. Внешний доступ требует TLS и политики доступа к инстансу.
+При доказанном раскрытии сначала ограничьте доступ, отзовите затронутые credentials и сохраните обезличенные evidence приватно. Историческая опасная конфигурация сама по себе не доказывает утечку.
+
+### Новые приватные поверхности
+Provider keys, bootstrap helper, journal authority и raw receiver evidence хранятся вне checkout и web roots в приватных файлах оператора. Provider reports содержат только фиксированные коды причин, IDs/hashes и outcomes. Существующие issue17 exact-image gates обязательны для nginx/Bot API logs, image layers и rendered site. Добавленные canaries статического входа и full-profile export не заменяют runtime privacy acceptance.
+
+### Проверенные inputs и APK refresh
+Adoption: policy/validator PR #38 перенесены поверх recipe PR #44; проверенные source/base значения взяты из публичного candidate lock PR #42. Суточное UTC-окно и policy generation входят в build identity до registry lookup. Для срочного обновления повысьте generation. Все APK-стадии используют один APK_REFRESH_ID и обновляют inherited packages; inventories сохраняются внутри exact image. Downloads использует Debian base и отдельную identity без суточного APK-окна.
+В артефакте Actions `apk-refresh-qualification` фиксируется переход подписанного тестового APK с `1-r0` на `2-r0` при прежних исходниках, digest базового образа и тёплом кэше BuildKit. Проверка запускает команды установки из production Dockerfile для build и runtime, сверяет результат при неизменном refresh ID и проверяет динамическую и статическую линковку тестовой библиотеки. Для публикации требуются этот результат и проверка нативных образов.
+Конкурирующий single-architecture publisher PR #42 здесь superseded: он заменял бы PR #44 и конфликтует с native multiarch qualification. Единственной authority остаётся существующий publisher; selected_release сохраняется null. Изменения source/base snapshot требуют review и qualification; разрешение upstream master само по себе не выбирает deployment. OCI source version и wrapper revision различаются. Mutable mirrors не обещают побитовый rebuild.
+
+### Candidate native qualification
+Production sender harness PR #37 принят. Native jobs amd64 и arm64 собирают одинаковые reviewed source/patches и выполняют существующие exact-image privacy/storage/file/observer gates и настоящий production sender/ACK. Promotion использует только два успешных receipts одного workflow run с одинаковыми source, base и APK window. QEMU runtime acceptance не заявляется. В ABI allowlist openat2 добавлен arm64; поддержка остаётся неквалифицированной до native confinement matrix. Реальная доставка Telegram update полным image учитывается отдельно от synthetic sender и остаётся NOTRUN.
+
+После первой публикации релиза с аннотациями определите digest индекса Bot API, затем прочитайте ссылки на companion-образы из этого же индекса. Публикация проверяет все три подготовленных индекса перед переключением Bot API `latest`. Для совместимости `observer-latest` и downloads `latest` обновляются отдельно. Для развёртывания с observer или downloads используйте закреплённые ссылки ниже.
+
+```sh
+repo=ghcr.io/ichinya/tg-selfhost-botapi
+digest=$(docker buildx imagetools inspect "$repo:latest" --format '{{.Manifest.Digest}}') &&
+  index=$(docker buildx imagetools inspect --raw "$repo@$digest") &&
+  observer_ref=$(printf '%s' "$index" | jq -er '.annotations["io.tg-selfhost.release.observer"]') &&
+  downloads_ref=$(printf '%s' "$index" | jq -er '.annotations["io.tg-selfhost.release.downloads"]') &&
+  export BOTAPI_IMAGE="$repo@$digest" OBSERVER_IMAGE="$observer_ref" DOWNLOADS_IMAGE="$downloads_ref"
+```
+
+### Холодный backup, обновление и rollback
+Приняты cold-backup validator и shutdown primitives PR #42; вторая restore-система не создаётся. Gateway ждёт botapi service_healthy. Начальный shutdown budget — 120s; измерьте SIGTERM/flush на характерном synthetic state перед изменением.
+1. Остановите всех writers приложения. Выполните для выбранного инстанса `docker compose stop -t 120 botapi`; приватно сохраните Docker events/inspect: SIGTERM, exit 0, отсутствие SIGKILL/OOM.
+2. Пока writers остановлены, отдельно архивируйте dedicated state/media roots и приватную конфигурацию через `tar --numeric-owner -cpf`. Запишите один snapshot ID, image receipt/config hashes, SHA256 архивов, mapping и ownership. Копия работающей БД не является согласованным backup.
+3. Проверьте `python3 tools/check_issue12_restore.py --manifest /private/backup.json --archive-directory /private/archives`. Подготовьте пустые dedicated restore roots, проверьте пути/типы членов архива, затем восстановите numeric owners и permissions. Непроверенный архив в production roots распаковывать нельзя.
+4. Запустите exact saved image/overrides на изолированном restore-инстансе, проверьте token-free readiness, hashes/ownership и restart. Запишите отдельный runtime receipt.
+5. Обновляйте после репетиции. Совместимость downgrade не гарантируется: rollback использует соответствующий остановленный snapshot и приватную конфигурацию; новые DB files со старым state не смешиваются. Observer остаётся opt-in.
+
+### Doctor после перехода adapters
+Doctor остаётся token-free и не проверяет авторизацию бота или Telegram delivery. Report называет canonical Python Bash adapter и same-origin helper. Mount permissions, image identity и actual runtime evidence сохраняют FAILED/UNKNOWN; отсутствие Docker/kernel/provider evidence не даёт readiness PASS. Проверка custom binary port отделена от фиксированного Compose port 8081. Для runtime diagnostics используйте synthetic selected-stack fixture, без production bot.
+
+### Приёмка Kuma
+Включайте существующий observability overlay явно. Kuma опрашивает приватные token-free /health/live и /health/ready в разрешённой management-сети; отказ или устаревшие upstream/observer inputs должны давать неготовность. Live не означает ready или Telegram delivery. API listener запрещает management routes. Raw statistics и bot/user/chat identifiers не становятся публичными labels или status fields. После обновления повторяйте check_observability.py на exact Bot API/observer pair; отключённая статистика поддерживается и не означает отсутствие авторизации.
+
+### Актуальная документация adapters
+Разделы migration guide «Явный полный профиль webhook», «Восстановление и authority», «Bash-вход и legacy recovery», «Публичный URL мигратора» и «Ограниченные Compose checkpoints» описывают текущую Python authority. Прежние raw-curl diagnostics — исторические инструменты; они не возобновляют engine operation и не подтверждают миграцию.
+
+### Необязательная reviewed local build
+Из committed checkout один раз выполните `python3 tools/image_inputs.py --build-env /private/build.env`. Файл содержит только публичные build arguments, без API credentials. Затем используйте `docker compose --env-file .env --env-file /private/build.env -f docker-compose.yml -f docker-compose.build.yml up -d --build`. Соответствующие observability/downloads build overlays добавляются только при выборе этих компонентов; используйте тот же build.env. Без APK_REFRESH_ID build overlay отказывает до сборки, исключая незаметное сохранение старых APK layers. Обычная установка через pull по-прежнему требует только API_ID/API_HASH.
+
+Doctor проверяет actual image architecture, wrapper revision и APK-generation labels. Отсутствие metadata остаётся UNKNOWN; labels не доказывают native runtime, confinement или package freshness. Для старой установки дополнительные metadata checks носят advisory характер; наблюдаемая неподдерживаемая платформа блокирует готовность.

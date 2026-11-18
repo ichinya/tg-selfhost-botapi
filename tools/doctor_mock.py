@@ -91,7 +91,7 @@ class StackRunner:
                 alias = "location /file/ { alias /var/lib/telegram-bot-api/; }" if self.unsafe else ""
                 from pathlib import Path
                 main=(Path(__file__).resolve().parents[1]/'nginx-main.conf').read_text()
-                server="server { listen 80; " + alias + " location / { proxy_pass http://botapi:8081; } }"
+                server=(Path(__file__).resolve().parents[1]/'nginx.conf').read_text() + ("\nserver { " + alias + " }" if alias else "")
                 return 0, main.replace('include /etc/nginx/conf.d/*.conf;',server).encode()
             if any("DOCTOR_ARGV" in value for value in argv):
                 return 0, b"/usr/local/bin/telegram-bot-api\nUid:\t101\t101\t101\t101\nGid:\t101\t101\t101\t101\nGroups:\t101\n\nDOCTOR_ARGV\ntelegram-bot-api\0--dir=/var/lib/telegram-bot-api\0--temp-dir=/tmp/telegram-bot-api\0--http-port=8081\0--local\0"

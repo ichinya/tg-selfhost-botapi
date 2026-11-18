@@ -268,7 +268,7 @@
               ]
             },
             "helpers": {
-              "const": "not_certified"
+              "const": "runtime_acceptance_required"
             },
             "bash": {
               "type": "string"

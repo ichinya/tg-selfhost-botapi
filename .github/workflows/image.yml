@@ -2,6 +2,15 @@ name: Bot API image
 
 on:
   pull_request:
+    paths:
+      - '.github/workflows/image.yml'
+      - 'Dockerfile'
+      - 'image-inputs.lock.json'
+      - 'tools/apk_policy.json'
+      - 'tools/apk_refresh_fixture/**'
+      - 'tools/check_apk_refresh.py'
+      - 'tools/image_inputs.py'
+      - 'tools/test_apk_refresh.py'
   push:
     branches: [main]
   workflow_dispatch:
@@ -17,41 +26,89 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  image:
+  prepare:
     runs-on: ubuntu-24.04
+    outputs:
+      inputs_at: ${{ steps.clock.outputs.inputs_at }}
+    steps:
+      - name: Fix the input time for both architectures
+        id: clock
+        run: echo "inputs_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
+
+  apk-refresh:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BUILD_INPUTS_AT: ${{ needs.prepare.outputs.inputs_at }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Verify production APK stages with a warm BuildKit cache
+        run: |
+          python3 tools/image_inputs.py --as-of "$BUILD_INPUTS_AT" \
+            --snapshot "$RUNNER_TEMP/apk-inputs.json"
+          python3 tools/check_apk_refresh.py --inputs "$RUNNER_TEMP/apk-inputs.json" \
+            --output "$RUNNER_TEMP/apk-refresh/report.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apk-refresh-qualification
+          path: ${{ runner.temp }}/apk-refresh
+
+  image:
+    needs: prepare
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            host: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            host: aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      BUILD_PLATFORM: linux/${{ matrix.arch }}
+      BUILD_INPUTS_AT: ${{ needs.prepare.outputs.inputs_at }}
     timeout-minutes: 180
     permissions:
       contents: read
       packages: write
-    env:
-      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v6
+      - name: Require native host and daemon
+        run: |
+          test "$(uname -m)" = "${{ matrix.host }}"
+          test "$(docker info --format '{{.Architecture}}')" = "${{ matrix.host }}"
+      - uses: docker/setup-buildx-action@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-      - uses: docker/setup-buildx-action@v4
-      - name: Test tracked checkout
-        run: timeout 900 python3 -m unittest discover -s tools -p 'test_*.py' -v
-      - name: Check monotonic apk policy
-        run: python3 tools/apk_candidate.py policy
-      - name: Resolve one build snapshot
-        id: inputs
+          package-manager-cache: false
+      - name: Install migration test prerequisites
         run: |
-          mkdir -p evidence
-          python3 tools/image_inputs.py --json-out evidence/inputs.json --build-env-out .env.build >> "$GITHUB_OUTPUT"
+          sudo apt-get update
+          sudo apt-get install -y bash curl jq
+          command -v bash
+          python3 --version
+          node --version
+          python3 -c 'import os, pty; master, slave = pty.openpty(); os.close(master); os.close(slave)'
+      - name: Test build input handling
+        timeout-minutes: 11
+        run: timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Check Compose
         env:
           API_ID: '12345'
           API_HASH: test-placeholder
+          APK_REFRESH_ID: v1-2000-01-01-g0
         run: |
           docker compose config --quiet
-          docker compose --env-file .env.build -f docker-compose.yml -f docker-compose.build.yml config --quiet
-          python3 -c 'import json; from pathlib import Path; i=json.loads(Path("evidence/inputs.json").read_text()); Path("evidence/gates.json").write_text(json.dumps({"build_key":i["build_key"],"unit":"PASS","compose":"PASS"}))'
-      - name: Warm-cache apk regression
-        run: python3 tools/check_apk_refresh.py --inputs evidence/inputs.json --output evidence/apk-refresh.json
+          docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
@@ -59,15 +116,49 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pin existing build or select fresh candidate
-        id: candidate
-        run: python3 tools/apk_candidate.py prepare
+      - name: Resolve immutable upstream inputs
+        id: inputs
+        run: |
+          python3 tools/image_inputs.py --as-of "$BUILD_INPUTS_AT" \
+            --snapshot "$RUNNER_TEMP/image-inputs.json" >> "$GITHUB_OUTPUT"
+      - name: Check previously published build
+        id: existing
+        env:
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT-${{ matrix.arch }}" --format '{{json .Manifest}}' > registry-manifest.json 2>registry-error.txt; then
+            digest="$(python3 -c 'import json,re; value=json.load(open("registry-manifest.json"))["digest"]; assert re.fullmatch("sha256:[0-9a-f]{64}", value); print(value)')"
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          else
+            # A missing/private package also fails inspection on the first build.
+            # Never treat an unconfirmed registry response as a successful build.
+            cat registry-error.txt >&2
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+          if docker buildx imagetools inspect "$image:observer-build-$BUILD_FINGERPRINT-${{ matrix.arch }}" >/dev/null 2>/dev/null; then
+            echo 'observer_exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'observer_exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check reviewed statistics source for candidate revision
+        env:
+          REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+        run: |
+          git init .stats-source
+          git -C .stats-source remote add origin https://github.com/tdlib/telegram-bot-api.git
+          git -C .stats-source fetch --depth 1 origin "$REVISION"
+          git -C .stats-source checkout --detach FETCH_HEAD
+          python3 tools/check_stats_source.py .stats-source
       - name: Build candidate (patch must apply)
-        if: steps.candidate.outputs.mode == 'build'
+        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           load: true
           push: false
           tags: botapi-candidate:check
@@ -78,52 +169,107 @@ jobs:
             ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
             BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
             APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
-            APK_POLICY_VERSION=${{ steps.inputs.outputs.policy_version }}
-            APK_REFRESH_WINDOW=${{ steps.inputs.outputs.apk_refresh_window }}
-            APK_REFRESH_GENERATION=${{ steps.inputs.outputs.generation }}
-            BUILD_JOBS=2
-      - name: Check reviewed statistics source
+            BOT_API_VERSION=${{ steps.inputs.outputs.bot_api_version }}
+            WRAPPER_REVISION=${{ github.sha }}
+            BUILD_JOBS=1
+      - name: Load existing immutable candidate
+        if: steps.existing.outputs.exists == 'true' && github.event_name != 'pull_request'
         env:
-          REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+          IMAGE: ${{ steps.existing.outputs.image }}
+          DIGEST: ${{ steps.existing.outputs.digest }}
         run: |
-          git init .stats-source
-          git -C .stats-source remote add origin https://github.com/tdlib/telegram-bot-api.git
-          git -C .stats-source fetch --depth 1 origin "$REVISION"
-          git -C .stats-source checkout --detach FETCH_HEAD
-          python3 tools/check_stats_source.py .stats-source
+          docker pull --platform linux/${{ matrix.arch }} "$IMAGE@$DIGEST"
+          docker tag "$IMAGE@$DIGEST" botapi-candidate:check
       - name: Build observer candidate
+        if: steps.existing.outputs.observer_exists != 'true' || github.event_name == 'pull_request'
         uses: docker/build-push-action@v7
         with:
           context: .
           file: tools/observability/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           load: true
+          push: false
           tags: observer-candidate:check
           build-args: |
             OBSERVER_BASE=${{ steps.inputs.outputs.observer_base }}
+            APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
+            WRAPPER_REVISION=${{ github.sha }}
             BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
-      - name: Qualify observer and downloads against exact Bot API candidate
+      - name: Load reusable candidates and verify pair labels
         env:
-          PYTHON_IMAGE: ${{ steps.inputs.outputs.python_image }}
+          IMAGE: ${{ steps.existing.outputs.image }}
           KEY: ${{ steps.inputs.outputs.build_key }}
+          OBS_EXISTS: ${{ steps.existing.outputs.observer_exists }}
+          EVENT: ${{ github.event_name }}
         run: |
-          image=$(python3 -c 'import json; print(json.load(open("evidence/state.json"))["image"])')
-          docker tag "$image" botapi-candidate:check
-          for candidate in botapi-candidate:check observer-candidate:check; do
-            test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$candidate")" = "$KEY"
+          if [ "$EVENT" != pull_request ] && [ "$OBS_EXISTS" = true ]; then
+            docker pull "$IMAGE:observer-build-$KEY-${{ matrix.arch }}"
+            docker tag "$IMAGE:observer-build-$KEY-${{ matrix.arch }}" observer-candidate:check
+          fi
+          for image in botapi-candidate:check observer-candidate:check; do
+            test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$image")" = "$KEY"
           done
-          python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
-          docker build -f Dockerfile.downloads --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
-          python3 tools/check_file_contract.py --botapi-image botapi-candidate:check --downloads-image downloads-candidate:check --report evidence/file-report.json
       - name: Smoke-test built binary
+        shell: bash
         run: |
-          docker run --rm botapi-candidate:check --version
-          docker run --rm --entrypoint sh botapi-candidate:check -ec \
-            'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
+          docker run --rm --network none botapi-candidate:check --version
+          docker run --rm --network none botapi-candidate:check --help
+          docker run --rm --network none --entrypoint cat botapi-candidate:check \
+            /usr/local/bin/telegram-bot-api | python3 tools/multiarch_verify.py '${{ matrix.arch }}'
+          docker run --rm --network none --entrypoint sh botapi-candidate:check -ec \
+            'sh -n /docker-entrypoint.sh'
+      - name: Check selected source media semantics
+        timeout-minutes: 10
+        env:
+          BOT_API_REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+          ALPINE_IMAGE: ${{ steps.inputs.outputs.alpine_image }}
+        run: |
+          docker build --target source --build-arg BOT_API_REVISION="$BOT_API_REVISION" \
+            --build-arg ALPINE_IMAGE="$ALPINE_IMAGE" --tag botapi-nonroot-source:check .
+          sh -n tools/fixtures/nonroot/source-semantics.sh
+          docker run --rm --read-only --network none --env BOT_API_REVISION \
+            --mount "type=bind,source=$PWD/tools/fixtures/nonroot/source-semantics.sh,target=/check-source.sh,readonly" \
+            --entrypoint sh botapi-nonroot-source:check /check-source.sh
+      - name: Qualify non-root storage before publication
+        timeout-minutes: 30
+        env:
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+          BOT_API_REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+          APK_REFRESH_ID: ${{ steps.inputs.outputs.apk_refresh_id }}
+        run: |
+          candidate_id=$(docker image inspect --format '{{.Id}}' botapi-candidate:check)
+          test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$candidate_id")" = "$BUILD_FINGERPRINT"
+          test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.bot-api-revision"}}' "$candidate_id")" = "$BOT_API_REVISION"
+          sh -n tools/fixtures/nonroot/media-probe.sh
+          sh -n tools/fixtures/migration/fake-bot-api.sh
+          timeout 1400 python3 tools/check_nonroot.py --image "$candidate_id" --deadline 1200
+          chmod +x tools/fixtures/migration/fake-bot-api.sh
+          timeout 240 python3 tools/check_migration_volumes.py --require-docker --image "$candidate_id" --receipt "$RUNNER_TEMP/migration-volume-gate.json"
+          printf '%s\n' "$candidate_id" > qualified-image-id.txt
       - name: Qualify exact native image before publish or promotion
         env:
           BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
-        run: python3 tools/issue17_security_gate.py --image botapi-candidate:check --expected-build-key "$BUILD_FINGERPRINT" --manifest evidence/issue17-image.json
+        run: python3 tools/issue17_security_gate.py --image botapi-candidate:check --expected-build-key "$BUILD_FINGERPRINT" --manifest "$RUNNER_TEMP/issue17-image.json"
+      - name: Upload sanitized image qualification
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue17-image-manifest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/issue17-image.json
+
+      - name: Qualify exact pair with mock and actual no-bot runtime
+        timeout-minutes: 8
+        run: python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
+      - name: Build downloads pair and qualify exact images
+        env:
+          PYTHON_IMAGE: ${{ steps.inputs.outputs.python_image }}
+        run: |
+          docker build -f Dockerfile.downloads --build-arg "BUILD_FINGERPRINT=${{ steps.inputs.outputs.downloads_key }}" --build-arg "WRAPPER_REVISION=${{ github.sha }}" --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
+          python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
+            --downloads-image downloads-candidate:check --report "$RUNNER_TEMP/file-report.json"
+      - name: Qualify patched production sender
+        run: |
+          docker build --target sender-test --build-arg BOT_API_REVISION="${{ steps.inputs.outputs.bot_api_revision }}" --build-arg ALPINE_IMAGE="${{ steps.inputs.outputs.alpine_image }}" --build-arg APK_REFRESH_ID="${{ steps.inputs.outputs.apk_refresh_id }}" --build-arg BUILD_JOBS=1 -t sender-candidate:check .
+          docker run --rm --network none sender-candidate:check
       - name: Build Pages before promotion
         uses: actions/jekyll-build-pages@v1
         with:
@@ -131,48 +277,55 @@ jobs:
           destination: ./.site-check
       - name: Check rendered docs and private exclusions
         run: python3 tools/check_docs.py .site-check
-      - name: Validate actual metadata and repeat smoke
-        run: python3 tools/apk_candidate.py qualify
-      - name: Save qualification before registry writes
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk-qualification-${{ github.run_id }}-${{ github.run_attempt }}
-          path: evidence/
-          retention-days: 30
-          if-no-files-found: error
-      - name: Publish unique candidate and verify registry config
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        run: python3 tools/apk_candidate.py publish-candidate
-      - name: Save digest receipt before promotion
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk-digest-${{ github.run_id }}-${{ github.run_attempt }}
-          path: evidence/receipt.json
-          retention-days: 30
-          if-no-files-found: error
-      - name: Publish qualified observer and downloads
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      - name: Publish qualified architecture and exact bundle receipt
         env:
+          IMAGE: ${{ steps.existing.outputs.image }}
           KEY: ${{ steps.inputs.outputs.build_key }}
-          DOWNLOADS_KEY: ${{ steps.inputs.outputs.downloads_key }}
         run: |
-          python3 -c 'import json; import sys; sys.path.insert(0, "tools"); from apk_candidate import assert_fresh; assert_fresh(json.load(open("evidence/inputs.json")))'
-          image="ghcr.io/${GITHUB_REPOSITORY,,}"
-          docker tag observer-candidate:check "$image:observer-build-$KEY"
-          docker push "$image:observer-build-$KEY"
-          docker tag downloads-candidate:check "$image-downloads:build-$DOWNLOADS_KEY"
-          docker push "$image-downloads:build-$DOWNLOADS_KEY"
-          docker buildx imagetools create --tag "$image:observer-latest" "$image:observer-build-$KEY"
-          docker buildx imagetools create --tag "$image-downloads:latest" "$image-downloads:build-$DOWNLOADS_KEY"
-      - name: Assign immutable build tag and promote verified digest
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        run: python3 tools/apk_candidate.py promote
-      - name: Save results and failure diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          def call(*args): return subprocess.check_output(args,text=True).strip()
+          inputs=json.loads((Path(os.environ['RUNNER_TEMP'])/'image-inputs.json').read_text())
+          assert inputs['build_key']==os.environ['KEY']
+          components={}
+          for role,local,tag in [('botapi','botapi-candidate:check','build-'),('observer','observer-candidate:check','observer-build-'),('downloads','downloads-candidate:check','downloads-build-')]:
+              image=call('docker','image','inspect','--format','{{.Id}}',local)
+              ref=os.environ['IMAGE']+':'+tag+os.environ['KEY']+'-${{ matrix.arch }}'
+              call('docker','tag',image,ref); call('docker','push',ref)
+              digest=json.loads(call('docker','buildx','imagetools','inspect',ref,'--format','{{json .Manifest}}'))['digest']
+              call('docker','pull',ref+'@'+digest)
+              assert call('docker','image','inspect','--format','{{.Id}}',ref+'@'+digest)==image
+              components[role]=os.environ['IMAGE']+'@'+digest
+          receipt=dict(architecture='${{ matrix.arch }}',sha=os.environ['GITHUB_SHA'],run_id=os.environ['GITHUB_RUN_ID'],inputs=inputs,components=components,native=True,qualified=True)
+          open('qualification.json','w').write(json.dumps(receipt,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
         with:
-          name: apk-final-${{ github.run_id }}-${{ github.run_attempt }}
-          path: evidence/
-          retention-days: 30
-          if-no-files-found: warn
+          name: native-qualification-${{ matrix.arch }}
+          path: qualification.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-file-contract-receipt-${{ matrix.arch }}
+          path: ${{ runner.temp }}/file-report.json
+
+  promote:
+    needs: [image, apk-refresh]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-qualification-*
+          path: native-receipts
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: python3 tools/multiarch_publish.py --receipts native-receipts --image "ghcr.io/${GITHUB_REPOSITORY,,}"
