@@ -26,6 +26,8 @@ RECIPE = (
     "tools/fixtures/issue17_security/cases.json",
     "tools/issue17_security_gate.py", "tools/issue17_security_checks.py",
     ".github/workflows/image.yml",
+    "tools/multiarch_publish.py",
+    "tools/multiarch_verify.py",
     'tools/botapi_healthcheck.sh', 'tools/check_stats_source.py',
     'tools/observability/Dockerfile', 'tools/observability/status.schema.json',
     'docker-compose.yml', 'docker-compose.build.yml', 'nginx.conf',
@@ -150,10 +152,15 @@ if __name__ == "__main__":
     import argparse
     parser=argparse.ArgumentParser()
     parser.add_argument('--build-env',type=Path)
+    parser.add_argument('--as-of',type=datetime.fromisoformat)
+    parser.add_argument('--snapshot',type=Path)
     args=parser.parse_args()
     if args.build_env and Path(command('git','rev-parse','--show-toplevel')).resolve()!=ROOT:
         raise ValueError('build projection requires its own committed checkout')
-    inputs=resolve(platform=os.environ.get('BUILD_PLATFORM','linux/amd64'))
+    clock = None if args.as_of is None else lambda: args.as_of
+    inputs=resolve(clock=clock,platform=os.environ.get('BUILD_PLATFORM','linux/amd64'))
+    if args.snapshot:
+        args.snapshot.write_text(json.dumps(inputs, sort_keys=True) + '\n', encoding='utf-8')
     if args.build_env:
         args.build_env.write_text(''.join(f'{name}={value}\n' for name,value in build_environment(inputs).items()),encoding='utf-8',newline='\n')
     for key,value in inputs.items():

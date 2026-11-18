@@ -16,7 +16,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      inputs_at: ${{ steps.clock.outputs.inputs_at }}
+    steps:
+      - name: Fix the input time for both architectures
+        id: clock
+        run: echo "inputs_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
+
   image:
+    needs: prepare
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
@@ -33,6 +43,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       BUILD_PLATFORM: linux/${{ matrix.arch }}
+      BUILD_INPUTS_AT: ${{ needs.prepare.outputs.inputs_at }}
     timeout-minutes: 180
     permissions:
       contents: read
@@ -76,7 +87,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Resolve immutable upstream inputs
         id: inputs
-        run: python3 tools/image_inputs.py >> "$GITHUB_OUTPUT"
+        run: |
+          python3 tools/image_inputs.py --as-of "$BUILD_INPUTS_AT" \
+            --snapshot "$RUNNER_TEMP/image-inputs.json" >> "$GITHUB_OUTPUT"
       - name: Check previously published build
         id: existing
         env:
@@ -166,11 +179,14 @@ jobs:
             test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$image")" = "$KEY"
           done
       - name: Smoke-test built binary
+        shell: bash
         run: |
           docker run --rm --network none botapi-candidate:check --version
           docker run --rm --network none botapi-candidate:check --help
+          docker run --rm --network none --entrypoint cat botapi-candidate:check \
+            /usr/local/bin/telegram-bot-api | python3 tools/multiarch_verify.py '${{ matrix.arch }}'
           docker run --rm --network none --entrypoint sh botapi-candidate:check -ec \
-            'grep -aq "WebhookDelivery/1.0" /usr/local/bin/telegram-bot-api; sh -n /docker-entrypoint.sh'
+            'sh -n /docker-entrypoint.sh'
       - name: Check selected source media semantics
         timeout-minutes: 10
         env:
@@ -188,6 +204,7 @@ jobs:
         env:
           BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
           BOT_API_REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+          APK_REFRESH_ID: ${{ steps.inputs.outputs.apk_refresh_id }}
         run: |
           candidate_id=$(docker image inspect --format '{{.Id}}' botapi-candidate:check)
           test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$candidate_id")" = "$BUILD_FINGERPRINT"
@@ -234,11 +251,12 @@ jobs:
           IMAGE: ${{ steps.existing.outputs.image }}
           KEY: ${{ steps.inputs.outputs.build_key }}
         run: |
-          python3 tools/image_inputs.py > /tmp/resolved-inputs.env
-          export IMAGE KEY
           python3 - <<'PY'
           import json, os, subprocess
+          from pathlib import Path
           def call(*args): return subprocess.check_output(args,text=True).strip()
+          inputs=json.loads((Path(os.environ['RUNNER_TEMP'])/'image-inputs.json').read_text())
+          assert inputs['build_key']==os.environ['KEY']
           components={}
           for role,local,tag in [('botapi','botapi-candidate:check','build-'),('observer','observer-candidate:check','observer-build-'),('downloads','downloads-candidate:check','downloads-build-')]:
               image=call('docker','image','inspect','--format','{{.Id}}',local)
@@ -248,10 +266,6 @@ jobs:
               call('docker','pull',ref+'@'+digest)
               assert call('docker','image','inspect','--format','{{.Id}}',ref+'@'+digest)==image
               components[role]=os.environ['IMAGE']+'@'+digest
-          from sys import path; path.insert(0,'tools')
-          from image_inputs import resolve
-          inputs=resolve(platform=os.environ['BUILD_PLATFORM'])
-          assert inputs['build_key']==os.environ['KEY']
           receipt=dict(architecture='${{ matrix.arch }}',sha=os.environ['GITHUB_SHA'],run_id=os.environ['GITHUB_RUN_ID'],inputs=inputs,components=components,native=True,qualified=True)
           open('qualification.json','w').write(json.dumps(receipt,sort_keys=True))
           PY

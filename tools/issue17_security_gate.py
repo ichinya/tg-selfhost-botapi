@@ -81,6 +81,7 @@ def compose_models(compose):
         for name in ('id','hash'):
             (root/name).write_text('synthetic_issue17_'+name);(root/name).chmod(0o600)
         env=dict(os.environ,API_ID='legacy_id_canary',API_HASH='legacy_hash_canary',
+            APK_REFRESH_ID='v1-2000-01-01-g0',
             TELEGRAM_API_ID_SECRET_PATH=str(root/'id'),TELEGRAM_API_HASH_SECRET_PATH=str(root/'hash'))
         for build in ([],['-f','docker-compose.build.yml']):
             base=compose+['-f','docker-compose.yml']+build
@@ -99,6 +100,8 @@ def compose_models(compose):
 
 
 def entrypoint_gate():
+    if os.getuid() == 0:
+        raise GateFailure('nonroot_fixture_owner_required')
     name='issue17-entrypoint-'+uuid.uuid4().hex[:12]
     with tempfile.TemporaryDirectory(prefix='issue17-entrypoint-') as directory:
         root=Path(directory)
@@ -107,8 +110,8 @@ def entrypoint_gate():
         binary=root/'telegram-bot-api'
         binary.write_text('#!/bin/sh\nset -eu\n[ "$TELEGRAM_API_ID" = "$(cat /run/secrets/id)" ]\n[ "$TELEGRAM_API_HASH" = "$(cat /run/secrets/hash)" ]\n[ "$(ulimit -c)" = 0 ]\necho entrypoint_child_pass\n')
         binary.chmod(0o755)
-        (root/'chown').write_text('#!/bin/sh\nexit 0\n');(root/'chown').chmod(0o755)
         args=['docker','create','--name',name,'--label','io.tg-selfhost.issue17=synthetic','--network','none',
+              '--user',f'{os.getuid()}:{os.getgid()}',
               '--ulimit','core=0','--mount',f'type=bind,src={root},dst=/privacy-bin,readonly',
               '--mount',f'type=bind,src={ROOT/"docker-entrypoint.sh"},dst=/entrypoint,readonly',
               '--mount',f'type=bind,src={root},dst=/run/secrets,readonly','--entrypoint','/bin/sh',
@@ -147,8 +150,10 @@ def gateway_gate(compose):
     with tempfile.TemporaryDirectory(prefix=project) as directory:
         root=Path(directory);evidence=root/'evidence';evidence.mkdir()
         config=root/'gateway.conf'
-        config.write_text((ROOT/'nginx.conf').read_text().replace('proxy_http_version 1.1;',
-            'proxy_http_version 1.1; proxy_read_timeout 1s; proxy_connect_timeout 1s; client_max_body_size 1k;'))
+        production_config = (ROOT/'nginx.conf').read_text()
+        fixture_config = production_config.replace('client_max_body_size 1m;', 'client_max_body_size 1k;', 1)
+        fixture_config = re.sub(r'(?m)^(\s*proxy_read_timeout) \d+s;', r'\1 1s;', fixture_config)
+        config.write_text(fixture_config)
         env=dict(os.environ,ISSUE17_ROOT=str(ROOT),ISSUE17_EVIDENCE=str(evidence),ISSUE17_GATEWAY_CONFIG=str(config))
         base=compose+['-p',project,'-f',str(ROOT/'tools/fixtures/issue17_security/compose.yml')]
         started=False

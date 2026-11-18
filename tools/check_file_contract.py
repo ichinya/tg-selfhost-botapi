@@ -229,9 +229,16 @@ def exercise(botapi_image, downloads_image, report):
     compose = ['docker', 'compose', '-p', project, '--env-file', str(FIXTURE / 'synthetic.env'),
                '-f', str(FIXTURE / 'compose.full.yml')]
     validate_full(json.loads(command(compose + ['config', '--format', 'json'], env)))
-    base = ['docker', 'compose', '-p', project, '--env-file', str(FIXTURE / 'synthetic.env'),
-            '-f', str(ROOT / 'docker-compose.yml'), '-f', str(ROOT / 'docker-compose.files.yml')]
-    validate_split(json.loads(command(base + ['config', '--format', 'json'], env)))
+    with tempfile.TemporaryDirectory(prefix=project) as directory:
+        storage = Path(directory)
+        split_env = {**env, 'BOTAPI_UID': '101', 'BOTAPI_GID': '101',
+                     'BOTAPI_STATE_SOURCE': str(storage / 'state'),
+                     'BOTAPI_TEMP_SOURCE': str(storage / 'temp'),
+                     'BOTAPI_MEDIA_SOURCE': str(storage / 'media')}
+        base = ['docker', 'compose', '-p', project, '--env-file', str(FIXTURE / 'synthetic.env'),
+                '-f', str(ROOT / 'docker-compose.yml'), '-f', str(ROOT / 'docker-compose.nonroot.yml'),
+                '-f', str(ROOT / 'docker-compose.files.yml')]
+        validate_split(json.loads(command(base + ['config', '--format', 'json'], split_env)))
     report['source_sha256'] = source_hashes()
     report['images'] = {}
     for name, image in (('botapi', botapi_image), ('downloads', downloads_image)):

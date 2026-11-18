@@ -716,6 +716,17 @@ Adoption: policy/validator PR #38 перенесены поверх recipe PR #4
 ### Candidate native qualification
 Production sender harness PR #37 принят. Native jobs amd64 и arm64 собирают одинаковые reviewed source/patches и выполняют существующие exact-image privacy/storage/file/observer gates и настоящий production sender/ACK. Promotion использует только два успешных receipts одного workflow run с одинаковыми source, base и APK window. QEMU runtime acceptance не заявляется. В ABI allowlist openat2 добавлен arm64; поддержка остаётся неквалифицированной до native confinement matrix. Реальная доставка Telegram update полным image учитывается отдельно от synthetic sender и остаётся NOTRUN.
 
+После первой публикации релиза с аннотациями определите digest индекса Bot API, затем прочитайте ссылки на companion-образы из этого же индекса. Публикация проверяет все три подготовленных индекса перед переключением Bot API `latest`. Для совместимости `observer-latest` и downloads `latest` обновляются отдельно. Для развёртывания с observer или downloads используйте закреплённые ссылки ниже.
+
+```sh
+repo=ghcr.io/ichinya/tg-selfhost-botapi
+digest=$(docker buildx imagetools inspect "$repo:latest" --format '{{.Manifest.Digest}}') &&
+  index=$(docker buildx imagetools inspect --raw "$repo@$digest") &&
+  observer_ref=$(printf '%s' "$index" | jq -er '.annotations["io.tg-selfhost.release.observer"]') &&
+  downloads_ref=$(printf '%s' "$index" | jq -er '.annotations["io.tg-selfhost.release.downloads"]') &&
+  export BOTAPI_IMAGE="$repo@$digest" OBSERVER_IMAGE="$observer_ref" DOWNLOADS_IMAGE="$downloads_ref"
+```
+
 ### Холодный backup, обновление и rollback
 Приняты cold-backup validator и shutdown primitives PR #42; вторая restore-система не создаётся. Gateway ждёт botapi service_healthy. Начальный shutdown budget — 120s; измерьте SIGTERM/flush на характерном synthetic state перед изменением.
 1. Остановите всех writers приложения. Выполните для выбранного инстанса `docker compose stop -t 120 botapi`; приватно сохраните Docker events/inspect: SIGTERM, exit 0, отсутствие SIGKILL/OOM.
