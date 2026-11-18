@@ -720,6 +720,17 @@ PR #42's competing single-architecture release publisher is superseded here beca
 ### Native qualification candidate
 PR #37 production sender harness is adopted. Both native amd64 and arm64 jobs build the same reviewed source/patches and run existing exact-image privacy/storage/file/observer gates plus actual production sender/ACK. Promotion consumes only the two successful receipts of the same workflow run, source, base and APK window. No QEMU runtime acceptance is claimed. The openat2 ABI allowlist includes arm64; support remains unqualified until the native confinement matrix passes. Actual full-image Telegram update delivery remains NOTRUN separately from synthetic sender delivery.
 
+Once a release with companion annotations is published, resolve the Bot API index digest first, then read the companion digests from that exact index. Promotion verifies all three staged indexes before switching Bot API `latest`. The `observer-latest` and downloads `latest` aliases are updated separately for compatibility. Use the pinned values below for deployments that include either companion.
+
+```sh
+repo=ghcr.io/ichinya/tg-selfhost-botapi
+digest=$(docker buildx imagetools inspect "$repo:latest" --format '{{.Manifest.Digest}}') &&
+  index=$(docker buildx imagetools inspect --raw "$repo@$digest") &&
+  observer_ref=$(printf '%s' "$index" | jq -er '.annotations["io.tg-selfhost.release.observer"]') &&
+  downloads_ref=$(printf '%s' "$index" | jq -er '.annotations["io.tg-selfhost.release.downloads"]') &&
+  export BOTAPI_IMAGE="$repo@$digest" OBSERVER_IMAGE="$observer_ref" DOWNLOADS_IMAGE="$downloads_ref"
+```
+
 ### Cold backup, update and rollback
 PR #42 cold-backup validator and shutdown observation primitives are adopted; no second restore system is introduced. Gateway startup waits for botapi service_healthy. Initial shutdown budget is 120s; measure SIGTERM/flush on representative synthetic state before changing it.
 1. Quiesce every application writer. Stop the selected Bot API instance with `docker compose stop -t 120 botapi`; retain private Docker events/inspect evidence of SIGTERM, exit 0 and no SIGKILL/OOM.
