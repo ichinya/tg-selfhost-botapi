@@ -711,6 +711,7 @@ Provider keys, bootstrap helper, journal authority и raw receiver evidence хр
 
 ### Проверенные inputs и APK refresh
 Adoption: policy/validator PR #38 перенесены поверх recipe PR #44; проверенные source/base значения взяты из публичного candidate lock PR #42. Суточное UTC-окно и policy generation входят в build identity до registry lookup. Для срочного обновления повысьте generation. Все APK-стадии используют один APK_REFRESH_ID и обновляют inherited packages; inventories сохраняются внутри exact image. Downloads использует Debian base и отдельную identity без суточного APK-окна.
+В артефакте Actions `apk-refresh-qualification` фиксируется переход подписанного тестового APK с `1-r0` на `2-r0` при прежних исходниках, digest базового образа и тёплом кэше BuildKit. Проверка запускает команды установки из production Dockerfile для build и runtime, сверяет результат при неизменном refresh ID и проверяет динамическую и статическую линковку тестовой библиотеки. Для публикации требуются этот результат и проверка нативных образов.
 Конкурирующий single-architecture publisher PR #42 здесь superseded: он заменял бы PR #44 и конфликтует с native multiarch qualification. Единственной authority остаётся существующий publisher; selected_release сохраняется null. Изменения source/base snapshot требуют review и qualification; разрешение upstream master само по себе не выбирает deployment. OCI source version и wrapper revision различаются. Mutable mirrors не обещают побитовый rebuild.
 
 ### Candidate native qualification

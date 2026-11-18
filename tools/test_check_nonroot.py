@@ -23,7 +23,7 @@ class RunnerTests(unittest.TestCase):
                         section.index('python3 tools/check_migration_volumes.py'))
         publication = workflow[publish:]
         self.assertIn("assert call('docker','image','inspect','--format','{{.Id}}',ref+'@'+digest)==image", publication)
-        self.assertIn('needs: image', publication)
+        self.assertIn('needs: [image, apk-refresh]', publication)
         self.assertIn('tools/multiarch_publish.py', publication)
 
     def test_numeric_identity_is_required(self):

@@ -38,6 +38,11 @@ jobs:
         env:
           API_ID: '12345'
           API_HASH: SYNTHETIC_ONLY
+          BOTAPI_UID: '101'
+          BOTAPI_GID: '101'
+          BOTAPI_STATE_SOURCE: ${{ runner.temp }}/file-contract/state
+          BOTAPI_TEMP_SOURCE: ${{ runner.temp }}/file-contract/temp
+          BOTAPI_MEDIA_SOURCE: ${{ runner.temp }}/file-contract/media
           DOWNLOADS_IMAGE: downloads-candidate:check
           BOT_A_ROOT: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
           BOT_A_HOST_ROOT: /tmp/isolated-media/bot-a
@@ -46,13 +51,15 @@ jobs:
           DOWNLOAD_AUTH_TOKEN_FILE: /tmp/isolated-secrets/auth
         run: |
           export APK_REFRESH_ID=v1-2000-01-01-g0
-          docker compose --env-file tools/fixtures/files/synthetic.env config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.files.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f examples/files/compose.local.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.files.yml -f docker-compose.downloads.yml config --quiet
-          docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.files.yml -f docker-compose.downloads.yml config --quiet
+          compose=(docker compose --env-file tools/fixtures/files/synthetic.env -f docker-compose.yml)
+          split=(-f docker-compose.nonroot.yml -f docker-compose.files.yml)
+          "${compose[@]}" config --quiet
+          "${compose[@]}" -f docker-compose.build.yml config --quiet
+          "${compose[@]}" "${split[@]}" config --quiet
+          "${compose[@]}" -f docker-compose.build.yml "${split[@]}" config --quiet
+          "${compose[@]}" "${split[@]}" -f examples/files/compose.local.yml config --quiet
+          "${compose[@]}" "${split[@]}" -f docker-compose.downloads.yml config --quiet
+          "${compose[@]}" -f docker-compose.build.yml "${split[@]}" -f docker-compose.downloads.yml config --quiet
       - name: State isolation before file services
         run: python3 tools/check_file_contract.py --state-isolation-only
       - name: Check exact build-context allowlist

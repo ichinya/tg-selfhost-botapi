@@ -1,0 +1,21 @@
+pkgname=issue23-fixture
+pkgver=@VERSION@
+pkgrel=0
+pkgdesc="Synthetic ABI-compatible refresh regression fixture"
+url="https://github.com/ichinya/tg-selfhost-botapi"
+arch="all"
+license="MIT"
+options="!check !strip"
+source="fixture.c LICENSE"
+builddir="$srcdir"
+build() {
+    cc -fPIC -DISSUE23_VALUE="$pkgver" -c "$srcdir/fixture.c" -o fixture.o
+    cc -shared -Wl,-soname,libissue23.so.1 -o libissue23.so.1 fixture.o
+    ar rcs libissue23.a fixture.o
+}
+package() {
+    install -Dm755 libissue23.so.1 "$pkgdir/usr/lib/libissue23.so.1"
+    ln -s libissue23.so.1 "$pkgdir/usr/lib/libissue23.so"
+    install -Dm644 libissue23.a "$pkgdir/usr/lib/libissue23.a"
+    install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

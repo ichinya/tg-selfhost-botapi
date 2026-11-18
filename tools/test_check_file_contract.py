@@ -57,7 +57,14 @@ class CheckerTests(unittest.TestCase):
         with self.assertRaises(ValueError): checker.pin_nginx({'FILE_NGINX_IMAGE': 'other.invalid/nginx:latest'})
 
     def test_unsafe_mount_and_alias_are_rejected(self):
-        safe = {'services': {'gateway': {'volumes': [{'target': '/etc/nginx/conf.d/default.conf', 'read_only': True}]}}}
+        mounts = [
+            {'type': 'bind', 'source': str(checker.ROOT / 'nginx-main.conf'),
+             'target': '/etc/nginx/nginx.conf', 'read_only': True},
+            {'type': 'bind', 'source': str(checker.ROOT / 'nginx.conf'),
+             'target': '/etc/nginx/conf.d/default.conf', 'read_only': True},
+            {'type': 'volume', 'source': 'gateway_client_temp', 'target': '/var/cache/nginx/client_temp'},
+        ]
+        safe = {'services': {'botapi': {}, 'gateway': {'volumes': mounts}}}
         nginx = 'location = /file { return 404; } location /file/ { return 404; }'
         checker.validate(safe, nginx)
         with self.assertRaises(ValueError): checker.validate(safe, nginx + ' alias /data;')

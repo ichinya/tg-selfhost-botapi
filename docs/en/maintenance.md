@@ -715,6 +715,7 @@ Provider keys, helper bootstrap codes, journal authority and raw receiver eviden
 
 ### Reviewed inputs and APK refresh
 Adoption: PR #38 policy/validator is rebased onto the PR #44 recipe; the reviewed source/base values come from PR #42's public candidate lock. Daily UTC window plus policy generation enters the build identity before registry lookup. Raise generation for an emergency refresh. Every APK stage consumes the same APK_REFRESH_ID and upgrades inherited packages; package inventories remain inside the exact image. Downloads uses a Debian base and has a separate identity without the daily APK window.
+The `apk-refresh-qualification` Actions artifact records a signed synthetic APK changing from `1-r0` to `2-r0` with the same source, base digest and BuildKit cache. It checks the production build and runtime APK installation instructions, tests unchanged refresh IDs as controls, and checks the fixture library's dynamic and static consumers. Release promotion requires this result as well as native image qualification.
 PR #42's competing single-architecture release publisher is superseded here because it would replace PR #44 and conflict with native multiarch qualification. The existing publisher remains the sole authority; selected_release stays null. Snapshot source/base changes require review and qualification; resolving upstream master alone cannot select a deployment. OCI source version and wrapper revision are distinct. Mutable mirrors do not promise bit-for-bit rebuilds.
 
 ### Native qualification candidate

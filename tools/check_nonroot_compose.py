@@ -75,7 +75,7 @@ def validate_reader_model(model, image=None, volume_name=None):
         require(volume.get("external") is True and volume.get("name") == volume_name, "reader_backing_mismatch")
 
 
-def validate_model(model, layers, env, check_sources=True):
+def validate_model(model, layers, env, check_sources=True, *, omitted_create_host_path=True):
     """Validate effective Compose JSON, never a hand-merged copy of YAML."""
     services = model["services"]
     bot = services["botapi"]
@@ -106,7 +106,9 @@ def validate_model(model, layers, env, check_sources=True):
             sources.append(Path(mount["source"]).resolve())
         if custom:
             require(mount.get("type") == "bind" and not mount.get("read_only", False), "storage_bind_required")
-            require(mount.get("bind", {}).get("create_host_path") is False, "implicit_source_creation")
+            bind = mount.get("bind")
+            require(isinstance(bind, dict) and bind.get("create_host_path", omitted_create_host_path) is False,
+                    "implicit_source_creation")
             source = Path(mount["source"])
             if check_sources:
                 require(source.is_dir() and source.is_absolute(), "unprepared_source")
@@ -159,11 +161,20 @@ def compose_matrix(commands):
             for layer in layers:
                 args += ["-f", str(ROOT / f"docker-compose.{layer}.yml")]
             return commands.run([*args, "config", "--format", "json"], env=settings, check=False)
+        omitted_create_host_path = True
         for layers in ((), ("build",), ("nonroot",), ("nonroot", "build"),
                        ("nonroot", "files"), ("nonroot", "files", "build")):
             result = config(layers, env)
             require(result.returncode == 0, "compose_merge_failed")
-            validate_model(json.loads(result.stdout), layers, env)
+            model = json.loads(result.stdout)
+            if not layers:
+                # Base uses a short bind for state, with implicit creation on.
+                # Older Compose emits true and omits false. Newer releases may
+                # omit true, so only infer an omitted false from this control.
+                base_state = next(mount for mount in model['services']['botapi']['volumes']
+                                  if mount['target'] == WORK)
+                omitted_create_host_path = base_state.get('bind', {}).get('create_host_path') is not True
+            validate_model(model, layers, env, omitted_create_host_path=omitted_create_host_path)
         for variable in ("BOTAPI_UID", "BOTAPI_GID", "BOTAPI_STATE_SOURCE", "BOTAPI_TEMP_SOURCE", "BOTAPI_MEDIA_SOURCE"):
             for value in (None, ""):
                 settings = dict(env)
@@ -179,7 +190,8 @@ def compose_matrix(commands):
             result = config(("nonroot", "files"), settings)
             if result.returncode == 0:
                 try:
-                    validate_model(json.loads(result.stdout), ("nonroot", "files"), settings)
+                    validate_model(json.loads(result.stdout), ("nonroot", "files"), settings,
+                                   omitted_create_host_path=omitted_create_host_path)
                 except CheckError:
                     pass
                 else:
@@ -201,7 +213,8 @@ def compose_matrix(commands):
         result = config(("nonroot",), settings)
         require(result.returncode == 0, "missing_source_model_unavailable")
         try:
-            validate_model(json.loads(result.stdout), ("nonroot",), settings)
+            validate_model(json.loads(result.stdout), ("nonroot",), settings,
+                           omitted_create_host_path=omitted_create_host_path)
         except CheckError:
             require(not (directory / "absent").exists(), "checker_created_missing_source")
         else:
@@ -213,7 +226,8 @@ def compose_matrix(commands):
             result = config(("nonroot", "files"), settings)
             require(result.returncode == 0, "alias_model_unavailable")
             try:
-                validate_model(json.loads(result.stdout), ("nonroot", "files"), settings)
+                validate_model(json.loads(result.stdout), ("nonroot", "files"), settings,
+                               omitted_create_host_path=omitted_create_host_path)
             except CheckError:
                 pass
             else:

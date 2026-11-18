@@ -41,6 +41,18 @@ class ComposeContractTests(unittest.TestCase):
         with self.assertRaisesRegex(CheckError, "implicit_source_creation"):
             self.check(model)
 
+    def test_omitted_flag_depends_on_compose_serialization(self):
+        mount = self.model['services']['botapi']['volumes'][0]
+        mount['bind'] = {}
+        with self.assertRaisesRegex(CheckError, 'implicit_source_creation'):
+            self.check()
+        options = dict(check_sources=False, omitted_create_host_path=False)
+        self.assertTrue(validate_model(self.model, ('nonroot', 'files'), self.env, **options))
+        for bind in ({'create_host_path': True}, None):
+            mount['bind'] = bind
+            with self.subTest(bind=bind), self.assertRaisesRegex(CheckError, 'implicit_source_creation'):
+                validate_model(self.model, ('nonroot', 'files'), self.env, **options)
+
     def test_alias_nested_missing_sources_and_wrong_identity_fail(self):
         for source in (str(self.paths[0]), str(self.paths[0] / "nested")):
             model = copy.deepcopy(self.model)

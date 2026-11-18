@@ -37,10 +37,7 @@ def prefix(project):
 
 
 def validate(model, nginx):
-    gateway = model['services']['gateway']
-    mounts = gateway.get('volumes', [])
-    if len(mounts) != 1 or mounts[0]['target'] != '/etc/nginx/conf.d/default.conf' or not mounts[0].get('read_only'):
-        raise ValueError('gateway has unexpected storage')
+    validate_base(model)
     nginx = re.sub(r'#[^\n]*', '', nginx)
     if re.search(r'\b(?:alias|root|include)\s', nginx):
         raise ValueError('gateway filesystem configuration')
@@ -141,6 +138,7 @@ def check(report=None):
         raise NotRun('Docker CLI unavailable')
     env = {k: v for k, v in os.environ.items() if not k.startswith(('COMPOSE_', 'BOTAPI_', 'GATEWAY_', 'API_'))}
     env['FIXTURE_NGINX'] = str(ROOT / 'nginx.conf')
+    env['FIXTURE_NGINX_MAIN'] = str(ROOT / 'nginx-main.conf')
     env['API_ID'] = '12345'
     env['API_HASH'] = 'SYNTHETIC_ONLY'
     try:
@@ -224,6 +222,7 @@ def exercise(botapi_image, downloads_image, report):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('COMPOSE_', 'BOTAPI_', 'DOWNLOAD', 'FIXTURE_', 'FILE_', 'API_', 'GATEWAY_'))}
     env.update(BOTAPI_TEST_IMAGE=botapi_image, DOWNLOADS_TEST_IMAGE=downloads_image,
                FILE_FIXTURE_IMAGE=project + '-fixture', FIXTURE_NGINX=str(ROOT / 'nginx.conf'),
+               FIXTURE_NGINX_MAIN=str(ROOT / 'nginx-main.conf'),
                FIXTURE_TLS_CONFIG=str(FIXTURE / 'nginx.downloads.conf'))
     env['FILE_NGINX_IMAGE'] = report['fixture_images']['nginx']
     compose = ['docker', 'compose', '-p', project, '--env-file', str(FIXTURE / 'synthetic.env'),

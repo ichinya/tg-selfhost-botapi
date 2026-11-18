@@ -1,6 +1,16 @@
 name: Bot API image
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/image.yml'
+      - 'Dockerfile'
+      - 'image-inputs.lock.json'
+      - 'tools/apk_policy.json'
+      - 'tools/apk_refresh_fixture/**'
+      - 'tools/check_apk_refresh.py'
+      - 'tools/image_inputs.py'
+      - 'tools/test_apk_refresh.py'
   push:
     branches: [main]
   workflow_dispatch:
@@ -24,6 +34,27 @@ jobs:
       - name: Fix the input time for both architectures
         id: clock
         run: echo "inputs_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
+
+  apk-refresh:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BUILD_INPUTS_AT: ${{ needs.prepare.outputs.inputs_at }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Verify production APK stages with a warm BuildKit cache
+        run: |
+          python3 tools/image_inputs.py --as-of "$BUILD_INPUTS_AT" \
+            --snapshot "$RUNNER_TEMP/apk-inputs.json"
+          python3 tools/check_apk_refresh.py --inputs "$RUNNER_TEMP/apk-inputs.json" \
+            --output "$RUNNER_TEMP/apk-refresh/report.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apk-refresh-qualification
+          path: ${{ runner.temp }}/apk-refresh
 
   image:
     needs: prepare
@@ -280,7 +311,7 @@ jobs:
           path: ${{ runner.temp }}/file-report.json
 
   promote:
-    needs: image
+    needs: [image, apk-refresh]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
