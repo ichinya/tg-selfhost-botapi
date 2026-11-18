@@ -111,7 +111,7 @@ async function tests() {
     p = page({mode});
     await p.run('executeInBrowser()'); assert.equal(p.calls.length, 0);
     assert(p.elements.get('btnExecute').disabled);
-    const plan = p.plan(); assert(plan.indexOf('exit 2') < plan.indexOf('# BEGIN SEPARATE TARGET PROFILE SCRIPT')); assert(plan.includes('MIGRATION_MODE=target-stage'));
+    const plan = p.plan(); assert(plan.indexOf('exit 2') < plan.indexOf('# BEGIN SEPARATE TARGET PROFILE SCRIPT')); assert(plan.includes("MIGRATION_MODE='target-stage'"));
     if (mode === 'self-to-self') {
       assert(plan.indexOf('close') < plan.indexOf('СТОП — внешний перенос'));
       assert(plan.indexOf('СТОП — внешний перенос') < plan.indexOf('первый getMe'));

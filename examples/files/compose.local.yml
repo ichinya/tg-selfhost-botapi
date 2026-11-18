@@ -1,0 +1,32 @@
+# Merge after docker-compose.yml, then `run --rm reader <FILE_ID>`.
+services:
+  reader:
+    image: ${DOWNLOADS_IMAGE:?Set a qualified immutable downloads image}
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 0.5
+    mem_limit: 128m
+    pids_limit: 32
+    entrypoint: [python, /app/examples/files/local_reader.py]
+    environment:
+      BOT_TOKEN_FILE: /run/secrets/bot-token
+      BOTAPI_ENDPOINT: http://botapi:8081
+      BOT_MEDIA_ROOT: /var/lib/telegram-bot-api-files
+      BOT_ROOT: ${BOT_A_ROOT:?Set the exact absolute getFile bot root}
+      BOT_TEST_DC: ${BOT_TEST_DC:-false}
+      BOT_COLON_LAYOUT: ${BOT_COLON_LAYOUT:-true}
+    volumes:
+      - type: bind
+        source: ${BOT_TOKEN_FILE:?Set the absolute protected token file}
+        target: /run/secrets/bot-token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${BOT_A_HOST_ROOT:?Set the existing bot-specific host directory}
+        target: ${BOT_A_ROOT:?Set the exact absolute getFile bot root}
+        read_only: true
+        bind:
+          create_host_path: false

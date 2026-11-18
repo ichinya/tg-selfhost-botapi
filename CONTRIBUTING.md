@@ -6,6 +6,14 @@ translation: /docs/ru/maintenance.html
 
 # Contributing
 
+For startup changes, run the POSIX `test_entrypoint.py` suite and shell syntax
+checks, then validate the candidate image on a Linux Docker Engine with isolated
+synthetic credentials and storage. Unit stubs do not prove filesystem access or
+the identity of the real server. Keep runtime evidence separate from CI and
+production observations; use bounded checks and clean up only resources created
+by the check. Docker Desktop, rootless engines and network filesystems need
+independent permission qualification.
+
 Bug reports and focused pull requests are welcome.
 [Check existing issues](https://github.com/ichinya/tg-selfhost-botapi/issues) first.
 Include the revision, image tag/digest, expected result, actual result and
@@ -30,6 +38,18 @@ fetch; they do not use Telegram credentials. Keep an outer timeout as well as
 the harness watchdogs. On a tree containing unrelated untracked tests, run only
 `test_issue10_*.py`, `test_issue6_results.py` and the tracked regression tests; use full discovery in a clean
 candidate or CI.
+
+Issue #8 has a separate shell/export matrix, admitted by the no-skip Linux gate:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_safety.py --require-posix
+```
+
+Use a non-root Linux/WSL process with Bash 4+, Node 24+, Python 3.11+, jq, curl
+and openssl. The suite checks exact NUL-framed argv, private file bytes, marker
+sensitivity, exported/manual modes and real loopback decoding. It never contacts
+Telegram. Windows runtime skips mean verification deferred to CI/gates.
 
 Issue #11 additionally requires GNU coreutils (`mktemp`, `date`, `stat`, `mkdir`,
 `mv`, `chmod`, `rm`, `rmdir`, `cat`) and a non-root POSIX runner for permission
@@ -80,11 +100,110 @@ Doctor reports follow `tools/doctor.schema.json`; private decisions use input v1
 Check exit codes 0/1/2/3 and keep internal collection failures separate from usage
 errors. Run from a clean candidate without untracked helpers or `tools/__init__.py`.
 
+Migration acceptance uses Python 3.11+ and Node 24 on Linux:
+`python3 tools/check_migration_safety.py --require-posix` and
+`node --test tools/test_migration_ui.mjs`. The dedicated workflow also exercises
+only labelled fixture volumes, never a production bot. Windows passes are not
+POSIX/volume acceptance. A browser timeout is tested separately from lost Bot API
+responses. No live credentials or inference are used by these fixtures.
+
+Приёмка миграции: Python 3.11+, Node 24 и Linux, команды выше. Проверки используют
+mock APIs и временные volumes с точными IDs/labels. Windows-прогон не заменяет
+POSIX/volume-приёмку; потеря ответа UI и Bot API проверяются отдельно.
+
 Update [English](docs/en/README.md) and [Russian](docs/ru/README.md) documentation
 together. Keep the root README short. Documentation changes get a Jekyll build
 and internal-link check in CI; the existing migrator URL must keep working.
 
+## Gateway upload acceptance
+
+Run separately from unit discovery, without Telegram credentials:
+
+```sh
+python3 -I -m unittest discover -s tools -p 'test_gateway_uploads.py' -v
+python3 tools/check_gateway_uploads.py --profile quick --revision "$(git rev-parse HEAD)" --report /tmp/issue4-quick.json
+python3 tools/check_gateway_uploads.py --profile full --revision "$(git rev-parse HEAD)" --report /tmp/issue4-full.json
+python3 tools/check_gateway_uploads.py --profile slow --revision "$(git rev-parse HEAD)" --report /tmp/issue4-slow.json
+python3 tools/check_gateway_uploads.py --profile storage --revision "$(git rev-parse HEAD)" --report /tmp/issue4-storage.json
+timeout 2700 python3 tools/check_gateway_uploads.py --profile all --revision "$(git rev-parse HEAD)" --report /tmp/issue4-report.json
+```
+
+Prerequisites: Python 3.11+, Docker Compose with Linux containers, registry access,
+writable temporary storage and space on Docker's backing filesystem. `quick`
+(`fast` is a compatibility alias) tests 2/4 MiB uploads, scaled 8 MiB boundaries
+and routing; `full` tests 2048 MiB ±1 byte and a 2000 MiB file. Reserve at least
+10 GiB on both filesystems; sequential scenarios can write much more in total.
+`slow` tests real pauses over 60 seconds and derived 2-second controls; `storage`
+tests staging, worker permissions, cleanup, SIGKILL/recovery and bounded ENOSPC.
+`all` requires every profile. NOTRUN and cleanup failures cannot pass acceptance.
+Record unavailable checks as `verification deferred to CI/gates`.
+
+`--nginx-image`/`GATEWAY_NGINX_IMAGE` and `--python-image`/`GATEWAY_PYTHON_IMAGE`
+override pinned defaults; the runner records actual IDs/digests and config hashes.
+Keep reports outside docs/webroot. The mock checks gateway transport; Telegram,
+the actual Bot API image and VPS require their own acceptance.
+
+In a dirty checkout use only the scoped suite. For full discovery on Linux/POSIX,
+export a clean committed candidate to exclude unrelated untracked files:
+
+```sh
+candidate=$(mktemp -d)
+git archive HEAD | tar -x -C "$candidate"
+cd "$candidate"
+timeout 180 python3 -m unittest discover -s tools -p 'test_*.py' -v
+```
+
+Use WSL/Linux or CI for POSIX tests; native Windows results do not replace them.
+Integration has a separate 45-minute watchdog. Interrupted runs clean only their
+exact owner label. CI repeats cleanup in an always-step and retains the report.
+
+File-contract changes must preserve both direct/scoped RO reads and the per-bot
+`POST /v1/files/download` boundary. Run scoped units for `test_file_access.py`,
+`test_download_server.py`, `test_check_file_contract.py`, `test_check_docs.py`,
+`test_entrypoint.py`, image inputs and doctor before the full clean-candidate suite.
+Build `botapi-candidate:check` and `downloads-candidate:check`, then run:
+
+```sh
+python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
+  --downloads-image downloads-candidate:check --report file-report.json
+```
+
+The full runtime gate uses only disposable synthetic storage and requires Linux
+amd64/openat2. It records exact source hashes/image IDs. A denied/unavailable
+Docker, kernel or Jekyll gate is NOTRUN (`verification deferred to CI/gates`), not
+PASS. Never use production volumes or import unrelated untracked helpers to make
+the gate pass. Retain the original migrator HTML bytes and exclude examples,
+fixtures, media, secrets and runtime configuration from Pages.
+
+`files.yml` runs the complete suite only on a clean checkout. `image.yml` qualifies
+the exact Bot API/downloads IDs and current source hashes on both build and reuse
+paths; publication follows the file and rendered-docs gates. `DOWNLOADS_RECIPE`
+and the main recipe must include new runtime or qualification inputs before use.
+
 ## По-русски
+
+### Приёмка загрузок gateway
+
+Команды выше выполняются отдельно от unit discovery без credentials Telegram.
+Нужны Python 3.11+, Docker Compose с Linux containers, registry, writable temp и
+место на диске Docker. `quick` (совместимый alias `fast`) проверяет файлы 2/4 MiB,
+малые границы 8 MiB и маршруты; `full` — 2048 MiB ±1 байт и файл 2000 MiB.
+Резервируйте минимум 10 GiB на обеих файловых системах; суммарная запись за
+последовательный прогон может быть намного больше. `slow` проверяет реальные
+паузы больше 60 секунд и derived controls 2 секунды; `storage` — staging, worker,
+cleanup, SIGKILL/recovery и ограниченный ENOSPC. `all` требует все профили.
+NOTRUN и ошибки очистки не дают зелёный acceptance. Недоступные проверки
+отмечайте `verification deferred to CI/gates`.
+
+`--nginx-image`/`GATEWAY_NGINX_IMAGE` и `--python-image`/`GATEWAY_PYTHON_IMAGE`
+заменяют закреплённые defaults; в отчёте сохраняются фактические IDs/digests и
+hashes конфигурации. Храните отчёты вне docs/webroot. Mock подтверждает transport
+gateway; реальный Bot API, Telegram и VPS требуют отдельной приёмки.
+В dirty checkout запускайте scoped suite; для полного discovery экспортируйте
+чистый `git archive HEAD`, как в примере выше. POSIX-тестам нужны WSL/Linux или CI;
+нативный Windows их не заменяет. Watchdog integration — 45 минут, отдельно от
+unit-бюджета 180 секунд. При прерывании очищаются только ресурсы точного owner
+label; always-step CI повторяет очистку и сохраняет отчёт даже при сбое.
 
 В Windows выполняйте `python3 tools/test_entrypoint.py` в WSL или CI: нативный
 запуск Windows пропускает POSIX-тесты. Для запуска модулей задайте `PYTHONPATH=tools`.
@@ -122,32 +241,29 @@ production; недоступный gate — NOTRUN. Реальные migration-i
 Проверяйте схему отчёта, вход v1, exit codes 0/1/2/3 и shell-синтаксис fixture.
 Запускайте тесты на чистом candidate без чужих helpers и `tools/__init__.py`;
 внутренние ошибки сбора должны отличаться от неверного вызова.
+## Observability checks (issue #16)
 
-## Multi-platform release qualification / Проверка выпуска
-
-Run the scoped offline contract and fault-injection suites on a dirty checkout:
+On a dirty checkout use owned patterns; unrelated untracked suites are not release
+evidence. On Linux/CI run:
 
 ```sh
-python3 -m unittest tools.test_image_inputs tools.test_multiarch_verify tools.test_multiarch_qualify tools.test_multiarch_publish
+python3 -m unittest discover -s tools -p 'test_observability*.py' -v
+python3 -m unittest discover -s tools -p 'test_observe_runtime.py' -v
+python3 -m unittest discover -s tools -p 'test_botapi_healthcheck.py' -v
+python3 -m unittest discover -s tools -p 'test_doctor*.py' -v
+python3 -m unittest discover -s tools -p 'test_check_doctor.py' -v
+bash -n migrate_off_to_self.sh
+sh -n tools/botapi_healthcheck.sh
+python3 tools/check_stats_source.py /path/to/exact/upstream-checkout
+python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
 ```
 
-PR CI must cold-compile both native CPUs, check ELF/config/version/normal startup,
-the exact gateway signature, production sender and its wrong-UA negative control.
-Only exact runtime/sender archives reach the publisher; no rebuild there. Test
-missing/duplicate ARM, swapped config/ELF, wrong archive/policy/receipt, stale HEAD,
-expired proof, auth errors and lost-write reconciliation with a fake registry.
-Full POSIX discovery and fresh Jekyll/check_docs run in clean CI. Unavailable gates
-are `verification deferred to CI/gates`; post-merge release readback is NOTRUN until
-observed. Registry release does not deploy production.
+Helper and producer acceptance requires POSIX Bash, curl, jq and coreutils.
+Windows skips are NOTRUN. Docker source/image/privacy, Jekyll and actual Kuma
+gates are separate from Python unit results. Both release images must share one
+build key and pass qualification before promotion. Never use real bot credentials
+in fixtures or logs. Keep documentation paired in docs/en and docs/ru.
 
-На dirty checkout запускайте scoped-команду выше; полный POSIX discovery и свежие
-Jekyll/check_docs выполняются в clean CI. Обязательны две native cold compilation,
-ELF/config/version/штатный startup, точный gateway response, настоящий sender и
-wrong-UA negative control. Publisher получает точные runtime/sender archives без
-rebuild. Проверяйте missing/duplicate ARM, подмену config/ELF/archive/policy/receipt,
-stale HEAD, expired proof, auth errors и потерянный ответ записи на fake registry.
-Недоступные gates: `verification deferred to CI/gates`; post-merge readback — NOTRUN
-до фактической проверки. Registry release не развёртывает production.
 
 Webhook profile #7 gates: Node 24+, Python 3.13, Bash 4+, curl/jq/openssl, non-root POSIX.
 Run the four explicit `tools.test_webhook_profile_*` modules listed in maintenance, then all tracked #10 tests and `test_webhook_user_agent`.
@@ -156,10 +272,19 @@ Run the four explicit `tools.test_webhook_profile_*` modules listed in maintenan
 Receiver/manual POST, source assertions, actual image logs/nginx pass-through and live Telegram receipts are different evidence.
 Unavailable execution: NOTRUN, verification deferred to CI/gates.
 
+## Issue #17 privacy acceptance
 
-Проверки webhook-профиля #7: Node 24+, Python 3.13, Bash 4+, curl/jq/openssl и POSIX без root.
-Запустите четыре модуля `tools.test_webhook_profile_*`, перечисленные в maintenance, затем все отслеживаемые тесты #10 и `test_webhook_user_agent`.
-`node tools/embed_webhook_profile.cjs --check` проверяет синхронизацию standalone helper, браузера и экспорта.
-`check_issue7_sender.py --source` — отдельная проверка pinned source, не часть unit discovery.
-Receiver/manual POST, source assertions, логи реального образа/nginx и live Telegram receipts дают разные доказательства.
-Недоступные проверки: NOTRUN, verification deferred to CI/gates.
+In a shared dirty checkout run only `python3 -m unittest discover -s tools -p
+"test_issue17_security_*.py"`; do not delete or adapt other untracked tests.
+Full discovery requires a clean candidate containing the task's admitted files,
+for example a detached worktree of the committed candidate. The CI checkout is
+clean. Linux acceptance needs Python 3.11+, Node 24+, Bash, curl, jq, GNU coreutils,
+Docker and non-root private-file tests. Explicit integration commands live in
+`tools/issue17_security_gate.py`; unit discovery never starts Docker.
+
+For secrets Compose models set both `TELEGRAM_API_ID_SECRET_PATH` and
+`TELEGRAM_API_HASH_SECRET_PATH` to synthetic host files outside checkout; apply
+secrets last, after the optional build overlay. Test Compose 2.24.4 and the CI
+version. Evidence artifacts contain only status/counts, commit/revision, image
+identity/build key and tool versions. Never upload raw logs, dossiers or inputs.
+Unavailable runner/image/Pages checks are NOTRUN: verification deferred to CI/gates.

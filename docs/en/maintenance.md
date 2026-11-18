@@ -5,57 +5,291 @@ translation: /docs/ru/maintenance.html
 
 # Maintenance
 
+## Gateway upload storage and changes
+
+The project-scoped `gateway_client_temp` volume stores buffered request bodies;
+it is separate from Bot API state and may contain sensitive uploads. Check free
+space and inodes on each backing filesystem, including the Docker Desktop disk
+image, and verify that the nginx worker can write there. Size for concurrent
+requests as described in [configuration](configuration.md); the volume does
+not reserve capacity. Back up Bot API state independently of this spool.
+
+Validate both the Compose model and nginx configuration before applying a change.
+Adding the mount requires recreating the gateway and interrupts active uploads:
+
+```sh
+docker compose config --quiet
+docker compose run --rm --no-deps gateway nginx -t
+docker compose up -d --no-deps --force-recreate gateway
+docker compose exec gateway nginx -T
+```
+
+Inspect the loaded settings privately and check health with synthetic requests.
+For rollback, restore the matching previous nginx and Compose files, validate
+them and recreate the gateway again; preserve Bot API data. Never use `down -v`
+on the working stack. Clean only the precisely identified spool volume when no
+requests are active; do not delete live body files manually.
+
+HTTP 411 means the public listener rejected transfer encoding; 429 means upload
+rate or concurrency admission was exceeded. Verify the actual source addresses
+seen by nginx, the dedicated spool budget and ingress deadlines before raising
+limits. Slot limits do not guarantee fairness or a total upload deadline.
+HTTP 413 can indicate a body or ingress limit; 408 indicates client body timeout;
+504 can indicate upstream timeout. Also check client and external proxy limits,
+disk space and inodes. nginx uses `error_log crit`, so ordinary error diagnostics
+are suppressed; filter any diagnostic output before sharing it.
+
+
+## Synthetic gateway upload acceptance
+
+Run from the repository root with Python 3.11+, Docker Compose, Linux containers,
+registry access and writable temporary storage. No Telegram credentials are used.
+
+```sh
+python3 tools/check_gateway_uploads.py --profile quick --revision candidate --report /tmp/issue4-quick.json
+python3 tools/check_gateway_uploads.py --profile full --revision candidate --report /tmp/issue4-full.json
+python3 tools/check_gateway_uploads.py --profile slow --revision candidate --report /tmp/issue4-slow.json
+python3 tools/check_gateway_uploads.py --profile storage --revision candidate --report /tmp/issue4-storage.json
+timeout 2700 python3 tools/check_gateway_uploads.py --profile all --revision candidate --report /tmp/issue4-all.json
+```
+
+Replace `candidate` with the tested commit SHA. `quick` (`fast` alias) covers
+2/4 MiB uploads and scaled 8 MiB boundaries; it does not prove the real 2048 MiB
+limit. `full` transfers real 2048 MiB ±1-byte bodies in both framings and a
+2000 MiB file. Reserve at least 10 GiB free on input and Docker filesystems;
+sequential scenarios may write much more in total. Both framings in these
+transport profiles use the isolated trusted port 82;
+public port 80 rejects chunked requests. WSL gateway unit tests also exercise
+public admission against a local nginx when installed. `slow` tests actual pauses
+over 60 seconds and separate 2-second timeout controls. `storage` checks worker
+access, linked/open spool files, block reclamation, disconnect/crash recovery
+and ENOSPC on a tiny disposable filesystem. `all` requires every profile.
+
+Use WSL/Linux or CI for complete POSIX regression discovery. Keep the unit and
+45-minute integration budgets separate. Reports are synthetic and apply to the
+recorded revision, image IDs/digests and config hashes; keep them outside webroot.
+NOTRUN, failed scenarios and cleanup failure leave acceptance open. For missing
+local prerequisites record `verification deferred to CI/gates`. The mock verifies
+gateway transport; real Bot API, Telegram and VPS acceptance remain separate.
+See [contributor instructions](../../CONTRIBUTING.md) for clean candidate export,
+scoped unit tests, image overrides and emergency cleanup ownership.
+
+## Changing the server identity
+
+Stop the writer and its restart automation before changing IDs. Make a consistent
+backup that preserves numeric ownership and modes. Verify the dedicated absolute
+paths, symlinks and other mounts; prepare an offline copy for the new UID/GID and
+inspect nested binlog and session files, not just the root. Run a storage smoke
+test, then start one writer. Keep the old copy with its original IDs and a
+compatible image for rollback. Do not recursively change permissions on a live or
+shared database. Existing cached paths are not migrated automatically.
+
+Prepare both state and HTTP temp for the effective server identity. Bind mounts,
+named volumes and tmpfs each have their own ownership and permissions; ownership
+inside the image does not fix mounted storage. New files use the effective UID;
+without filesystem inheritance their GID is the primary GID, while setgid or ACL
+rules can alter inheritance. Umask `0027` limits new modes but does not add group
+read permissions or change existing files. Keep migration dossiers owner-only.
+Docker supplementary groups are retained in direct non-root launches. A different
+UID reading media needs the scoped read-only subtree described in Getting started.
+
+## Split storage
+
+Before first enabling split storage, create a new empty host directory with
+`sudo install -d -m 0770 -o 101 -g 101 ./media`: Compose rejects a missing
+root directory. Do not apply this command recursively to an existing cache.
+
+Split storage requires a maintenance window: stop clients and writers, back up
+private state and configuration consistently, then enable the files override.
+It creates a new media cache; it does not move old downloads or rewrite stored
+absolute paths. Keep legacy storage private and re-run getFile for saved file IDs.
+Runtime identity and real TDLib file modes require qualification of the exact
+image; source/unit checks alone do not establish production permissions.
+
+
+Doctor checks split media persistence and private backing separation without
+downloading real files. Optional handlers and consumer mapping remain UNKNOWN;
+use the independent synthetic file gate and inspect the deployed mapping.
+
+## Migration acceptance
+
+Use the required Linux/Node 24 mock gate documented in CONTRIBUTING. It covers
+response loss before/after effects, per-bot locking, crashes around intent and
+receipt, interface plan parity, helper access and UI response loss. The volume
+gate operates only on exact fixture IDs/labels and preserves production data.
+CI checks that required files are tracked and that no private artifacts enter
+the rendered site. Platform skips are not acceptance. The old curl-specific
+request assertions are retained as reference; executable adapter tests now
+exercise the same loopback protocol/journal as the canonical CLI. Issue #9's
+missing delivery-action fixture is a separate declared workspace baseline.
+
+Restarting the helper requires a new session code and private runtime inputs.
+Keep the same journal/key. Browser disconnect does not cancel the background
+job. Read status and its job result, then resupply credentials before resume.
+An operation locator is not authorization.
+
+## Recovering the migration journal
+
+Back up the whole private authority **together with `binding.key`** while idle.
+Restore both with their owner and private modes. Missing keys, token rotation,
+corrupt or unsupported state block continuation. Interrupted durable intents
+become UNKNOWN. Restore the original authority and reconcile the same operation;
+starting an empty state root cannot establish whether a remote effect occurred.
+
+After a UI timeout read the same operation's offline status first. If only the
+browser lost the response, durable receipts still apply. If the Bot API response
+was lost, reconcile UNKNOWN with a trusted provider receipt bound to the exact
+operation/digest/attempt/endpoints/token and observation time. Without evidence,
+keep it blocked. A changed token/deployment/profile requires investigation and
+review, preserving the original journal; never erase confirmed history.
+
 ## Image pipeline
 
 The image workflow checks official tdlib source and the Alpine 3.22 digest every
 night around **04:37 Asia/Yekaterinburg** (23:37 UTC), on default-branch changes,
 and on manual runs. GitHub may delay scheduled runs.
+The image workflow also runs the required migrator security tests; see
+[Contributing](../../CONTRIBUTING.md) for their dependencies.
 
-The build key covers the resolved source/base/platform identities, qualification
-policy and all build/verification bytes. One saved snapshot is shared by all jobs.
-Existing tags require retained trusted proof and new native qualification. Only a
-confirmed registry 404 permits a fresh build; auth/network errors stop release.
+The build key covers the resolved revisions/digests and the recipe, entrypoint,
+patch and image tests. If the corresponding published build exists, compilation
+is skipped; the candidate is pulled by digest and qualified again. If registry
+inspection cannot confirm it, the pipeline rebuilds. Acceptance scripts, fixtures,
+both storage overlays and their tests are part of the build key.
+The Bot API build key covers the resolved revisions/digests and file-contract
+recipe/tests/configs. Downloads has its own key including the immutable Python
+base. If a Bot API build exists, compilation may be skipped, but the exact reused
+image and the downloads candidate must pass the current file gate again.
+Unconfirmed registry inspection rebuilds; it never establishes a passing gate.
 
 For a new build it:
 
 1. Checks that the User-Agent patch applies to the selected official revision.
 2. Compiles the entire server.
-3. On each native CPU, checks ELF/config/version, normal entrypoint/gateway and the
-   production webhook sender with a wrong-UA negative control.
-4. Transfers the exact runtime/sender archives to one publisher, checks the full
-   two-platform index, then assigns `build-<K>` and `latest` from its digest.
+3. Runs `--version`, checks the header string in the binary and validates entrypoint syntax.
+4. Checks the selected source revision and TDLib submodule for download modes
+   `0640/0750`, internal media temp paths and rename semantics.
+5. Qualifies the exact image ID with the non-root storage matrix and the existing
+   migration volume gate.
+6. Builds the downloads image, runs synthetic local/TLS/negative checks and
+   network-none actual Bot API startup for the exact image pair, recording IDs and
+   source hashes. It also checks rendered Pages/private exclusions.
+7. Publishes tested `ghcr.io/ichinya/tg-selfhost-botapi:build-<key>` and
+   `ghcr.io/ichinya/tg-selfhost-botapi-downloads:build-<downloads-key>`, then promotes
+   their `latest` tags without rebuilding the tested pair.
+   Reused builds also pass the qualification gates before promotion.
 
-Failures before promotion leave the previous `latest` intact. A lost write
-response is UNKNOWN until registry readback reconciles it. Pull requests do not
-publish. Component sender qualification does not establish Telegram delivery.
+The standalone `files.yml` workflow runs full unit discovery on a clean checkout,
+Compose combinations, state isolation, exact-pair integration and docs checks.
+Unavailable local runtime checks are `verification deferred to CI/gates`; CI must
+pass them before image publication. This does not deploy or verify a VPS.
+
+Failed checks leave the previously published `latest` in place. Pull requests do
+not publish. A binary string check is not a live webhook-delivery test.
 
 The workflow needs to be on the default branch before the schedule/publication
 can work. GHCR writes use `GITHUB_TOKEN` with `packages: write`. Configure package
 visibility or client authentication after the first publication.
 
+## Non-root candidate qualification
+
+On a local rootful Linux Docker Engine with a POSIX filesystem, Python 3.11+
+and current Compose v2, run against an explicitly built candidate:
+
+```sh
+python3 tools/check_nonroot_compose.py --deadline 120
+python3 tools/check_nonroot.py --image <candidate> --deadline 1200
+python3 tools/check_migration_volumes.py --require-docker --image <candidate> --receipt /tmp/migration-volume-gate.json
+```
+
+The explicit runner uses random labelled resources, network isolation, synthetic
+credentials, bounded calls and ownership-checked cleanup. It covers root bootstrap
+to `101:101`, explicit `101:101`, `1000:1000` and `1000:2000` (without a passwd
+entry), supplementary groups, PID 1 and token-free HTTP, migration evidence,
+fresh/prepared bind and named volumes, restart/recreate, preserved canaries,
+denied/read-only state and temp, foreign ownership, group access and an unreadable
+binlog actually opened by the server. Compose checks use production files and
+reject missing inputs, backing aliases and `base+files` without the non-root layer.
+
+The media fixture checks inode/GID/modes across an internal temp-to-final rename,
+scoped read-only access by another UID, POSIX write denial independently of the
+read-only mount, and stranger denial. It rejects a download temp on another mount.
+This synthetic fixture demonstrates the permission recipe; source assertions are
+checked against the selected revision in CI. Neither proves a Telegram download.
+Unit tests run without Docker; real-image acceptance, CI and production are separate
+observations. Unavailable checks are NOTRUN: verification deferred to CI/gates.
+Docker Desktop, rootless/user namespaces and network filesystems require separate
+qualification. Never run this harness against production mounts.
+
 ## Update an installation
 
+### Enable split storage / roll back
+
+1. Stop clients, downloads, Bot API writers and any supervisors that restart them.
+   Make a consistent backup of the private state, image identity, Compose/env,
+   secret files and, for an existing split installation, media separately.
+2. In a maintenance window enable the non-root and `docker-compose.files.yml` overlays, retaining the exact
+   qualified image/config. Never copy state/binlogs into media or edit TDLib DB
+   paths by hand. The default transition starts a new media cache.
+   Prepare the new media source for the configured UID/GID as described in Getting started;
+   Compose refuses a missing root.
+3. Re-run getFile for saved file IDs. Verify that each returned path lies in the
+   new media bot subtree, verify bytes/digest, ownership and mount mapping before
+   enabling consumers. If upstream returns an old private path, fail closed and
+   investigate; do not grant access to private state. Old cache/path continuity is
+   not guaranteed. A cold cache move preserving paths needs separate validation
+   for the selected upstream version.
+4. Rollback requires stopping new writers and restoring a mutually compatible
+   image, configuration, private state and old layout from the consistent backup.
+   Restoring an image alone is insufficient. Keep any split media snapshots in
+   sync with state when moving between servers.
+
+Do not recursively chmod/chown the cache or grant world access. Check actual
+TDLib modes and the configured writer UID/GID; give the reader that identity or a specifically
+validated read/traverse ACL. Each handler/reader gets one RO subtree, no parent,
+sibling, private temp/log/secret mounts or nested mounts. The local API and writer
+are trusted; mutually untrusted operators need separate instances/storage.
+
+Rotation replaces the protected Bearer file and restarts downloads. Confirm the
+old credential gets 401 and the new one retrieves synthetic bytes. Cache eviction,
+30s I/O timeout and the total deadline can interrupt transfers; no Range/resume
+or retention SLA is promised. Never paste token-bearing paths into reports.
+
 Registry publication does not restart your VPS. Select a tested tag/digest with
-`BOTAPI_IMAGE` in `.env`, then:
+`BOTAPI_IMAGE` and matching `OBSERVER_IMAGE` in `.env`. Every update command must use exactly the same Compose
+files, in the same order, as the installation. Choose the matching `COMPOSE_FILES`:
 
 ```sh
-docker compose stop botapi
-# Make a consistent backup of ./data and private configuration here.
-docker compose pull botapi
-docker compose up -d --no-deps botapi
-docker compose logs --tail=100 botapi
+# base
+COMPOSE_FILES='-f docker-compose.yml'
+# base + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.build.yml'
+# base + nonroot
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml'
+# base + nonroot + files
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml'
+# base + nonroot + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.build.yml'
+# base + nonroot + files + build
+COMPOSE_FILES='-f docker-compose.yml -f docker-compose.nonroot.yml -f docker-compose.files.yml -f docker-compose.build.yml'
 ```
 
-For a locally built installation, use the build override consistently:
+Select only one line above. Omitting nonroot/files overrides changes the server
+identity back to `101:101`, reconnects state to `./data` and drops the media mount.
+For a registry installation:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml stop botapi
-# Back up ./data and private configuration before replacing the binary.
-docker compose -f docker-compose.yml -f docker-compose.build.yml build botapi
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps botapi
+docker compose $COMPOSE_FILES stop observer botapi
+# Back up the actual state source and private configuration consistently.
+docker compose $COMPOSE_FILES pull botapi observer gateway
+docker compose $COMPOSE_FILES up -d --force-recreate botapi observer gateway
+docker compose $COMPOSE_FILES logs --tail=100 botapi
 ```
 
-Preserve `./data`, ownership `101:101`, the API endpoint and local-mode settings.
+For a local build, replace `pull` with `build` using the same selected files.
+Preserve the actual state source (`$BOTAPI_STATE_SOURCE` for nonroot, `./data`
+for the base model), ownership for the selected server identity (default `101:101`),
+the API endpoint and local-mode settings.
 Do not run two Bot API processes against one data directory. Restoring an old
 image may also require a compatible state backup; image rollback alone is not
 a guarantee.
@@ -211,7 +445,7 @@ CI fetches that exact revision, never master. Source assertions are not runtime 
 
 Use `timeout 420 python3 -m unittest tools.test_webhook_profile_contract tools.test_webhook_profile_ui tools.test_webhook_profile_transport tools.test_webhook_profile_receiver -v` with `PYTHONPATH=.:tools`, Node 24+, Bash 4+, curl, jq and openssl, as a non-root POSIX runner. The 22 shared fixtures execute the shipped inline resolver and Bash jq program; actual HTTP tests parse URL-encoded and multipart bodies, run helper/export, reject mismatched readback and exercise receiver receipts. Privacy canaries cover output, clipboard, public state, reflected API errors and curl argv. The scoped workflow runs the same suite and tracked #10 regressions, with a separate pinned-source sender job. Existing untracked issue7 drafts and Node 20 workflows are not dependencies.
 
-Image/default upstream logger qualification, multipart through shipped nginx, a C++ sender harness, Jekyll rendered checks and real Telegram delivery remain explicit external gates. Unavailable execution is NOTRUN: verification deferred to CI/gates. This change does not claim global upstream debug/VLOG redaction (#17); keep verbosity low and separately qualify default logs before deployment.
+Image/default upstream logger qualification, multipart through shipped nginx, a C++ sender harness, Jekyll rendered checks and real Telegram delivery remain explicit external gates. Unavailable execution is NOTRUN: verification deferred to CI/gates. Own builds use issue17-v1 fixed log projection before file/memory storage; qualify the exact image before deployment.
 
 ### Private migration evidence
 
@@ -227,7 +461,7 @@ An active/stale lock, unfinished intent, UNKNOWN authenticated attempt or partia
 migration blocks the next run before HTTP. Stop and inspect independent evidence;
 there is no automatic unlock, retry or resume. Schema v1 is an input contract for
 an explicit future #2 adapter, not that issue's final durable journal. See
-[outcomes and private diagnostics](migration.md#outcomes-and-private-diagnostics).
+[failures and bounded transport](migration.md#failures-and-bounded-transport).
 
 For manual recovery, stop every helper, reconcile all attempts with independent
 evidence, and decide the safe next procedure. Archive the complete dossier in an
@@ -236,17 +470,274 @@ directories and a stale lock. Keep the archive until resolution. A lock must
 never be removed merely to retry an unknown request. An unfinished token-free
 probe without a surviving lock does not block; authenticated unfinished attempts do.
 
+## Operational status schema v1
 
-## Multi-platform inputs
+The observer exposes independent `process`, `migration`, `webhook`, `queue`,
+`storage` and `image` observations. Each has a fixed source, state, reason,
+UTC `observed_at` and age in seconds. Unknown counts are null, never implied zero.
+Process readiness does not establish migration completion or webhook delivery.
+The public JSON schema is `tools/observability/status.schema.json`; unknown fields,
+invalid integers, future timestamps and oversized documents are rejected.
 
-The image input snapshot records exactly `linux/amd64` and `linux/arm64`, the source revision, Alpine index and platform children, recipe bytes and qualification policy. Save it with `python3 tools/image_inputs.py --output snapshot.json`; validate saved inputs with `--input snapshot.json --snapshot-hash <hash>`. JSON is transferred as an artifact, while CLI outputs remain scalar key=value. Cache reuse is distinct from release qualification. These inputs alone do not prove a released ARM64 image.
+## Host runtime producer
 
-`tools/multiarch_verify.py` validates ELF64 little-endian machine IDs 62/183, the exact User-Agent marker, source/base/K/policy labels, and remote child/config digest binding. A release index must contain exactly the two runnable platforms; extra children and attestations are rejected. Config ID, archive SHA256, child digest and index digest are separate identities. Offline fixture success does not establish native execution.
+Storage and image identity come from a trusted Python 3 host CLI, not the HTTP
+observer. With the same project name/files as deployment, run:
 
-Native qualification checks host and daemon CPU, version and ELF, then normal entrypoint ownership and exact direct/gateway `404` JSON (`ok:false`, `error_code:404`, `description:Not Found`) on an internal network. The sender-test target shares the runtime production objects: its loopback receiver requires one exact User-Agent, nonce POST and queue acknowledgement, followed by a failing wrong-UA control. Synthetic credentials and temporary resources are used. Sender images are retained by digest for reuse. Component qualification is separate from Telegram end-to-end delivery.
+```sh
+python3 tools/observe_runtime.py --project-directory "$PWD" --file docker-compose.yml --file docker-compose.build.yml --watch
+```
 
-The image workflow prepares one snapshot and requires two independent native jobs: `ubuntu-24.04` for linux/amd64 and `ubuntu-24.04-arm` for linux/arm64. Each fresh runtime is built cold with two build jobs and a 180-minute budget; QEMU is not a release fallback. Matrix jobs have read-only package access. Runner availability and the first successful ARM64 release still require CI evidence.
+Prepare `.observability/runtime` as an owned 0755 directory. Atomic 0644 status.json
+is mounted read-only; output contains no paths, environment or raw inspect fields.
+The producer selects exactly one Bot API, reads PID 1 flags and effective UID/GID,
+gets filesystem metadata for actual work/temp, binary version and actual image
+metadata, then rechecks container identity. Custom unsupported images fail closed.
+Filesystem IDs let you recognize work/temp on the same filesystem: do not sum them.
+Available inodes can be null; capacity is not a quota or write-readiness check.
+Local builds may have no registry digest. Binary version, source revision, build
+key, image ID and digest are distinct. Without a successful producer they are
+unknown; after 90 seconds the snapshot is stale. Health remains independent.
 
-Only the publisher has registry write permission. It validates both native receipts and archives, loads the exact runtime and sender images, rechecks ELF/config identities, pushes unique candidate refs and checks the full index before release tags. `build-<K>` is a complete immutable index; `latest` is updated once from that index digest. Existing K requires retained successful default-branch Actions compilation evidence plus new native runtime/sender checks; missing proof, auth errors or timeouts stop release. Lost write responses require readback reconciliation. Qualification receipts are retained for 90 days, archives for two days; the sender image is retained by registry digest for reuse. Current default-branch HEAD is checked before writes. A GHCR release does not deploy a VPS.
+For supervision, install an operator-owned systemd service with `Type=simple`,
+`WorkingDirectory=/opt/tg-selfhost-botapi`, `ExecStart=/usr/bin/python3 /opt/tg-selfhost-botapi/tools/observe_runtime.py --project-directory /opt/tg-selfhost-botapi --file docker-compose.yml --file docker-compose.build.yml --watch`,
+`Restart=on-failure`, `RestartSec=5`, `UMask=0077`; run as the trusted Docker-capable
+host account and enable with `systemctl enable --now botapi-observation.service`.
+Alternatively use a oneshot service with the same command without --watch and a
+timer `OnBootSec=30`, `OnUnitActiveSec=30`. Docker access grants host privileges;
+never mount its socket in observer. A manual oneshot needs regular renewal.
 
-Offline acceptance: 51 scoped tests (including fault injection and patch regression), both synthetic Compose configurations and `git diff --check` passed locally. Receipts retain source revision, patch hash, clean submodule identities and rootfs; raw descriptor sizes are checked. Native cold/warm builds, registry integration/reuse/promotion, fresh Jekyll and post-merge release readback are NOTRUN: `verification deferred to CI/gates` (release readback: `verification deferred to CI/post-merge`). Local Docker build-check was denied access to its external buildx lock and was not retried.
+## Candidate-pair acceptance
+
+The build key covers every observer Python module, JSON schema, health helper and
+Docker/Compose/nginx recipe. CI resolves a digest-pinned Python observer base,
+loads both exact candidates and checks their shared build-key labels. Reuse still
+requires a fresh pair qualification; a missing image is built and the complete
+pair is tested before publication. PRs never publish. `build-<key>` and
+`observer-build-<key>` are immutable deployment inputs; latest aliases are promoted
+only after gates and their promotion is not atomic.
+
+Run the isolated gate explicitly with `python3 tools/check_observability.py
+--botapi-image botapi-candidate:check --observer-image observer-candidate:check`.
+It creates a random internal Docker network, uses synthetic inputs, tests mock
+privacy and actual root/manager/helper behavior, and removes its own containers.
+`python3 tools/check_stats_source.py <upstream-checkout>` checks the reviewed source
+fragments of the exact candidate revision. A changed format requires review.
+Actual image build/smoke, POSIX producer/file gates, CI/Jekyll/Kuma and production
+have not been executed in this Windows implementation pass: verification deferred
+to CI/gates. Mock tests do not establish privacy of an actual Bot API logging
+configuration. Keep authenticated polling disabled until that deployment's
+synthetic token privacy gate has passed at its supported verbosity.
+
+## Opt-in webhook diagnostics
+
+Polling is disabled with an empty OBSERVER_REGISTRY. To enable it, first run the
+host runtime producer and copy its current `.image.instance` into a private
+`registry.json` under `.observability/registry` (file mode 0600, owner 101:101):
+
+```json
+{"schema_version":1,"enabled":true,"instance":"<64 hex characters from the fresh runtime snapshot>","allow_unobserved_migration":false,"bots":[{"alias":"public_label","credential_file":"bot.json"}]}
+```
+
+Store `{"token":"<BOT_TOKEN>"}` in `.observability/credentials/bot.json`, mode 0600,
+owner 101:101, then set `OBSERVER_REGISTRY=/inputs/registry/registry.json`.
+Aliases are public `[A-Za-z0-9][A-Za-z0-9_-]{0,31}` labels; never use a secret as a
+label. The target is fixed to the local Bot API bind/port. No cloud fallback or
+autodiscovery exists. Stats never provide credentials. With a migration producer,
+set `OBSERVER_MIGRATION_DIR=/inputs/migration`: only fresh, confirmed finished
+operations allow polling. Without a producer, `allow_unobserved_migration=true`
+is a separate explicit ownership opt-in and requires pausing before every move.
+Disable `enabled`, wait at least 60 seconds for in-flight bounded requests to
+finish, and pause before migration. It is not a cross-host lock. Recreate changes
+the instance; old confirmation stops working. Refresh host metadata, reconcile
+migration, then explicitly update instance and enable. Replace private files
+atomically for rotation; mount directories so rename is visible.
+After observer restart, the worker stays closed until the first later runtime snapshot.
+
+The worker polls only getWebhookInfo, every 60 seconds, at most four concurrently,
+with a 2-second request deadline and no immediate retries (including 429). Public
+results contain mode, registered pending count, historical error time/category
+and synchronization error time; no URL/IP/header/raw error text. Delivery remains
+not_observed. Run the synthetic actual-image logging privacy gate before enabling.
+
+## Uptime Kuma
+
+Create two HTTP(s) GET monitors against your private management ingress:
+
+- `Bot API liveness`: `http://127.0.0.1:18081/health/live`.
+- `Bot API infrastructure readiness (HTTP handler / manager if enabled)`:
+  `http://127.0.0.1:18081/health/ready`.
+
+For both: accepted status **200 only**, timeout **5 seconds**, heartbeat interval
+**60 seconds**, retries **2**, redirects **off**. No bot token or webhook secret.
+A remote Kuma must use a protected HTTPS ingress, VPN or tunnel with its own access
+control. In a Kuma container, 127.0.0.1 means Kuma itself: configure and verify its
+reachable private management ingress hostname/port. Never use raw 8082 or publish
+8090. HTTP 200 `/status` does not mean every component is UP; optional JSON checks
+must inspect the relevant section and freshness under schema_version 1.
+
+Expected interpretations: process ready + migration unknown is valid; historical
+webhook error is not current DOWN; growing sampled backlog is a lower-bound trend;
+stats disabled yields unknown queue, not zero; stale runtime means disk/image
+unknown for current decisions. Polling mode does not establish a live consumer.
+No URL, zero pending count, absent error or migration completion confirms delivery.
+Only an independently authorized update and recipient evidence can do that.
+
+Acceptance on an isolated deployment: record the Kuma version and configured
+private endpoints/settings; observe UP, stop Bot API and observe DOWN, recreate
+the complete pair and gateway and observe UP. Separately stop observer to
+distinguish its failure. This manual Kuma acceptance is NOTRUN in this pass.
+
+## Updating and rollback of the pair
+
+Pin BOTAPI_IMAGE to `build-<key>` and OBSERVER_IMAGE to `observer-build-<same-key>`
+or their exact digests. Keep the same project and Compose overrides throughout:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.observability.yml pull botapi observer gateway
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --force-recreate botapi observer gateway
+```
+
+For local builds include `docker-compose.yml`, `docker-compose.build.yml`, `docker-compose.observability.yml` and `docker-compose.observability.build.yml` on
+build/up. Recreate observer whenever its namespace owner changes; recreate gateway
+to refresh routing. Rollback selects the previous compatible pair and follows the
+same procedure, with a compatible state backup when needed. A botapi-only
+--no-deps update is incomplete. Docker unhealthy is a signal, not automatic restart
+or recovery. Recheck health, source freshness and ownership after every replacement.
+
+## Isolated mock walkthrough
+
+Use Linux/WSL and the following loopback-only fixture. It cannot send requests
+to Telegram. Each scenario starts fresh fixture servers and private state; this
+is not a recovery recipe for a real bot. Set `MIGRATION_FIXTURE_DIRECTION` to
+one of the four direction names before starting. Complete within the evidence
+TTL (five minutes), otherwise restart the fixture for a new isolated scenario.
+
+```sh
+umask 077
+PYTHONPATH=tools python3 - <<'PY'
+import json, os, tempfile
+from pathlib import Path
+from migration_mock import Bot, TOKEN, deployment
+from migration_helper import Application, Server, write_bootstrap
+root = Path(tempfile.mkdtemp(prefix="botapi-fixture-"))
+source, target = Bot("source"), Bot("target")
+direction = os.environ.get("MIGRATION_FIXTURE_DIRECTION", "cloud_to_local")
+endpoint = source.endpoint if direction == "webhook_only" else target.endpoint
+evidence = root / "deployment.json"
+record = deployment(endpoint)
+record["local_mode"] = direction != "local_to_cloud"
+evidence.write_text(json.dumps(record))
+evidence.chmod(0o600)
+app = Application({"state_dir": str(root / "state"), "allowed_endpoints": [source.endpoint, target.endpoint],
+                   "evidence_file": str(evidence), "trust_file": None, "fixture": True})
+server = Server(app, 8765)
+pairing = root / "pairing-code"
+write_bootstrap(pairing, server.bootstrap, [root / "state"])
+print("Synthetic fixture only:", server.origin, "private pairing file:", pairing, flush=True)
+print("Synthetic source/target ready; private inputs withheld", flush=True)
+print("Retained fixture authority:", root, flush=True)
+try:
+    server.serve_forever()
+except KeyboardInterrupt:
+    pass
+finally:
+    server.server_close(); app.close(); target.close(); source.close()
+PY
+```
+
+1. Read the one-time code privately from the pairing file. Enter the printed fixture endpoints/
+   synthetic token, matching direction/mode, explicit polling and quiescence JSON
+   `"fixture"`. Local → Cloud also selects queue acknowledgement and cooldown 0.
+2. Plan, review the digest, then Apply. Confirm source detach precedes target
+   authorization. The migration remains partial until endpoint/start checkpoints.
+3. Enter `"fixture"` for endpoint-change and application-start receipts, then
+   Resume. Keep delivery as NOTRUN until a separate receiver receipt is imported.
+4. For Local → Local, execution first blocks after close. A fixture transfer
+   receipt needs exact operation_id/digest/close_attempt/source_fingerprint/
+   target_fingerprint, target_deployment equal to the plan deployment fingerprint,
+   matching 64-hex source_manifest/target_manifest, a 64-hex source_deployment,
+   uid/gid 1000, current observed_at and true source_closed/no_writers/layout_valid.
+   This tests the attestation boundary, not a real TDLib directory transfer.
+5. Reload the browser and read status. Repeated Resume does not increase confirmed
+   mutation counters. Automated fault tests separately inject lost responses.
+
+Provision real providers in a private `MIGRATION_TRUST_FILE` with shape
+`{"providers":{"audit":{"key_hex":"<private-64-hex-key>","kinds":["quiescence","effect","endpoint_change","application_start","state_transfer","delivery"],"fixture":false}}}`.
+A signed envelope has provider/payload/signature. Signature is HMAC-SHA256 of
+canonical sorted compact ASCII JSON payload using that independent key. Common
+payload fields: version 1, kind, operation_id, digest, source_fingerprint,
+target_fingerprint, token_fingerprint and observed_at. Quiescence additionally
+requires no_writers=true; endpoint/start require endpoint_fingerprint. Provider
+implementations must verify the external facts before signing. No provider is
+trusted by default, and fixture providers cannot attest real operations.
+`public-manifest.json` is the only shareable helper diagnostics file. Never archive the private dossier recursively; failed cleanup requires private reconciliation.
+Gateway diagnostics use fixed access status/timing records. Request-bearing nginx error logs are discarded; external proxies require separate verification.
+Native privacy acceptance requires the exact own build/digest, source-linked driver and actual binary checks. Policy issue17-v1 replaces native log text with fixed severity labels before file/memory storage. The source driver is not end-to-end webhook delivery evidence.
+
+### Issue #17 exact-candidate gates
+
+Run `python3 tools/issue17_security_gate.py --unit` in a clean committed checkout.
+Use `--runtime` for disposable Compose/entrypoint/gateway tests and `--image
+botapi-candidate:check --expected-build-key BUILD_KEY` for the exact native image.
+The image workflow requalifies reused immutable tags before promotion. A missing
+policy label, driver, positive HTTP/log control or required runner blocks success.
+Only sanitized manifests are uploaded. Linux permissions, full clean discovery,
+Docker/native image and Pages builds are separate checks. If unavailable locally,
+record NOTRUN: verification deferred to CI/gates; synthetic tests never deploy or
+contact a real Telegram bot. An external deployment needs separate authorization.
+
+
+## Shell export regression gate
+
+Run the issue #8 matrix on Linux/WSL as a non-root user with Bash 4+, Python
+3.11+, Node 24+, jq, curl and openssl:
+
+```sh
+PYTHONPATH=.:tools python3 -m unittest discover -s tools -p 'test_issue8_shell_safety.py' -v
+python3 tools/check_migration_checkout.py
+python3 tools/check_migration_safety.py --require-posix
+```
+
+The suite uses synthetic `.invalid` inputs, an offline curl executable and a
+separate loopback HTTP peer. Captures remain in private temporary directories.
+The required gate fails on skips or missing runtimes. Windows skips and local
+NOTRUN results mean verification deferred to CI/gates. After merge, check the
+published root migrator URL and its byte equality separately; branch tests do
+not establish deployment or real-bot delivery.
+
+### Audit: existing gateway installation
+Inspect the effective Compose model, container mounts and published listeners before upgrading. Only configuration and dedicated spool storage belong in the gateway; no state, media, secret or Docker socket mount. Use `python3 tools/check_file_contract.py --state-isolation-only` with synthetic data. Check `/file`, encoded/traversal variants and management paths on the API listener; compare responses with sentinel bodies. Default host bindings stay loopback. External access requires TLS and an instance access policy.
+If a probe proves disclosure, restrict access first, revoke affected credentials and retain sanitized evidence privately. A historical unsafe configuration alone does not prove a leak.
+
+### New private surfaces
+Provider keys, helper bootstrap codes, journal authority and raw receiver evidence stay outside checkout and web roots in operator-owned private files. Provider reports expose fixed reason codes, IDs/hashes and outcomes only. Existing issue17 exact-image gates remain mandatory for nginx/Bot API logs, image layers and rendered site. Added static-entry and full-profile export canaries do not substitute for runtime privacy acceptance.
+
+### Reviewed inputs and APK refresh
+Adoption: PR #38 policy/validator is rebased onto the PR #44 recipe; the reviewed source/base values come from PR #42's public candidate lock. Daily UTC window plus policy generation enters the build identity before registry lookup. Raise generation for an emergency refresh. Every APK stage consumes the same APK_REFRESH_ID and upgrades inherited packages; package inventories remain inside the exact image. Downloads uses a Debian base and has a separate identity without the daily APK window.
+PR #42's competing single-architecture release publisher is superseded here because it would replace PR #44 and conflict with native multiarch qualification. The existing publisher remains the sole authority; selected_release stays null. Snapshot source/base changes require review and qualification; resolving upstream master alone cannot select a deployment. OCI source version and wrapper revision are distinct. Mutable mirrors do not promise bit-for-bit rebuilds.
+
+### Native qualification candidate
+PR #37 production sender harness is adopted. Both native amd64 and arm64 jobs build the same reviewed source/patches and run existing exact-image privacy/storage/file/observer gates plus actual production sender/ACK. Promotion consumes only the two successful receipts of the same workflow run, source, base and APK window. No QEMU runtime acceptance is claimed. The openat2 ABI allowlist includes arm64; support remains unqualified until the native confinement matrix passes. Actual full-image Telegram update delivery remains NOTRUN separately from synthetic sender delivery.
+
+### Cold backup, update and rollback
+PR #42 cold-backup validator and shutdown observation primitives are adopted; no second restore system is introduced. Gateway startup waits for botapi service_healthy. Initial shutdown budget is 120s; measure SIGTERM/flush on representative synthetic state before changing it.
+1. Quiesce every application writer. Stop the selected Bot API instance with `docker compose stop -t 120 botapi`; retain private Docker events/inspect evidence of SIGTERM, exit 0 and no SIGKILL/OOM.
+2. While stopped, archive each dedicated state/media root and private configuration separately using `tar --numeric-owner -cpf`. Record one snapshot ID, image receipt/config hashes, archive SHA256, mapping and ownership. A live copy is not a consistent backup.
+3. Validate with `python3 tools/check_issue12_restore.py --manifest /private/backup.json --archive-directory /private/archives`. Provision empty dedicated restore roots, validate archive member paths/types, then restore numeric owners and permissions. Never unpack an unvalidated archive into production roots.
+4. Start the exact saved image/overrides on the isolated restore instance, check token-free readiness, file hashes/ownership and restart. Record a separate runtime receipt.
+5. Update only after the rehearsal. Downgrade compatibility is not guaranteed: rollback uses the matching stopped snapshot and private configuration; do not mix newer database files into old state. Observer stays opt-in.
+
+### Doctor scope after adapter migration
+Doctor remains token-free and never checks bot authorization or Telegram delivery. Reports now name the canonical Python Bash adapter and same-origin helper. Mount permissions, image identity and actual runtime evidence retain FAILED/UNKNOWN distinctions; missing Docker/kernel/provider evidence cannot produce readiness PASS. Custom binary port checks remain separate from the fixed 8081 Compose bundle. Use a selected-stack synthetic fixture, never a production bot, for runtime diagnostics.
+
+### Kuma acceptance
+Enable the existing observability overlay explicitly. Kuma probes the private token-free /health/live and /health/ready endpoints on the permitted management network; failed or stale upstream/observer inputs must remain not ready. Live does not mean ready or Telegram delivery. The API listener must deny management routes. Raw statistics and bot/user/chat identifiers never become public labels or status fields. Repeat check_observability.py against the exact Bot API/observer pair after updates; disabled statistics is a supported state, not missing authorization.
+
+### Authoritative adapter documentation
+The migration guide sections titled Explicit full webhook input, Recovery authority, Bash entry and legacy recovery, Published migrator URL and Bounded Compose checkpoints describe the current Python authority. Earlier raw-curl diagnostics are historical tools and cannot resume an engine operation or certify a migration.
+
+### Reviewed optional local build
+From a committed checkout, run `python3 tools/image_inputs.py --build-env /private/build.env` once. The file contains only public reviewed build arguments, not API credentials. Then use `docker compose --env-file .env --env-file /private/build.env -f docker-compose.yml -f docker-compose.build.yml up -d --build`. Add the corresponding observability/downloads build overlays only when selected; reuse the same build.env. Without APK_REFRESH_ID the build overlay fails before building, avoiding silently stale local APK layers. Default pull-based installation still needs only API_ID/API_HASH.
+
+Doctor inspects actual image architecture, wrapper revision and APK-generation labels. Missing metadata remains UNKNOWN; labels do not prove native runtime, confinement or package freshness. These additional metadata checks are advisory for existing installations; unsupported observed platforms are blocking.

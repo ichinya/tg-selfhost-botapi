@@ -12,6 +12,12 @@ import doctor
 
 
 class ConfigTests(unittest.TestCase):
+    def test_files_directory_must_come_from_observed_flags(self):
+        from doctor_checks import process_flags
+        self.assertNotIn('files-dir', process_flags(['--dir=/state']))
+        with self.assertRaises(ValueError):
+            process_flags(['--files-dir=/a', '--files-dir=/b'])
+
     def test_unsupported_compose_json_is_invocation_error(self):
         class Runner:
             def run(self, argv):
@@ -36,6 +42,8 @@ class ConfigTests(unittest.TestCase):
                                 ({"TELEGRAM_LOCAL": "yes"}, "invalid_boolean"),
                                 ({"TELEGRAM_API_ID": "3000..."}, "placeholder_setting")]:
             self.assertIn(reason, [c["reason_code"] for c in settings_checks(env | changes)])
+        for port in ('08082', '08090'):
+            self.assertIn('port_conflict', [c['reason_code'] for c in settings_checks(env | {'TELEGRAM_HTTP_PORT': port})])
 
     def test_file_and_explicit_command(self):
         env = self.env() | {"TELEGRAM_API_HASH": "", "TELEGRAM_API_HASH_FILE": "/secret"}

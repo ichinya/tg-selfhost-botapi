@@ -2,6 +2,16 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import unittest
+
+
+class FileContractBoundaryTests(unittest.TestCase):
+    def test_remote_claim_remains_unknown(self):
+        from doctor_checks import migration_checks
+        checks = migration_checks('official-to-self', {'schema_version': 1, 'file_access': 'remote_authenticated'})
+        item = next(c for c in checks if c['id'] == 'migration.file_access')
+        self.assertEqual('unknown', item['status'])
+        self.assertIn('check_file_contract.py', item['remediation'])
+
 import contextlib
 import io
 import json
@@ -58,7 +68,7 @@ class MigrationTests(unittest.TestCase):
 
     def test_helpers_are_not_certified(self):
         result = report("self-to-official", migration_checks("self-to-official", self.complete()))
-        self.assertEqual("not_certified", result["migration"]["executor_support"]["helpers"])
+        self.assertEqual("runtime_acceptance_required", result["migration"]["executor_support"]["helpers"])
         self.assertIn("authorize_cloud", pending_actions("self-to-official"))
 
     def test_private_json_errors_are_usage_errors_and_redacted(self):

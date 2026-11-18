@@ -6,12 +6,22 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from doctor_checks import mount_for, capacity
+from doctor_checks import mount_for, capacity, media_conflicts
 from doctor_runtime import WRITE_PROBE, STORAGE_METADATA, Installation, Budget, mount_accounting
 from doctor import parser
 
 
 class StorageTests(unittest.TestCase):
+    def test_media_namespace_and_backing_boundaries(self):
+        mounts = [dict(Destination='/state', Source='/host/private'),
+                  dict(Destination='/media', Source='/host/media')]
+        self.assertFalse(media_conflicts('/media', ['/state', '/temp'], mounts))
+        self.assertTrue(media_conflicts('/media', ['/media/log'], mounts))
+        mounts[1]['Source'] = '/host/private'
+        self.assertTrue(media_conflicts('/media', ['/state'], mounts))
+        mounts[1]['Source'] = '/host/private-sibling'
+        self.assertFalse(media_conflicts('/media', ['/state'], mounts))
+
     @unittest.skipUnless(os.name == "posix", "POSIX probe primitive")
     def test_real_probe_cleans_only_its_file(self):
         with tempfile.TemporaryDirectory() as directory:

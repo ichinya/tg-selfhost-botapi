@@ -1,270 +1,300 @@
 name: Bot API image
 
 on:
-  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
   schedule:
+    # 04:37 Asia/Yekaterinburg; Actions may delay scheduled runs.
     - cron: '37 23 * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'botapi-image-release' || format('botapi-image-{0}', github.ref) }}
+  group: botapi-image-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    outputs:
+      inputs_at: ${{ steps.clock.outputs.inputs_at }}
+    steps:
+      - name: Fix the input time for both architectures
+        id: clock
+        run: echo "inputs_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: prepare
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            host: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            host: aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      BUILD_PLATFORM: linux/${{ matrix.arch }}
+      BUILD_INPUTS_AT: ${{ needs.prepare.outputs.inputs_at }}
+    timeout-minutes: 180
     permissions:
       contents: read
-      packages: read
-      actions: read
-    outputs:
-      snapshot_hash: ${{ steps.inputs.outputs.snapshot_hash }}
-      build_key: ${{ steps.inputs.outputs.build_key }}
-      bot_api_revision: ${{ steps.inputs.outputs.bot_api_revision }}
-      alpine_image: ${{ steps.inputs.outputs.alpine_image }}
-      verification_contract: ${{ steps.inputs.outputs.verification_contract }}
-      mode: ${{ steps.mode.outputs.mode }}
-      release: ${{ steps.release.outputs.enabled }}
+      packages: write
     steps:
       - uses: actions/checkout@v7
+      - name: Require native host and daemon
+        run: |
+          test "$(uname -m)" = "${{ matrix.host }}"
+          test "$(docker info --format '{{.Architecture}}')" = "${{ matrix.host }}"
       - uses: docker/setup-buildx-action@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-      - name: Install POSIX test prerequisites
+          package-manager-cache: false
+      - name: Install migration test prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y bash curl jq
-      - name: Common regression gates
+          command -v bash
+          python3 --version
+          node --version
+          python3 -c 'import os, pty; master, slave = pty.openpty(); os.close(master); os.close(slave)'
+      - name: Test build input handling
         timeout-minutes: 11
         run: timeout 600 python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Check Compose
         env:
           API_ID: '12345'
           API_HASH: test-placeholder
+          APK_REFRESH_ID: v1-2000-01-01-g0
         run: |
           docker compose config --quiet
           docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
-      - name: Resolve one immutable snapshot
-        id: inputs
-        run: python3 tools/image_inputs.py --output snapshot.json >> "$GITHUB_OUTPUT"
-      - name: Set release eligibility
-        id: release
-        env:
-          ELIGIBLE: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-        run: echo "enabled=$ELIGIBLE" >> "$GITHUB_OUTPUT"
-      - name: Default to a cold build (PR has no registry access)
-        run: printf '%s\n' '{"mode":"build","qualification":null}' > plan.json
-      - name: Find a complete trusted existing qualification
-        if: steps.release.outputs.enabled == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SNAPSHOT_HASH: ${{ steps.inputs.outputs.snapshot_hash }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          python3 tools/multiarch_qualify.py plan --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
-            --plan plan.json
-      - name: Export preparation mode
-        id: mode
-        run: python3 -c 'import json; print("mode=" + json.load(open("plan.json"))["mode"])' >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: inputs-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            snapshot.json
-            plan.json
-          retention-days: 90
-          if-no-files-found: error
-
-  native:
-    needs: prepare
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            arch: amd64
-            runner: ubuntu-24.04
-          - platform: linux/arm64
-            arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
-    permissions:
-      contents: read
-      packages: read
-    env:
-      SNAPSHOT_HASH: ${{ needs.prepare.outputs.snapshot_hash }}
-      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      ARCH: ${{ matrix.arch }}
-      DOCKER_BUILD_RECORD_RETENTION_DAYS: '90'
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-        with:
-          driver-opts: |
-            memory=6g
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: inputs-${{ github.run_id }}-${{ github.run_attempt }}
-      - name: Read-only GHCR login for verified reuse
-        if: needs.prepare.outputs.mode == 'reuse' && needs.prepare.outputs.release == 'true'
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate snapshot and native CPU; pull exact child if reusing
+      - name: Resolve immutable upstream inputs
+        id: inputs
         run: |
-          python3 tools/multiarch_qualify.py prepare --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
-            --plan plan.json --arch "$ARCH" --directory "artifacts/$ARCH"
-          vmstat -w 5 > "artifacts/$ARCH/resources.log" &
-          echo "$!" > resource-monitor.pid
-      - name: Cold build (patch and full CMake must succeed)
-        id: build
-        if: needs.prepare.outputs.mode == 'build'
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          target: runtime
-          platforms: ${{ matrix.platform }}
-          load: true
-          push: false
-          provenance: false
-          sbom: false
-          no-cache: true
-          tags: botapi-candidate:check
-          cache-from: type=gha,scope=botapi-${{ matrix.arch }}-${{ needs.prepare.outputs.verification_contract }}
-          cache-to: type=gha,mode=max,scope=botapi-${{ matrix.arch }}-${{ needs.prepare.outputs.verification_contract }}
-          build-args: |
-            BOT_API_REVISION=${{ needs.prepare.outputs.bot_api_revision }}
-            ALPINE_IMAGE=${{ needs.prepare.outputs.alpine_image }}
-            BUILD_FINGERPRINT=${{ needs.prepare.outputs.build_key }}
-            PLATFORM_SET=linux/amd64,linux/arm64
-            VERIFICATION_CONTRACT=${{ needs.prepare.outputs.verification_contract }}
-            BUILD_JOBS=2
-      - name: Build test target from the same compiled production objects
-        id: sender_build
-        if: needs.prepare.outputs.mode == 'build'
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          target: sender-test
-          platforms: ${{ matrix.platform }}
-          load: true
-          push: false
-          provenance: false
-          sbom: false
-          no-cache: false
-          tags: botapi-sender:check
-          cache-from: type=gha,scope=botapi-${{ matrix.arch }}-${{ needs.prepare.outputs.verification_contract }}
-          cache-to: type=gha,mode=max,scope=botapi-${{ matrix.arch }}-${{ needs.prepare.outputs.verification_contract }}
-          build-args: |
-            BOT_API_REVISION=${{ needs.prepare.outputs.bot_api_revision }}
-            ALPINE_IMAGE=${{ needs.prepare.outputs.alpine_image }}
-            BUILD_FINGERPRINT=${{ needs.prepare.outputs.build_key }}
-            PLATFORM_SET=linux/amd64,linux/arm64
-            VERIFICATION_CONTRACT=${{ needs.prepare.outputs.verification_contract }}
-            BUILD_JOBS=2
-      - name: Verify ELF/config/version/UA and ordinary entrypoint/gateway
+          python3 tools/image_inputs.py --as-of "$BUILD_INPUTS_AT" \
+            --snapshot "$RUNNER_TEMP/image-inputs.json" >> "$GITHUB_OUTPUT"
+      - name: Check previously published build
+        id: existing
         env:
-          BUILD_RESULT: ${{ steps.build.outcome }}
-          BUILD_METADATA: ${{ steps.build.outputs.metadata }}
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          python3 tools/multiarch_qualify.py verify --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
-            --plan plan.json --arch "$ARCH" --directory "artifacts/$ARCH"
-      - name: Stop resource monitor
-        if: always()
+          image="ghcr.io/${REPOSITORY,,}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "$image:build-$BUILD_FINGERPRINT-${{ matrix.arch }}" --format '{{json .Manifest}}' > registry-manifest.json 2>registry-error.txt; then
+            digest="$(python3 -c 'import json,re; value=json.load(open("registry-manifest.json"))["digest"]; assert re.fullmatch("sha256:[0-9a-f]{64}", value); print(value)')"
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          else
+            # A missing/private package also fails inspection on the first build.
+            # Never treat an unconfirmed registry response as a successful build.
+            cat registry-error.txt >&2
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+          if docker buildx imagetools inspect "$image:observer-build-$BUILD_FINGERPRINT-${{ matrix.arch }}" >/dev/null 2>/dev/null; then
+            echo 'observer_exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'observer_exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check reviewed statistics source for candidate revision
+        env:
+          REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
         run: |
-          if [ -f resource-monitor.pid ]; then kill "$(cat resource-monitor.pid)" || true; fi
-      - name: Save reports
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+          git init .stats-source
+          git -C .stats-source remote add origin https://github.com/tdlib/telegram-bot-api.git
+          git -C .stats-source fetch --depth 1 origin "$REVISION"
+          git -C .stats-source checkout --detach FETCH_HEAD
+          python3 tools/check_stats_source.py .stats-source
+      - name: Build candidate (patch must apply)
+        if: steps.existing.outputs.exists != 'true' || github.event_name == 'pull_request'
+        uses: docker/build-push-action@v7
         with:
-          name: report-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            artifacts/${{ matrix.arch }}/receipt.json
-            artifacts/${{ matrix.arch }}/resources.log
-          retention-days: 90
-      - name: Transfer exact checked image to publisher
-        if: needs.prepare.outputs.release == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          push: false
+          tags: botapi-candidate:check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BOT_API_REVISION=${{ steps.inputs.outputs.bot_api_revision }}
+            ALPINE_IMAGE=${{ steps.inputs.outputs.alpine_image }}
+            BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
+            APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
+            BOT_API_VERSION=${{ steps.inputs.outputs.bot_api_version }}
+            WRAPPER_REVISION=${{ github.sha }}
+            BUILD_JOBS=1
+      - name: Load existing immutable candidate
+        if: steps.existing.outputs.exists == 'true' && github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ steps.existing.outputs.image }}
+          DIGEST: ${{ steps.existing.outputs.digest }}
+        run: |
+          docker pull --platform linux/${{ matrix.arch }} "$IMAGE@$DIGEST"
+          docker tag "$IMAGE@$DIGEST" botapi-candidate:check
+      - name: Build observer candidate
+        if: steps.existing.outputs.observer_exists != 'true' || github.event_name == 'pull_request'
+        uses: docker/build-push-action@v7
         with:
-          name: image-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/${{ matrix.arch }}/
-          compression-level: 0
-          retention-days: 2
-          if-no-files-found: error
+          context: .
+          file: tools/observability/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          push: false
+          tags: observer-candidate:check
+          build-args: |
+            OBSERVER_BASE=${{ steps.inputs.outputs.observer_base }}
+            APK_REFRESH_ID=${{ steps.inputs.outputs.apk_refresh_id }}
+            WRAPPER_REVISION=${{ github.sha }}
+            BUILD_FINGERPRINT=${{ steps.inputs.outputs.build_key }}
+      - name: Load reusable candidates and verify pair labels
+        env:
+          IMAGE: ${{ steps.existing.outputs.image }}
+          KEY: ${{ steps.inputs.outputs.build_key }}
+          OBS_EXISTS: ${{ steps.existing.outputs.observer_exists }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ] && [ "$OBS_EXISTS" = true ]; then
+            docker pull "$IMAGE:observer-build-$KEY-${{ matrix.arch }}"
+            docker tag "$IMAGE:observer-build-$KEY-${{ matrix.arch }}" observer-candidate:check
+          fi
+          for image in botapi-candidate:check observer-candidate:check; do
+            test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$image")" = "$KEY"
+          done
+      - name: Smoke-test built binary
+        shell: bash
+        run: |
+          docker run --rm --network none botapi-candidate:check --version
+          docker run --rm --network none botapi-candidate:check --help
+          docker run --rm --network none --entrypoint cat botapi-candidate:check \
+            /usr/local/bin/telegram-bot-api | python3 tools/multiarch_verify.py '${{ matrix.arch }}'
+          docker run --rm --network none --entrypoint sh botapi-candidate:check -ec \
+            'sh -n /docker-entrypoint.sh'
+      - name: Check selected source media semantics
+        timeout-minutes: 10
+        env:
+          BOT_API_REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+          ALPINE_IMAGE: ${{ steps.inputs.outputs.alpine_image }}
+        run: |
+          docker build --target source --build-arg BOT_API_REVISION="$BOT_API_REVISION" \
+            --build-arg ALPINE_IMAGE="$ALPINE_IMAGE" --tag botapi-nonroot-source:check .
+          sh -n tools/fixtures/nonroot/source-semantics.sh
+          docker run --rm --read-only --network none --env BOT_API_REVISION \
+            --mount "type=bind,source=$PWD/tools/fixtures/nonroot/source-semantics.sh,target=/check-source.sh,readonly" \
+            --entrypoint sh botapi-nonroot-source:check /check-source.sh
+      - name: Qualify non-root storage before publication
+        timeout-minutes: 30
+        env:
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+          BOT_API_REVISION: ${{ steps.inputs.outputs.bot_api_revision }}
+          APK_REFRESH_ID: ${{ steps.inputs.outputs.apk_refresh_id }}
+        run: |
+          candidate_id=$(docker image inspect --format '{{.Id}}' botapi-candidate:check)
+          test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.build-key"}}' "$candidate_id")" = "$BUILD_FINGERPRINT"
+          test "$(docker image inspect --format '{{index .Config.Labels "io.tg-selfhost.bot-api-revision"}}' "$candidate_id")" = "$BOT_API_REVISION"
+          sh -n tools/fixtures/nonroot/media-probe.sh
+          sh -n tools/fixtures/migration/fake-bot-api.sh
+          timeout 1400 python3 tools/check_nonroot.py --image "$candidate_id" --deadline 1200
+          chmod +x tools/fixtures/migration/fake-bot-api.sh
+          timeout 240 python3 tools/check_migration_volumes.py --require-docker --image "$candidate_id" --receipt "$RUNNER_TEMP/migration-volume-gate.json"
+          printf '%s\n' "$candidate_id" > qualified-image-id.txt
+      - name: Qualify exact native image before publish or promotion
+        env:
+          BUILD_FINGERPRINT: ${{ steps.inputs.outputs.build_key }}
+        run: python3 tools/issue17_security_gate.py --image botapi-candidate:check --expected-build-key "$BUILD_FINGERPRINT" --manifest "$RUNNER_TEMP/issue17-image.json"
+      - name: Upload sanitized image qualification
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue17-image-manifest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/issue17-image.json
 
-  publisher:
-    needs: [prepare, native]
-    if: >-
-      always() && needs.prepare.result == 'success' && needs.native.result == 'success' &&
-      needs.prepare.outputs.release == 'true' && github.event_name != 'pull_request' &&
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      - name: Qualify exact pair with mock and actual no-bot runtime
+        timeout-minutes: 8
+        run: python3 tools/check_observability.py --botapi-image botapi-candidate:check --observer-image observer-candidate:check
+      - name: Build downloads pair and qualify exact images
+        env:
+          PYTHON_IMAGE: ${{ steps.inputs.outputs.python_image }}
+        run: |
+          docker build -f Dockerfile.downloads --build-arg "BUILD_FINGERPRINT=${{ steps.inputs.outputs.downloads_key }}" --build-arg "WRAPPER_REVISION=${{ github.sha }}" --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t downloads-candidate:check .
+          python3 tools/check_file_contract.py --botapi-image botapi-candidate:check \
+            --downloads-image downloads-candidate:check --report "$RUNNER_TEMP/file-report.json"
+      - name: Qualify patched production sender
+        run: |
+          docker build --target sender-test --build-arg BOT_API_REVISION="${{ steps.inputs.outputs.bot_api_revision }}" --build-arg ALPINE_IMAGE="${{ steps.inputs.outputs.alpine_image }}" --build-arg APK_REFRESH_ID="${{ steps.inputs.outputs.apk_refresh_id }}" --build-arg BUILD_JOBS=1 -t sender-candidate:check .
+          docker run --rm --network none sender-candidate:check
+      - name: Build Pages before promotion
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./.site-check
+      - name: Check rendered docs and private exclusions
+        run: python3 tools/check_docs.py .site-check
+      - name: Publish qualified architecture and exact bundle receipt
+        env:
+          IMAGE: ${{ steps.existing.outputs.image }}
+          KEY: ${{ steps.inputs.outputs.build_key }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          def call(*args): return subprocess.check_output(args,text=True).strip()
+          inputs=json.loads((Path(os.environ['RUNNER_TEMP'])/'image-inputs.json').read_text())
+          assert inputs['build_key']==os.environ['KEY']
+          components={}
+          for role,local,tag in [('botapi','botapi-candidate:check','build-'),('observer','observer-candidate:check','observer-build-'),('downloads','downloads-candidate:check','downloads-build-')]:
+              image=call('docker','image','inspect','--format','{{.Id}}',local)
+              ref=os.environ['IMAGE']+':'+tag+os.environ['KEY']+'-${{ matrix.arch }}'
+              call('docker','tag',image,ref); call('docker','push',ref)
+              digest=json.loads(call('docker','buildx','imagetools','inspect',ref,'--format','{{json .Manifest}}'))['digest']
+              call('docker','pull',ref+'@'+digest)
+              assert call('docker','image','inspect','--format','{{.Id}}',ref+'@'+digest)==image
+              components[role]=os.environ['IMAGE']+'@'+digest
+          receipt=dict(architecture='${{ matrix.arch }}',sha=os.environ['GITHUB_SHA'],run_id=os.environ['GITHUB_RUN_ID'],inputs=inputs,components=components,native=True,qualified=True)
+          open('qualification.json','w').write(json.dumps(receipt,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-qualification-${{ matrix.arch }}
+          path: qualification.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-file-contract-receipt-${{ matrix.arch }}
+          path: ${{ runner.temp }}/file-report.json
+
+  promote:
+    needs: image
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
     permissions:
       contents: read
-      actions: read
       packages: write
-    env:
-      SNAPSHOT_HASH: ${{ needs.prepare.outputs.snapshot_hash }}
-      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      JOB_RESULTS: '{"prepare":"${{ needs.prepare.result }}","native":"${{ needs.native.result }}"}'
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@v4
         with:
-          name: inputs-${{ github.run_id }}-${{ github.run_attempt }}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: image-amd64-${{ github.run_id }}-${{ github.run_attempt }}
-          path: images/amd64
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: image-arm64-${{ github.run_id }}-${{ github.run_attempt }}
-          path: images/arm64
+          pattern: native-qualification-*
+          path: native-receipts
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Qualify exact archives and complete staging index
-        run: |
-          python3 tools/multiarch_publish.py qualify --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
-            --plan plan.json --directory images --output publication
-      - name: Retain qualification before any release tag write
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: qualification-${{ needs.prepare.outputs.build_key }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: publication/qualification.json
-          retention-days: 90
-          if-no-files-found: error
-      - name: Assign build tag then latest from approved index digest
-        run: |
-          python3 tools/multiarch_publish.py promote --snapshot snapshot.json --snapshot-hash "$SNAPSHOT_HASH" \
-            --plan plan.json --directory images --output publication
-      - name: Summarize checked release identities
-        if: always()
-        run: |
-          if [ -f publication/report.json ]; then
-            python3 -c 'import json; r=json.load(open("publication/report.json")); print("Release: " + r["status"] + "; index: " + r["approved_digest"] + "; run: " + r["context"]["run_id"])' >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'Release gates failed before promotion; inspect job failure.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Retain publication outcome
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: publication-${{ github.run_id }}-${{ github.run_attempt }}
-          path: publication/
-          retention-days: 90
+      - run: python3 tools/multiarch_publish.py --receipts native-receipts --image "ghcr.io/${GITHUB_REPOSITORY,,}"

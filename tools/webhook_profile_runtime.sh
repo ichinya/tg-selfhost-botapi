@@ -1,5 +1,12 @@
 # Canonical standalone Bash runtime; embedded by embed_webhook_profile.cjs.
-wp_fail() { printf '%s\n' "$1" >&2; exit "${2:-1}"; }
+wp_fail() {
+  local message=$1 code=${2:-1} outcome=${3:-ERROR}
+  if [[ -n ${WP_PHASE-} && ${WP_OBSERVING-false} != true ]]; then
+    if [[ $outcome == ERROR && ${WP_PROGRESS:-0} == 1 ]]; then outcome=PARTIAL; fi
+    printf '%s phase=%s progress=%s %s\n' "$outcome" "$WP_PHASE" "${WP_PROGRESS:-0}" "$message" >&2
+  else printf '%s\n' "$message" >&2; fi
+  exit "$code"
+}
 wp_jq() { command jq "$@" 2>/dev/null; }
 wp_load() {
   set +x
@@ -85,19 +92,42 @@ wp_load() {
   if [[ ${BOT_TOKEN_FILE+x} ]]; then
     [[ ! ${BOT_TOKEN+x} ]] || wp_fail 'Conflicting bot token inputs'
     wp_private_file "$BOT_TOKEN_FILE" "$WP_TMP/token"
+    wp_jq -Rse 'sub("\r?\n$";"") | test("^[0-9]+:[A-Za-z0-9_-]+$") and (test("[\r\n\u0000]")|not)' "$WP_TMP/token" >/dev/null || wp_fail 'Invalid bot token'
     BOT_TOKEN=$(wp_jq -Rsrj 'sub("\r?\n$";"")' "$WP_TMP/token") || wp_fail 'Cannot read bot token'
+  fi
+  if [[ ! ${BOT_TOKEN+x} ]]; then
+    [[ -t 0 ]] || wp_fail 'Private token file or terminal required'
+    IFS= read -r -s -p 'Bot token: ' BOT_TOKEN || wp_fail 'Hidden token input unavailable'
+    printf '\n' >&2
   fi
   [[ ${BOT_TOKEN-} =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || wp_fail 'Invalid bot token'
 }
 wp_private_file() {
-  local input=$1 output=$2 resolved checkout
-  [[ -n $input && -f $input && -r $input && -s $input ]] || wp_fail 'Protected input file unavailable'
-  command -v realpath >/dev/null || wp_fail 'realpath required for protected input files'
-  resolved=$(realpath -- "$input") || wp_fail 'Cannot resolve protected input file'
-  checkout=$(realpath -- "$WP_SCRIPT_DIR") || wp_fail 'Cannot resolve helper directory'
-  case $resolved in "$checkout"|"$checkout"/*) wp_fail 'Protected inputs must be outside checkout/webroot' ;; esac
-  [[ $(wc -c < "$resolved") -le 1048576 ]] || wp_fail 'Protected input too large'
-  cat -- "$resolved" > "$output" || wp_fail 'Cannot snapshot protected input'
+  # A bounded child opens the original path, compares lstat with the opened FD,
+  # and checks both again after snapshotting. Never use realpath as the read path.
+  command -v timeout >/dev/null || wp_fail 'Protected input prerequisites unavailable'
+  timeout 5 bash -c '
+    set -euo pipefail
+    input=$1 output=$2 checkout=$3
+    [[ -n $input && ! -L $input && -f $input && -O $input && -r $input ]]
+    resolved=$(realpath -e -- "$input")
+    checkout=$(realpath -e -- "$checkout")
+    case $resolved in "$checkout"|"$checkout"/*) exit 1;; esac
+    before=$(stat -c "%d:%i:%f:%u:%h:%s:%y:%z" -- "$input")
+    mode=$(stat -c "%a" -- "$input")
+    [[ $mode == 400 || $mode == 600 ]]
+    [[ $(stat -c "%h" -- "$input") == 1 ]]
+    exec {fd}< "$input"
+    opened=/proc/$$/fd/$fd
+    [[ ! -L $input && -f $opened && -O $opened ]]
+    [[ $(stat -Lc "%d:%i:%f:%u:%h:%s:%y:%z" -- "$opened") == "$before" ]]
+    size=$(stat -Lc "%s" -- "$opened")
+    (( size > 0 && size <= 1048576 ))
+    head -c 1048577 <&$fd > "$output"
+    [[ $(wc -c < "$output") == "$size" ]]
+    [[ ! -L $input && $(stat -c "%d:%i:%f:%u:%h:%s:%y:%z" -- "$input") == "$before" ]]
+    [[ $(stat -Lc "%d:%i:%f:%u:%h:%s:%y:%z" -- "$opened") == "$before" ]]
+  ' _ "$1" "$2" "$WP_SCRIPT_DIR" 2>/dev/null || wp_fail 'Protected input rejected'
 }
 wp_snapshot_valid() {
   wp_jq -e '
@@ -147,7 +177,7 @@ wp_resolve() { wp_jq '
     elif .profile.certificate_mode=="none" then
       if ($d.certificate.value // "")!="" then .invalid += ["certificate"] else . end
     elif .profile.certificate_mode=="unknown" then .missing += ["certificate_mode"] else .invalid += ["certificate_mode"] end |
-    if own(.profile;"url") and (.profile.url|type!="string") then .invalid += ["url"] else . end |
+    if own(.profile;"url") and (.profile.url | if type=="string" then (explode | all(.[]; . > 32 and . != 127) | not) else true end) then .invalid += ["url"] else . end |
     if own(.profile;"allowed_updates") and (.profile.allowed_updates|type=="array" and all(.[];type=="string")|not) then .invalid += ["allowed_updates"] else . end |
     if own(.profile;"max_connections") and (.profile.max_connections|type=="number" and .==floor and .>=1 and .<=(if $i.target_local==true then 100000 else 100 end)|not) then .invalid += ["max_connections"] else . end |
     reduce (.provenance|keys[]) as $k (.; if .provenance[$k]=="explicit" and $i.provenance[$k] then .provenance[$k]=$i.provenance[$k] else . end) |
@@ -156,9 +186,12 @@ wp_resolve() { wp_jq '
 # END RESOLVER
 wp_preflight() {
   local source=$1 secret='' cert=''
-  WP_HOOK=$(wp_jq -r '.result.url' "$source") || wp_fail 'Invalid source snapshot'
+  wp_jq -e '.result.url | type == "string" and (explode | all(.[]; . > 32 and . != 127))' "$source" >/dev/null || wp_fail 'Invalid source webhook URL'
+  WP_HOOK=$(wp_jq -rj '.result.url' "$source" && printf '.') || wp_fail 'Invalid source snapshot'
+  WP_HOOK=${WP_HOOK%.}
   [[ -z $WEBHOOK_URL ]] || WP_HOOK=$WEBHOOK_URL
   if [[ -z $WP_HOOK ]]; then WP_PROFILE='{"profile":{"url":""},"complete":true}'; return; fi
+  [[ $WP_HOOK != *[[:cntrl:]]* ]] || wp_fail 'Invalid webhook URL'
   [[ $WP_HOOK =~ ^https?://[^/@?#[:space:]]+([^[:space:]#]*)?$ ]] || wp_fail 'Invalid webhook URL'
   [[ $SELF_BOT_URL != https://api.telegram.org || $WP_HOOK == https://* ]] || wp_fail 'Cloud webhook requires HTTPS'
   if [[ ${WEBHOOK_SECRET_TOKEN_FILE+x} ]]; then
@@ -193,12 +226,20 @@ wp_preflight() {
   printf 'profile_input_complete=true; private_material=provided-or-none; delivery_confirmed=false\n'
 }
 wp_request() {
-  local base=$1 method=$2 status
+  local base=$1 method=$2 status retry
   shift 2
   printf '%s' "$base/bot$BOT_TOKEN/$method" | wp_jq -Rsr '"url = " + tojson' > "$WP_TMP/request.conf" || wp_fail 'Cannot prepare private request'
   status=$(curl -q -sS --connect-timeout "$MIGRATION_CONNECT_TIMEOUT" --max-time "${WP_REQUEST_TIMEOUT:-$MIGRATION_REQUEST_DEADLINE}" --globoff --proto '=http,https' \
-    --output "$WP_TMP/response" --write-out '%{http_code}' --config "$WP_TMP/request.conf" "$@" 2>/dev/null) || wp_fail 'UNKNOWN: response unavailable; reconcile without retry' 2
-  [[ $status =~ ^2[0-9][0-9]$ ]] || wp_fail 'API HTTP rejection; stop and reconcile'
+    --output "$WP_TMP/response" --write-out '%{http_code}' --config "$WP_TMP/request.conf" "$@" 2>/dev/null) || wp_fail 'response unavailable; reconcile without retry' 2 UNKNOWN
+  if [[ ! $status =~ ^2[0-9][0-9]$ ]]; then
+    retry=''
+    if [[ $status == 429 ]]; then
+      retry=$(wp_jq -r 'if .parameters.retry_after | type == "number" and . >= 0 and floor == . and . <= 999999999 then .parameters.retry_after else empty end' "$WP_TMP/response") || retry=''
+      [[ $retry =~ ^[0-9]{1,9}$ ]] || retry=''
+      [[ -z $retry ]] || retry=" retryNotBefore_epoch=$(( $(date +%s) + 10#$retry ))"
+    fi
+    wp_fail "API HTTP rejection; stop and reconcile${retry}"
+  fi
   wp_jq -e '.ok==true and has("result")' "$WP_TMP/response" >/dev/null || wp_fail 'API rejected or invalid response; stop and reconcile' 2
   case $method in
     getMe) wp_jq -e '.result.id|type=="number" and .>0 and floor==.' "$WP_TMP/response" >/dev/null || wp_fail 'Invalid bot identity' 2 ;;
@@ -240,7 +281,7 @@ wp_observe() {
     if (( sample > 1 )); then sleep 2; fi
     remaining=$((deadline - SECONDS))
     if (( remaining <= 0 )); then readable=null; observation=unknown; code=2; break; fi
-    if ( WP_REQUEST_TIMEOUT=$remaining wp_request "$SELF_BOT_URL" getWebhookInfo ); then
+    if ( WP_OBSERVING=true WP_REQUEST_TIMEOUT=$remaining wp_request "$SELF_BOT_URL" getWebhookInfo ); then
       wp_jq '.result += {observed_at:now}' "$WP_TMP/response" > "$WP_TMP/sample$sample"
       last=$sample
       [[ -n $first ]] || first=$sample
@@ -295,12 +336,13 @@ wp_main() {
     [[ -n ${WEBHOOK_URL-} && -n ${WEBHOOK_ALLOWED_UPDATES+x} && -n ${WEBHOOK_MAX_CONNECTIONS+x} && -n ${WEBHOOK_CERTIFICATE_MODE-} ]] || wp_fail 'Target-stage requires explicit saved URL, updates, connections and certificate mode'
   fi
   local source=$OFFICIAL_BOT_URL status answer source_id target_id
+  WP_PHASE=preflight WP_PROGRESS=0
   [[ $MIGRATION_MODE == official-to-self ]] || source=$SELF_BOT_URL
   if [[ $MIGRATION_MODE == official-to-self ]]; then
     local probe_deadline=$MIGRATION_REQUEST_DEADLINE probe_connect=$MIGRATION_CONNECT_TIMEOUT
     (( probe_deadline <= 10 )) || probe_deadline=10
     (( probe_connect <= probe_deadline )) || probe_connect=$probe_deadline
-    status=$(curl -q -sS --connect-timeout "$probe_connect" --max-time "$probe_deadline" --output "$WP_TMP/probe" --write-out '%{http_code}' "$SELF_BOT_URL/" 2>/dev/null) || wp_fail 'phase=preflight outcome=UNKNOWN reason=transport_error: Token-free probe failed'
+    status=$(curl -q -sS --globoff --proto '=http,https' --connect-timeout "$probe_connect" --max-time "$probe_deadline" --output "$WP_TMP/probe" --write-out '%{http_code}' "$SELF_BOT_URL/" 2>/dev/null) || wp_fail 'phase=preflight outcome=UNKNOWN reason=transport_error: Token-free probe failed'
     [[ $status == 404 ]] && wp_jq -e '.ok==false and .error_code==404 and .description=="Not Found"' "$WP_TMP/probe" >/dev/null || wp_fail 'phase=preflight outcome=UNKNOWN reason=unexpected_response: Unexpected token-free probe'
   fi
   printf 'Probe does not authenticate the host. Stop old clients; permit token requests?\n'
@@ -316,15 +358,29 @@ wp_main() {
   wp_request "$source" getWebhookInfo
   [[ $(wp_configuration "$WP_TMP/source") == "$(wp_configuration "$WP_TMP/response")" ]] || wp_fail 'Source profile changed; restart preflight'
   if [[ $MIGRATION_MODE == official-to-self ]]; then
+    WP_PHASE=source_disabled
     wp_request "$source" deleteWebhook -X POST --data-urlencode "drop_pending_updates=$DROP_PENDING_UPDATES"
+    WP_PROGRESS=1
     wp_request "$source" logOut -X POST
+    WP_PHASE=target_authorized
     wp_request "$SELF_BOT_URL" getMe
     target_id=$(wp_jq -r '.result.id' "$WP_TMP/response")
-    [[ $target_id == "$source_id" ]] || wp_fail 'Bot identity mismatch; source login forbidden'
+    [[ $target_id == "$source_id" ]] || wp_fail 'target identity mismatch; source login forbidden'
   fi
+  WP_PHASE=delivery_configured
   WP_SET_ACCEPTED=null
   WP_SET_TIME=$(date +%s)
-  if [[ -n $WP_HOOK ]]; then wp_set
-  elif [[ $MIGRATION_MODE == hook-only ]]; then wp_request "$SELF_BOT_URL" deleteWebhook -X POST --data-urlencode "drop_pending_updates=$DROP_PENDING_UPDATES"; fi
-  wp_observe
+  if [[ -n $WP_HOOK ]]; then wp_set; WP_PROGRESS=1
+  elif [[ $MIGRATION_MODE == hook-only ]]; then
+    wp_request "$SELF_BOT_URL" deleteWebhook -X POST --data-urlencode "drop_pending_updates=$DROP_PENDING_UPDATES"
+    WP_PROGRESS=1
+  fi
+  WP_PHASE=target_verified
+  local observe_status=0
+  wp_observe || observe_status=$?
+  case $observe_status in
+    0) printf 'SUCCESS phase=target_verified progress=%s\n' "$WP_PROGRESS" >&2 ;;
+    1) wp_fail 'target URL mismatch or observable profile verification failed' ;;
+    *) wp_fail 'target observation unavailable; reconcile without retry' 2 UNKNOWN ;;
+  esac
 }

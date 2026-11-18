@@ -13,6 +13,8 @@ a webhook User-Agent patch, and migration helpers.
 
 - [Getting started](getting-started.md) — install, build or pull an image, verify the service.
 - [Configuration](configuration.md) — ports, environment variables, files and access.
+- File access: split media + scoped RO volume, or the opt-in per-bot Bearer handler;
+  [setup and trust boundary](configuration.md#files-in-local-mode).
 - [Migration](migration.md) — cloud/local transitions and the current helper limitations.
 - [Maintenance](maintenance.md) — image updates, backups, diagnostics and documentation.
 
@@ -25,17 +27,21 @@ a webhook User-Agent patch, and migration helpers.
 | Official tdlib server | Bot API implementation |
 | This project's image | Builds the server, applies the webhook patch and starts it from environment variables |
 | nginx gateway | Forwards HTTP requests to the server |
+| Observer | Token-free health and filtered operational snapshots on a private management listener |
+| Runtime host CLI | Writes sanitized disk and actual image metadata without granting observer Docker access |
 | Doctor host CLI | Checks installation and migration prerequisites with safe text/JSON reports |
-| Bash helper | Automates cloud → local migration with a confirmation step |
-| Browser tool | Reads an explicitly selected source with consent; executes cloud → local or webhook-only; gives manual stages for local transitions |
+| Python executor | Sealed plan/apply/status/resume for all four migration directions |
+| Bash helper | Compatibility adapter to the same executor |
+| Browser tool | Same-origin loopback helper UI; Pages remains the entry screen |
 
 The build does not depend on aiogram. Their project packages the same official
 server; this repository maintains its own Docker packaging.
 
-The image pipeline targets `linux/amd64` and `linux/arm64`. Publication and scheduled builds require
+The image pipeline supports `linux/amd64`. Publication and scheduled builds require
 the image workflow to be merged into the default branch and its first successful
 release. A configured image name alone does not mean the image has been published.
 
 Implementation work is tracked in [issues](https://github.com/ichinya/tg-selfhost-botapi/issues/19).
+For protected credentials and diagnostics, see [configuration](configuration.md#docker-compose-file-secrets) and [migration](migration.md#private-inputs-and-authority).
 
-The image workflow prepares one snapshot and requires two independent native jobs: `ubuntu-24.04` for linux/amd64 and `ubuntu-24.04-arm` for linux/arm64. Each fresh runtime is built cold with two build jobs and a 180-minute budget; QEMU is not a release fallback. Matrix jobs have read-only package access. Runner availability and the first successful ARM64 release still require CI evidence.
+- [Audit / Аудит](audit-status.md)

@@ -6,6 +6,45 @@ from urllib.parse import unquote, urlsplit
 
 
 BASE = "/tg-selfhost-botapi"
+PRIVATE_CONTENT = ("Dockerfile", "Dockerfile.downloads", "nginx.conf", "nginx.observability.conf",
+                   "docker-compose.observability.yml", "docker-compose.observability.build.yml", "docker-entrypoint.sh",
+                   "docker-compose.yml", "docker-compose.build.yml", "docker-compose.files.yml",
+                   "docker-compose.downloads.yml", "migrate_off_to_self.sh", "tools", "data",
+                   "examples", "media", "secrets", "files", "logs", ".observability", ".issue-flow", ".stats-source", ".safety-work", ".migration-provider")
+
+
+def check_private_content(root):
+    return [f"Non-documentation content published: {name}"
+            for name in PRIVATE_CONTENT if (root / name).exists()]
+
+
+def private_site_paths(root, sentinels=()):
+    """Return relative private artifact paths accidentally copied into a site."""
+    root = Path(root)
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if any(part in (".safety-work", ".migration-provider", ".migration-state", ".migration-private", "files", "secrets", "examples", "data", "scratch", "media", "logs", ".issue-flow") for part in relative.parts) or (
+            path.name == ".env" or path.name.startswith(".env.") and path.name != ".env.example"
+        ) or path.name in ("binding.key", "migration-helper.env", "Dockerfile.downloads", "docker-compose.downloads.yml", "docker-compose.nonroot.yml", "docker-compose.files.yml", "docker-compose.secrets.yml", "nginx-main.conf", "nginx.observability.conf", "docker-compose.observability.yml", "docker-compose.observability.build.yml") or (
+            path.name.startswith("downloads.config.")
+        ):
+            yield relative
+        elif path.is_file():
+            # Recognize renamed private journal envelopes as well as paths.
+            import json
+            try:
+                if path.stat().st_size <= 4194304:
+                    raw=path.read_bytes()
+                    if any(value.encode('utf-8') in raw for value in sentinels if value):
+                        yield relative
+                        continue
+                    if path.suffix != '.json':
+                        continue
+                    value = json.loads(raw.decode('utf-8'))
+                    if isinstance(value, dict) and {'state', 'mac'} <= set(value):
+                        yield relative
+            except (ValueError, UnicodeError, OSError):
+                pass
 
 
 class Page(HTMLParser):
@@ -28,6 +67,9 @@ def check(root):
     root = root.resolve()
     pages = {path.resolve(): Page(path.read_text(encoding="utf-8")) for path in root.rglob("*.html")}
     errors = []
+    import os
+    sentinels=[os.environ.get('DOCS_PRIVACY_SENTINEL','')]
+    errors.extend(f"Private content published: {path}" for path in private_site_paths(root,sentinels))
     for path, page in pages.items():
         for link in page.links:
             parsed = urlsplit(link)
@@ -66,9 +108,10 @@ def check(root):
     retained = root / source.name
     if retained.is_file() and retained.read_bytes() != source.read_bytes():
         errors.append("The original migrator must be copied without changes")
-    for private in ("Dockerfile", "nginx.conf", "docker-entrypoint.sh", "migrate_off_to_self.sh", "tools", "data", "logs"):
-        if (root / private).exists():
-            errors.append(f"Non-documentation content published: {private}")
+    errors.extend(check_private_content(root))
+    for path in root.rglob('*'):
+        if path.is_file() and b'OBS16_PUBLICATION_SENTINEL' in path.read_bytes():
+            errors.append('Private observability sentinel published')
     if errors:
         raise SystemExit("\n".join(errors))
     print(f"Checked {len(pages)} HTML pages, internal links, language navigation and migrator compatibility.")

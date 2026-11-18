@@ -1,0 +1,46 @@
+# Merge after base + nonroot + files overrides. One instance per bot.
+services:
+  downloads:
+    image: ${DOWNLOADS_IMAGE:?Set a qualified immutable downloads image}
+    build:
+      context: .
+      dockerfile: Dockerfile.downloads
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 0.5
+    mem_limit: 128m
+    pids_limit: 128
+    ports:
+      - "${DOWNLOADS_BIND:-127.0.0.1}:18082:8083"
+    environment:
+      DOWNLOAD_BOT_TOKEN_FILE: /run/secrets/bot-token
+      DOWNLOAD_AUTH_TOKEN_FILE: /run/secrets/download-auth
+      DOWNLOAD_BOTAPI_ENDPOINT: http://botapi:8081
+      DOWNLOAD_MEDIA_ROOT: /var/lib/telegram-bot-api-files
+      DOWNLOAD_BOT_ROOT: ${BOT_A_ROOT:?Set exact existing bot subtree target}
+      DOWNLOAD_TEST_DC: ${BOT_TEST_DC:-false}
+      DOWNLOAD_COLON_LAYOUT: ${BOT_COLON_LAYOUT:-true}
+      DOWNLOAD_MAX_DURATION: ${DOWNLOAD_MAX_DURATION:-600}
+      DOWNLOAD_WORKERS: ${DOWNLOAD_WORKERS:-4}
+    volumes:
+      - type: bind
+        source: ${BOT_A_HOST_ROOT:?Set existing bot subtree host backing}
+        target: ${BOT_A_ROOT:?Set exact existing bot subtree target}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOAD_BOT_TOKEN_FILE:?Set absolute protected bot token file}
+        target: /run/secrets/bot-token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DOWNLOAD_AUTH_TOKEN_FILE:?Set absolute protected independent auth file}
+        target: /run/secrets/download-auth
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on: [botapi]

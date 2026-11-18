@@ -1,0 +1,37 @@
+services:
+  target:
+    image: ${MIGRATION_FIXTURE_IMAGE:?candidate image is required}
+    environment:
+      TELEGRAM_API_ID: ${MIGRATION_TEST_API_ID-12345}
+      TELEGRAM_API_HASH: synthetic-fixture-only
+      TELEGRAM_LOCAL: 'true'
+      FIXTURE_MODE: ${MIGRATION_FIXTURE_MODE-stay}
+      FIXTURE_RUN_ID: ${MIGRATION_RUN_ID:?run ID is required}
+    labels:
+      io.tg.migration.run: ${MIGRATION_RUN_ID}
+    volumes:
+      - type: volume
+        source: data
+        target: /var/lib/telegram-bot-api
+      - type: volume
+        source: temp
+        target: /tmp/telegram-bot-api
+      - type: bind
+        source: ./fake-bot-api.sh
+        target: /usr/local/bin/telegram-bot-api
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: 'no'
+networks:
+  default:
+    internal: true
+    labels:
+      io.tg.migration.run: ${MIGRATION_RUN_ID}
+volumes:
+  data:
+    labels:
+      io.tg.migration.run: ${MIGRATION_RUN_ID}
+  temp:
+    labels:
+      io.tg.migration.run: ${MIGRATION_RUN_ID}

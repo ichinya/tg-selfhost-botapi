@@ -5,6 +5,23 @@ translation: /docs/ru/configuration.html
 
 # Configuration
 
+## Docker Compose file secrets
+
+Compose 2.24.4 or newer supports the optional secrets overlay. Store API ID and
+hash in separate host files outside the checkout, readable by the container
+entrypoint and restricted to their owner (0400 or 0600). Local Compose file
+secrets are bind mounts and retain host filesystem permissions; they are not an
+encrypted secret store. Set `TELEGRAM_API_ID_SECRET_PATH` and
+`TELEGRAM_API_HASH_SECRET_PATH` to those paths, then run:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
+```
+
+For a local build insert `-f docker-compose.build.yml` before the secrets file.
+The overlay removes inline credentials from the effective container environment.
+The existing environment-only configuration remains available.
+
 ## Doctor configuration checks
 
 Doctor delegates interpolation and merging to `docker compose config --format json`.
@@ -33,7 +50,7 @@ are required; doctor does not create roots, change ownership or change modes.
 
 Doctor blocks any override which aliases the private state root or mounts its
 backing into an HTTP component, including read-only mounts. The shipped nginx
-configuration proxies requests and its logging redaction map is supported.
+configuration proxies requests and its fixed logging maps are supported.
 Doctor does not repair nginx or Compose.
 Isolation checks parse supported nginx blocks/includes and compare mount backings.
 Dynamic handlers, unresolved includes and unverified media symlinks remain UNKNOWN.
@@ -41,6 +58,37 @@ No binlog, real bot directory, statistics endpoint or state file is fetched.
 Read-only mounts, disabled directory listings and loopback publication do not
 prevent known-file HTTP reads. Unsupported remote file workflows use the boundary
 in issue #5; doctor does not certify or execute neighboring migration helpers.
+## Helper access
+
+The operator startup file allowlists full API endpoints. The loopback helper
+serves fixed routes/assets and accepts no arbitrary Docker command/container.
+One-time bootstrap creates an HttpOnly SameSite=Strict cookie and CSRF token.
+Exact Host/Origin checks reject external/null/file origins. Limits: 256 KiB body,
+ten-second HTTP lifetime, sixteen connections and one background migration.
+Access/body logs are disabled. The helper is never exposed through nginx.
+
+## Private migration authority
+
+Use one `MIGRATION_STATE_DIR` per operator/host on a private Linux filesystem
+outside the checkout, Bot API mounts and webroots (directory 0700, files 0600).
+All interfaces share its per-bot lock and unfinished-operation reservation.
+Windows and Windows-mounted WSL state are unsupported. Nested private artifacts
+are rejected by the documentation checker.
+
+Readiness is a fresh token-free protocol probe plus private deployment evidence
+with a five-minute TTL. Bind the image ID, runtime UID/GID, credentials readiness,
+persistent work mount and writable separate temp path. A local-build image need
+not have a RepoDigest; temp storage need not be persistent. `_FILE` credentials
+are supported. Managed Docker diagnostics perform explicit tiny write probes as
+the runtime user; they are not read-only. The HTTP helper cannot select containers.
+Managed readiness observes the server at PID 1 and verifies the probe's UID,
+GID and normalized supplementary groups before reading secret files or writing.
+Identity mismatch or process drift blocks evidence. The external v1 evidence
+retains UID/GID and does not separately attest the group set.
+Local webhook mode must match deployment evidence: HTTP/private IP/any port is
+allowed in local mode; cloud requires HTTPS, a supported port and public IPv4.
+Unsupported profiles fail before source mutations. Transport has bounded DNS,
+connect/read/total time and body size, no redirects, inherited proxy or retries.
 
 ## Addresses and storage
 
@@ -49,14 +97,36 @@ in issue #5; doctor does not certify or execute neighboring migration helpers.
 | Gateway port on the host | `18080` |
 | Internal Bot API endpoint | `http://botapi:8081` |
 | Persistent state on the host | `./data` |
+| Gateway upload spool | Project-scoped `gateway_client_temp` volume at `/var/cache/nginx/client_temp` |
 | State directory inside the container | `/var/lib/telegram-bot-api` |
-| Container user/group IDs | `101:101` |
+| Default server user/group IDs | `101:101` |
 | Local mode | Enabled by Compose |
+
+By default the container starts as root only to initialize new or empty state and
+temp roots, then runs the server as `101:101`. Non-empty roots and their contents
+are not re-owned or recursively repaired. Alternatively, Docker `--user UID:GID`
+or Compose `user: "UID:GID"` runs directly as that identity; prepare both roots
+for it in advance. Paths must be dedicated absolute paths without symlink
+components. Startup checks access as the server user. New private roots are
+`0700` and the server uses umask `0027`; existing modes are unchanged. Secret
+files supplied with `_FILE` must be readable by the final server identity. Log
+file access is checked by the server. Explicit entrypoint arguments such as
+`--version` bypass normal startup and run as the container user.
 
 The Bot API endpoint receives method calls. The webhook URL belongs to your
 application and receives updates sent by the server. They are different addresses.
 
 ## Compose environment
+
+The optional `docker-compose.nonroot.yml` requires `BOTAPI_UID`, `BOTAPI_GID`,
+`BOTAPI_STATE_SOURCE` and `BOTAPI_TEMP_SOURCE`; these select Compose identity
+and prepared bind sources, not runtime remapping. See [Getting started](getting-started.md).
+
+`TELEGRAM_FILES_DIR` optionally selects a separate upstream `--files-dir`; when
+empty, the upstream working-directory default is retained. The work, HTTP temp
+and media roots must be separate absolute paths without symlink components.
+Changing this setting does not move existing files or cached paths. The media
+override requires the non-root overlay and a prepared `BOTAPI_MEDIA_SOURCE`.
 
 | Variable in `.env` | Purpose |
 | --- | --- |
@@ -68,7 +138,7 @@ application and receives updates sent by the server. They are different addresse
 For a tested build, set:
 
 ```text
-BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi@sha256:<index-digest>
+BOTAPI_IMAGE=ghcr.io/ichinya/tg-selfhost-botapi:build-<key>
 ```
 
 An image digest can be used instead. The local build override uses
@@ -115,26 +185,97 @@ headers or a header on `setWebhook` do not configure this outgoing header.
 
 ## Files in local mode
 
+Split storage is opt-in: add `-f docker-compose.nonroot.yml` and then
+`-f docker-compose.files.yml` after the base Compose file. Bot API alone writes
+`BOTAPI_MEDIA_SOURCE` at `/var/lib/telegram-bot-api-files` via
+`TELEGRAM_FILES_DIR` / `--files-dir`. Without it the legacy combined layout stays
+private. State, absolute private temp, logs and credential files must not overlap
+media. Relative logs, noncanonical paths and symlink ancestors are rejected.
+New directories use umask `0027`; the configured non-root UID/GID owns the media.
+Existing cache permissions are never changed recursively.
+
+`--help` / `--version` remain credential-free. Explicit server CLI arguments are
+not supplemented from environment variables: split CLI requires long-form
+`--files-dir`, `--dir`, `--temp-dir`, matching any configured directory/log env
+values. Duplicate directory flags fail. Use the supported non-root overlay for identity
+setup; arbitrary Compose `user:` overrides are not supported.
+The short `-f` files-directory option is rejected; use validated long-form flags.
+
 `getFile` can return an absolute container-local path. A bot application needs a
 matching shared volume/path to read that file directly. Do not turn an arbitrary
 absolute path into an HTTP download URL.
 
+For direct reads use the [scoped reader example](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+Only one existing bot subtree is mounted read-only at the identical absolute
+path. The Linux/amd64 opener uses openat2 with no symlinks or mount crossings,
+rejects hardlinks and nonregular files, and streams from the checked FD. Nested
+mounts and a compromised trusted writer/host are outside this deployment contract.
+The shared stdlib getFile client (`tools/file_contract.py`) bounds upstream JSON
+to 64 KiB / 30 seconds and never follows redirects or environment proxies.
+
 The previously documented `X-Telegram-Bot-Token` download scheme is not implemented.
-A remote authenticated file handler is tracked in
-[issue #5](https://github.com/ichinya/tg-selfhost-botapi/issues/5).
+Remote downloads use the opt-in `docker-compose.downloads.yml` after base+files.
+One handler serves one bot: `POST /v1/files/download`, JSON only `file_id`, separate
+Bearer credential from `DOWNLOAD_AUTH_TOKEN_FILE`, bot token from
+`DOWNLOAD_BOT_TOKEN_FILE`. Only the configured subtree is mounted RO. Loopback
+HTTP 18082 must sit behind the TLS frontend in the
+[example](https://github.com/ichinya/tg-selfhost-botapi/blob/main/examples/files/README.md).
+No registry, alias URL or client-supplied path/token is accepted. Requests and
+upstream responses are bounded; streaming uses at most 64 KiB blocks, four slots,
+30s socket timeout and a 600s total deadline (`DOWNLOAD_MAX_DURATION`). See the
+example for statuses, setup, limits and auth rotation.
+Path/URL-like `file_id` values are rejected before upstream I/O. The supplied
+remote client requires one Content-Length and fails on an incomplete response;
+discard its partial output after any nonzero exit.
 
 ## Current limitations
 
-- nginx forwards `/file/` requests to the Bot API; it does not serve the state directory.
-- No upload-size override is configured in nginx. Large multipart requests can
-  receive HTTP 413; [issue #4](https://github.com/ichinya/tg-selfhost-botapi/issues/4).
+Doctor observes `--files-dir` from the running argv (fallback: work directory),
+compares media/private backings and checks scoped read-only consumer mounts.
+Shared filesystems contribute capacity once. It does not certify download auth
+or application mapping: those remain UNKNOWN until independently checked with
+`tools/check_file_contract.py`. A supplied JSON receipt cannot grant READY.
+
+- nginx returns 404 for `/file` and `/file/` requests; it does not serve the state directory.
+- File-capable Bot API methods have a `2048m` (2,147,483,648 bytes) body limit, including
+  multipart fields and all attachments; larger requests receive HTTP 413. Request
+  buffering is on and uses the separate disk-backed spool before forwarding.
+  Upload body and upstream send idle timeouts are 300 seconds, upstream read is
+  600 seconds, and upstream connect is 5 seconds. These are not total deadlines.
+  Upstream describes local-mode uploads up to 2000 MB per file; the gateway limit
+  applies to the entire body, so several attachments share it. The 2048 MiB body
+  budget leaves 48 MiB beyond 2000 MiB for multipart overhead. Method, image,
+  client and external ingress limits still apply; this does not guarantee a
+  successful Telegram upload. The pinned upstream has its own approximately
+  500-second idle limit; nginx cannot extend it.
+
+  Buffering adds disk I/O and delays forwarding until the body is received. For
+  N concurrent uploads budget up to N × 2 GiB plus reserve for nginx alone: N=2
+  means approximately 4 GiB plus reserve. Add Bot API temp/work/cache needs on
+  the same filesystem. The volume reserves no space or quota, and Doctor's 1 GiB
+  default reserve does not qualify a large upload. Check free bytes and inodes,
+  including the Docker Desktop disk image. Spool may contain sensitive uploads;
+  restrict access. The gateway admits at most two uploads per source address and
+  four in total: reserve at least 8 GiB plus operational headroom. Upload starts
+  are limited to 2/s per address (burst 4) and 10/s overall (burst 20); excess
+  requests receive 429. Source addresses must be preserved by the ingress; nginx
+  does not trust forwarded addresses. GET, HEAD and POST are allowed, but GET/HEAD
+  bodies are rejected. Other methods receive 403.
+
+  Ordinary RPC bodies are limited to 1 MiB, with 15-second body/send and 30-second
+  read idle timeouts. `getUpdates` has a separate 600-second read timeout. Public
+  port 80 rejects transfer-encoded requests with 411 before reading the body;
+  send uploads with Content-Length. Internal port 82 accepts chunked uploads and
+  is not published by Compose: expose it only to trusted clients. These idle
+  timeouts are not absolute deadlines: a slow Content-Length upload can still
+  hold a slot indefinitely. For untrusted access use an ingress that enforces an
+  absolute request deadline or minimum rate, and admission before reading bodies.
 - The gateway binds to localhost by default. Set `GATEWAY_BIND=0.0.0.0` in `.env`
   only if remote clients, such as a webhook receiver, must reach it; protect external
   access with HTTPS and appropriate network controls.
-- Access logs redact bot tokens and omit query strings. nginx error logs use the
-  `crit` threshold to suppress request-bearing errors; warning and error diagnostics
-  are not logged. Critical messages can still contain secrets: filter logs before
-  exporting them and do not share unredacted diagnostics.
+- Access logs contain fixed method/route labels and numeric status/bytes/timing.
+  Request-bearing error logs are discarded through `/dev/null`; detailed nginx
+  request errors are unavailable. External proxy logs need a separate policy.
 
 [Getting started](getting-started.md) · [Maintenance](maintenance.md)
 
@@ -144,7 +285,7 @@ Before source mutations, the helper resolves `WEBHOOK_SECRET_MODE=provided|none`
 
 Use `WEBHOOK_SECRET_TOKEN` or `WEBHOOK_SECRET_TOKEN_FILE`, exactly one for provided mode; none asserts an intentionally unprotected webhook. Secret files allow one final LF/CRLF; inline secrets are never trimmed. Use `WEBHOOK_CERTIFICATE_FILE` for a public PEM, never a private key. Protected files (including `BOT_TOKEN_FILE`) must be outside checkout/webroot, with operator-only access. Values from the process override trusted `ENV_FILE` (default: helper directory `.env`), including explicitly empty values; value/file pairs are selected at one tier. Positional URLs remain highest priority. Polling has no webhook profile.
 
-Full profile transport is enabled: urlencoded without a certificate, entirely multipart with a certificate. Secret/scalar files are private snapshots; no token/secret/URL is placed in curl argv or raw diagnostics. The helper disables tracing, uses curl -q without redirects, guards HTTP/ok/result and never retries a mutation. Public PEM requires Bash 4+, jq, curl, realpath and openssl X.509 validation; no private key is accepted. Temporary files use umask 077 and are removed on exit/signals.
+Full profile transport is enabled: urlencoded without a certificate, entirely multipart with a certificate. Secret/scalar files are private snapshots; no token/secret/URL is placed in curl argv or shareable diagnostics. The helper disables tracing, uses curl -q without redirects, guards HTTP/ok/result and never retries a mutation. Public PEM requires Bash 4+, jq, curl, realpath and openssl X.509 validation; no private key is accepted. Temporary files use umask 077 and are removed on exit/signals.
 
 ## Host-side migration timeouts
 
@@ -156,9 +297,94 @@ seconds. Process settings take precedence over the trusted environment file;
 only an unset setting uses its default. Unlike the endpoint settings, an
 explicitly empty timeout is invalid. These settings are not passed to containers.
 
-Only the publisher has registry write permission. It validates both native receipts and archives, loads the exact runtime and sender images, rechecks ELF/config identities, pushes unique candidate refs and checks the full index before release tags. `build-<K>` is a complete immutable index; `latest` is updated once from that index digest. Existing K requires retained successful default-branch Actions compilation evidence plus new native runtime/sender checks; missing proof, auth errors or timeouts stop release. Lost write responses require readback reconciliation. Qualification receipts are retained for 90 days, archives for two days; the sender image is retained by registry digest for reuse. Current default-branch HEAD is checked before writes. A GHCR release does not deploy a VPS.
+### Gateway logs
 
-Get real digests from a checked release summary. `build-<K>` is a complete index;
-`latest` is mutable. An index digest works on both CPUs; a child digest pins one.
-`candidate-*` and `staging-*` are temporary qualification refs. Recipe/platform/policy
-changes invalidate K; docs-only edits do not.
+The base Compose mounts `nginx-main.conf` read-only for every profile. Access logs
+contain only fixed method/route labels, numeric status/bytes and timing. Unknown
+methods use OTHER and unknown paths use other. Request errors are discarded via
+`error_log /dev/null`, including inherited contexts. Diagnose status and timing
+counters; detailed nginx request errors are unavailable. External proxy logs need
+an independent policy. Doctor accepts only the exact fixed-label maps and treats
+custom logging as UNKNOWN.
+
+### Native Bot API diagnostics
+
+Our own build includes privacy policy `issue17-v1`: Query logs use counts, webhook
+log messages omit private state, and the log sink projects every native/TDLib event
+to a fixed severity label before file and memory storage. Detailed native log
+messages are unavailable. Supported file/memory verbosity is 0..3; higher startup
+values are rejected and runtime verbosity escalation is clamped. Crash diagnostics
+omit actor tags and debugger locals; core dumps are disabled by the entrypoint.
+This guarantee requires the qualified own image/digest, not an arbitrary upstream
+image selected by BOTAPI_IMAGE. Private webhook persistence and outgoing secret
+headers keep their original bytes. Version output remains available.
+
+## Safe statistics
+
+`TELEGRAM_STAT` defaults to false. When enabled, raw statistics bind only to
+127.0.0.1:8082 in the Bot API namespace. Never publish or proxy this port.
+The observer accepts the reviewed tab-separated manager format and returns only
+numeric observations. Queue coverage is always sampled: omitted pending fields
+mean unknown, and the observed sum is a lower bound, never a global total.
+Malformed, duplicate, oversized, Closing or incompatible responses are unavailable.
+
+## Observer deployment and isolation
+
+Before Compose up, prepare inputs on the Linux host:
+
+```sh
+install -d -m 0700 .observability
+install -d -m 0755 .observability/runtime .observability/migration
+sudo install -d -o 101 -g 101 -m 0700 .observability/registry .observability/credentials
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+The observer shares only Bot API's network namespace. It runs as 101:101 with a
+read-only root, dropped capabilities and no Docker socket, state/temp or private
+migration dossier mount. Empty directories work without bot credentials. Host
+management is `http://127.0.0.1:18081`; only three exact management routes are
+proxied, GET/HEAD only, without query/body/Authorization. API listener 18080
+blocks these routes. Both APIs use delayed Docker DNS resolution so nginx can
+start while a target is absent; management upstream errors become a fixed 503.
+Management 4xx responses generated by nginx can use its standard HTML error pages.
+API ports 8082/8090 are reserved. A custom API port also needs an nginx override
+and doctor validation. Raw stats remain loopback-only. Observer 8090 is trusted
+Compose-network access, never a public monitoring ingress.
+
+Doctor understands the supported route contexts and network owner; unsupported
+variables, extra management routes, public management bindings, raw stats proxying,
+state/socket mounts or wrong namespace owners fail or remain unknown. Doctor is
+preflight and never substitutes for continuous health or actual delivery evidence.
+The base is pinned Alpine; APK Python/curl/jq package repositories remain mutable.
+Immutable image pairs capture the resulting build; byte-reproducibility is not promised.
+
+The published observer uses a digest-pinned Python base resolved by CI. The local
+fallback uses pinned Alpine plus APK Python; set OBSERVER_BASE to an approved
+Python image digest to reproduce the release base. Host producer supervision,
+registry/credential permissions and ownership/rotation are described in
+[maintenance](maintenance.md). A section's ready state describes its observation
+source; inspect migration outcomes separately from process readiness.
+## Opt-in observability
+
+Prepare the private `.observability` inputs as described above, then run `docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d`. Management binds to `127.0.0.1:18081` by default; keep it private. `TELEGRAM_STAT` controls both components only with this overlay. For a local observer build also include `docker-compose.build.yml` and `docker-compose.observability.build.yml`.
+
+When combining file secrets with observability, list `docker-compose.secrets.yml` before `docker-compose.observability.yml`, and verify the effective configuration does not contain inline credentials.
+
+## Configuration interfaces
+
+Compose reads `API_ID`, `API_HASH`, `BOTAPI_IMAGE`, `GATEWAY_BIND`, `TELEGRAM_HTTP_IP_ADDRESS` and `TELEGRAM_HTTP_PORT`. The gateway defaults to loopback; changing the backend port also requires matching nginx configuration. The observability overlay reads `TELEGRAM_STAT`, `MGMT_BIND`, `OBSERVER_IMAGE`, `OBSERVER_MIGRATION_DIR` and `OBSERVER_REGISTRY`; its build overlay reads `OBSERVER_BASE`. Pin the botapi and observer images to matching build keys.
+
+Non-root and files overlays read `BOTAPI_UID`, `BOTAPI_GID`, `BOTAPI_STATE_SOURCE`, `BOTAPI_TEMP_SOURCE` and `BOTAPI_MEDIA_SOURCE`. The secrets overlay reads `TELEGRAM_API_ID_SECRET_PATH` and `TELEGRAM_API_HASH_SECRET_PATH`. The downloads and reader overlays use `DOWNLOADS_IMAGE`, `BOT_A_ROOT`, `BOT_A_HOST_ROOT`, `BOT_TOKEN_FILE`, `DOWNLOAD_BOT_TOKEN_FILE`, `DOWNLOAD_AUTH_TOKEN_FILE`, `DOWNLOADS_BIND`, `DOWNLOAD_MAX_DURATION`, `DOWNLOAD_WORKERS`, `BOT_TEST_DC` and `BOT_COLON_LAYOUT`; keep credentials in private files and bind downloads to loopback unless protected ingress is configured.
+
+Migration helpers have their own process environment: `SELF_BOT_URL`, `WEBHOOK_URL`, `DROP_PENDING_UPDATES`, `WEBHOOK_SECRET_MODE`, `WEBHOOK_SECRET_TOKEN_FILE`, `WEBHOOK_IP_MODE`, `WEBHOOK_ALLOWED_UPDATES`, `WEBHOOK_MAX_CONNECTIONS`, `WEBHOOK_TARGET_LOCAL`, `WEBHOOK_CERTIFICATE_MODE`, `WEBHOOK_CERTIFICATE_FILE`, `BOT_TOKEN_FILE`, `MIGRATION_CONNECT_TIMEOUT`, `MIGRATION_REQUEST_DEADLINE`, `MIGRATION_STATUS_DIR` and `MIGRATION_STATUS_ALIAS`. Make the pending-update decision explicitly; see [migration](migration.md).
+
+Container inputs `TELEGRAM_VERBOSITY`, `TELEGRAM_WORK_DIR` and `TELEGRAM_TEMP_DIR` require an explicit container environment override: adding them to `.env` alone does not pass them through. `TELEGRAM_FILES_DIR` and `TELEGRAM_LOG_FILE` are set by the files overlay. Keep state, temporary and media roots separate.
+
+### Upload acceptance boundary
+The gateway retains 2048m for the entire request body, including multipart overhead; this is not a promise of a 2048 MiB Telegram file. Upload connect/send/read/idle values remain 5s/300s/600s/300s. Four admitted bodies need at least 8 GiB plus reserve on dedicated spool storage. Listener 82 is trusted internal transport. Run existing quick/full/slow/storage profiles; mock transport receipts and real Telegram upload receipts are separate. Upstream retries are disabled.
+
+### Two file access contracts
+Keep both per-bot read-only shared media and authenticated `POST /v1/files/download` for remote clients. The remote request contains file_id; the handler resolves getFile for its configured bot after checking its independent credential. It accepts no client pathname. State, temp and secrets are never media. Use existing `examples/files` and exact-pair `tools/check_file_contract.py` acceptance. Linux openat2 FD confinement is mandatory; unsupported platforms fail closed. Do not expose the old token-in-URL /file alias.
+
+### Internal port
+The bundled Compose stack uses fixed internal API port 8081. TELEGRAM_HTTP_PORT remains an entrypoint/binary option for custom deployments; it does not automatically reconfigure nginx or downloads. External bind changes need a network/TLS access policy.

@@ -5,7 +5,7 @@ import unittest
 import contextlib
 import io
 import json
-from check_doctor import assert_report, assert_commands, run_case, Harness, failure_location
+from check_doctor import assert_report, assert_commands, run_case, Harness
 from doctor_checks import report, check
 from unittest.mock import patch
 import doctor
@@ -15,18 +15,6 @@ from doctor_mock import StackRunner, FakeHttp
 
 
 class HarnessTests(unittest.TestCase):
-    def test_failure_location_does_not_expose_exception_data(self):
-        try:
-            raise ValueError("private-doctor-sentinel")
-        except ValueError as exc:
-            location = failure_location(exc)
-        self.assertNotIn("private-doctor-sentinel", location)
-        self.assertEqual("location unavailable", location)
-        from traceback import FrameSummary
-        with patch("check_doctor.traceback.extract_tb", return_value=[
-                FrameSummary("/private/private-doctor-sentinel/check_doctor.py", 123, "run")]):
-            self.assertEqual("check_doctor.py:123", failure_location(ValueError("private-doctor-sentinel")))
-
     def test_private_runtime_values_never_reach_either_renderer(self):
         sentinel = "private-doctor-sentinel"
         class PrivateRunner(StackRunner):
@@ -55,11 +43,11 @@ class HarnessTests(unittest.TestCase):
             out, err = io.StringIO(), io.StringIO()
             with patch("doctor_runtime.sys.platform", "linux"), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 code = doctor.main(["--scenario", "official-to-self", "--format", fmt], runner=runner, http=http, collector=collector)
-            self.assertEqual(0, code, out.getvalue())
+            self.assertEqual(3, code, out.getvalue())
             self.assertNotIn(sentinel, out.getvalue() + err.getvalue())
             assert_commands(runner.calls)
             if fmt == "json":
-                self.assertEqual(0, json.loads(out.getvalue())["exit_code"])
+                self.assertEqual(3, json.loads(out.getvalue())["exit_code"])
 
     def test_self_to_self_selected_subtree_capacity_and_compatibility(self):
         from types import SimpleNamespace
@@ -138,7 +126,7 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(2, len(commands))
         self.assertIn(harness.project, commands[0])
         self.assertIn("--volumes", commands[0])
-        self.assertEqual(["docker", "image", "rm", harness.project + ":synthetic"], commands[1])
+        self.assertEqual(["docker", "image", "rm", harness.project + ":synthetic", harness.project + ':observer'], commands[1])
 
     def test_full_pipeline_matrix_without_docker(self):
         data = dict(schema_version=1, workflow_prepared=True, file_access="not_used",

@@ -1,17 +1,8 @@
-"""Run the actual standalone page in Node, with intercepted fetch and a watchdog."""
+"""Public entry and actual helper client contract."""
 from pathlib import Path
-import subprocess
-import unittest
-
-
-class HtmlTests(unittest.TestCase):
-    def test_page_scenarios(self):
-        tools = Path(__file__).resolve().parent
-        result = subprocess.run(['node', str(tools / 'issue10_timeout.cjs'), '50',
-                                 'node', str(tools / 'issue10_ui_harness.cjs')],
-                                text=True, capture_output=True, timeout=55)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-
-if __name__ == '__main__':
-    unittest.main()
+import subprocess, unittest
+class EntryTests(unittest.TestCase):
+    def test_root_entry_and_same_origin_client(self):
+        root=Path(__file__).resolve().parents[1]
+        result=subprocess.run(['node','tools/test_html_migrator.cjs'],cwd=root,capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)

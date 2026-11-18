@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "cases": [
+    {"id":"issue-reproducer","value":"https://example.invalid/hook?check=$(printf TEST)","valid_url":false},
+    {"id":"command-substitution","value":"https://example.invalid/hook?check=$(>marker)","valid_url":true},
+    {"id":"backticks","value":"https://example.invalid/hook?check=`>marker`","valid_url":true},
+    {"id":"single-quote","value":"https://example.invalid/hook?q=';>marker;'","valid_url":true},
+    {"id":"double-quote","value":"https://example.invalid/hook?q=\";>marker;\"","valid_url":true},
+    {"id":"backslash","value":"https://example.invalid/hook?q=one\\two","valid_url":true},
+    {"id":"operators","value":"https://example.invalid/hook?q=;&|<>marker","valid_url":true},
+    {"id":"globs","value":"https://example.invalid/hook?q=*[abc](x){a,b}","valid_url":true},
+    {"id":"unicode","value":"https://example.invalid/путь?ключ=λ猫","valid_url":true},
+    {"id":"lf","value":"https://example.invalid/hook?x=one\ntwo","valid_url":false},
+    {"id":"crlf","value":"https://example.invalid/hook?x=one\r\ntwo","valid_url":false},
+    {"id":"trailing-lf","value":"https://example.invalid/hook\n","valid_url":false},
+    {"id":"empty","value":"","valid_url":true},
+    {"id":"nul","value":"https://example.invalid/hook\u0000tail","valid_url":false}
+  ],
+  "canaries": {
+    "token":"123:synthetic_token_for_tests_only",
+    "secret":"Issue8_secret_canary",
+    "certificate_name":"issue8_private_input_canary ' $(>marker),; λ.pem"
+  }
+}

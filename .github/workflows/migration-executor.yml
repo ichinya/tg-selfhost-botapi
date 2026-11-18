@@ -1,0 +1,68 @@
+name: Migration executor
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  executor-acceptance:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Explicit shell safety prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl openssl shellcheck
+          test "$(id -u)" -ne 0
+      - name: Require tracked dependencies and POSIX safety acceptance
+        run: |
+          python3 tools/check_migration_checkout.py
+          python3 tools/check_migration_safety.py --require-posix
+          python3 -m unittest discover -s tools -p 'test_*.py'
+      - name: Check helper UI and wrappers without live credentials
+        run: |
+          node --test tools/test_migration_ui.mjs
+          node tools/migrator_ui_harness.js
+          bash -n migrate_off_to_self.sh
+          bash -n tools/migration_executor.sh
+          bash -n tools/migration_adapter.sh
+          bash -n tools/migration_diagnostics_main.sh
+          bash -n tools/webhook_profile_runtime.sh
+          sh -n docker-entrypoint.sh
+          sh -n tools/botapi_healthcheck.sh
+          sh -n tools/fixtures/migration/fake-bot-api.sh
+          shellcheck migrate_off_to_self.sh tools/migration_adapter.sh tools/migration_executor.sh docker-entrypoint.sh tools/botapi_healthcheck.sh
+          git diff --check
+      - name: Validate Compose models with fixture credentials and private files
+        run: |
+          fixture_env=$(mktemp)
+          trap 'rm -f "$fixture_env"' EXIT
+          export APK_REFRESH_ID=v1-2000-01-01-g0
+          printf '%s\n' 'API_ID=12345' 'API_HASH=test-placeholder' > "$fixture_env"
+          docker compose --env-file "$fixture_env" config --quiet
+          docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          secret_root=$(mktemp -d)
+          trap 'rm -f "$fixture_env" "$secret_root/id" "$secret_root/hash"; rmdir "$secret_root"' EXIT
+          printf '%s' '12345' > "$secret_root/id"
+          printf '%s' 'synthetic-hash' > "$secret_root/hash"
+          chmod 600 "$secret_root/id" "$secret_root/hash"
+          export TELEGRAM_API_ID_SECRET_PATH="$secret_root/id" TELEGRAM_API_HASH_SECRET_PATH="$secret_root/hash"
+          docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.secrets.yml config --quiet
+          docker compose --env-file "$fixture_env" -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.secrets.yml config --quiet

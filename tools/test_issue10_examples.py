@@ -1,17 +1,13 @@
-"""Execute both EN/RU published examples against loopback source/target/sink."""
 from pathlib import Path
-import subprocess
-import unittest
-
-
-class ExampleTests(unittest.TestCase):
-    def test_bash_scenarios_and_published_examples(self):
-        tools = Path(__file__).resolve().parent
-        result = subprocess.run(['node', str(tools / 'issue10_timeout.cjs'), '300',
-                                 'node', str(tools / 'test_issue10_bash.cjs')],
-                                text=True, capture_output=True, timeout=320)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-
-if __name__ == '__main__':
-    unittest.main()
+import os, subprocess, unittest
+class AdapterTests(unittest.TestCase):
+    def test_regeneration_uses_only_canonical_adapter(self):
+        root=Path(__file__).resolve().parents[1]
+        subprocess.run(['node','tools/embed_webhook_profile.cjs','--check'],cwd=root,check=True)
+        text=(root/'migrate_off_to_self.sh').read_text()
+        self.assertIn('tools/migration_executor.sh',text); self.assertNotIn('wp_migration_main',text)
+    @unittest.skipUnless(os.name=='posix','POSIX shell syntax gate')
+    def test_bash_adapter_syntax(self):
+        root=Path(__file__).resolve().parents[1]
+        for path in ('migrate_off_to_self.sh','tools/migration_executor.sh','tools/migration_adapter.sh'):
+            subprocess.run(['bash','-n',str(root/path)],check=True)

@@ -12,7 +12,20 @@ on:
       - 'docs/**'
       - 'tg_selfhost_botapi_migrator.html'
       - 'tools/check_docs.py'
+      - 'tools/test_check_docs.py'
+      - 'examples/**'
+      - 'Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+      - '.env.example'
+      - 'docker-entrypoint.sh'
+      - 'nginx.conf'
+      - 'nginx.observability.conf'
+      - 'tools/test_docs_privacy.py'
+      - 'tools/test_issue17_security_docs.py'
       - 'tools/test_issue11_docs.py'
+      - 'docker-compose.nonroot.yml'
+      - 'docker-compose.files.yml'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
@@ -23,6 +36,19 @@ on:
       - 'assets/**'
       - 'tg_selfhost_botapi_migrator.html'
       - 'tools/check_docs.py'
+      - 'tools/test_check_docs.py'
+      - 'examples/**'
+      - 'Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+      - '.env.example'
+      - 'docker-entrypoint.sh'
+      - 'nginx.conf'
+      - 'nginx.observability.conf'
+      - 'tools/test_docs_privacy.py'
+      - 'docker-compose.nonroot.yml'
+      - 'docker-compose.files.yml'
+      - 'tools/test_issue17_security_docs.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -39,6 +65,18 @@ jobs:
         run: |
           mkdir -p logs/migration
           printf 'synthetic publication exclusion check\n' > logs/migration/issue11-sentinel.txt
+          mkdir -p data scratch media
+          printf 'synthetic publication exclusion check\n' > media/issue21-sentinel.txt
+          printf 'synthetic publication exclusion check\n' > data/issue21-sentinel.txt
+          printf 'synthetic publication exclusion check\n' > scratch/issue21-sentinel.txt
+          mkdir -p secrets
+          printf 'synthetic_issue17_publication_sentinel\n' > secrets/issue17-sentinel.txt
+          python3 -m unittest discover -s tools -p 'test_issue17_security_docs.py'
+
+          mkdir -p .observability/runtime .observability/migration .observability/registry .observability/credentials
+          for directory in runtime migration registry credentials; do
+            printf 'OBS16_PUBLICATION_SENTINEL\n' > ".observability/$directory/sentinel.txt"
+          done
       - name: Build the GitHub Pages site
         uses: actions/jekyll-build-pages@v1
         with:
@@ -46,8 +84,24 @@ jobs:
           destination: ./.site-check
       - name: Check rendered links and the original migrator URL
         timeout-minutes: 2
+        env:
+          DOCS_PRIVACY_SENTINEL: synthetic_issue17_publication_sentinel
         run: |
           test ! -e .site-check/logs/migration/issue11-sentinel.txt
           test ! -e .site-check/logs
+          test ! -e .site-check/scratch/issue21-sentinel.txt
+          test ! -e .site-check/scratch
+          test ! -e .site-check/data/issue21-sentinel.txt
+          test ! -e .site-check/data
+          test ! -e .site-check/media/issue21-sentinel.txt
+          test ! -e .site-check/media
+          test ! -e .site-check/secrets
+          test ! -e .site-check/nginx.observability.conf
+          test ! -e .site-check/docker-compose.observability.yml
+          test ! -e .site-check/docker-compose.observability.build.yml
+          test ! -e .site-check/nginx-main.conf
+          test ! -e .site-check/docker-compose.secrets.yml
+
+          test ! -e .site-check/.observability
           timeout 60 python3 tools/check_docs.py .site-check
           timeout 30 python3 -m unittest discover -s tools -p 'test_issue11_docs.py' -v

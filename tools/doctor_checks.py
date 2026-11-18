@@ -52,8 +52,8 @@ def report(scenario, checks, *, error=False, clock=None):
             "migration": {"verdict": verdict_for([c for c in checks if c["id"].startswith("migration.")]),
                           "pending_actions": pending_actions(scenario), "unverified_session_facts": ["bot_authorization", "session_restrictions", "queue_preservation", "delivery_result"],
             "executor_support": {"manual": "unsupported" if scenario == "hook-only" else "unknown" if scenario is None else "documented_procedure",
-                                 "helpers": "not_certified", "bash": "cloud_to_local_only; token-bearing preflight; issues #2/#7/#9",
-                                 "browser": "separate tool; issues #6/#8"}},
+                                 "helpers": "runtime_acceptance_required", "bash": "canonical_python_adapter; four_directions; signed_checkpoints_required",
+                                 "browser": "static_entry; same_origin_loopback_helper"}},
             "readiness": {"verdict": verdict, "blockers": failed, "unknowns": unknown,
                           "limits": ["Migration execution, bot authorization, queue retention and delivery are not verified.",
                                      "Evidence is a snapshot of the selected stack; opaque external proxies require separate verification."]},
@@ -114,7 +114,7 @@ def settings_checks(env, prefix="target", explicit=False, defaults_known=True):
         findings.append(check(prefix + "." + name.lower(), "pass" if valid else "fail", "configured" if valid else "invalid_boolean", "Entrypoint boolean syntax check."))
     port = env.get("TELEGRAM_HTTP_PORT", "8081")
     findings.append(check(prefix + ".http_port", "pass" if valid_port(port) else "fail", "configured" if valid_port(port) else "invalid_port", "HTTP port must be between 1 and 65535."))
-    if env.get("TELEGRAM_STAT") in {"1", "true", "TRUE"} and port == "8082":
+    if valid_port(port) and int(port) in {8082, 8090}:
         findings.append(check(prefix + ".stat_port", "fail", "port_conflict", "Statistics and API listeners conflict."))
     return findings
 
@@ -278,17 +278,33 @@ def nginx_routes(tree):
     safe = {"events", "worker_connections", "http", "server", "location", "upstream", "user", "worker_processes", "pid",
             "error_log", "access_log", "log_format", "default_type", "types", "sendfile", "keepalive_timeout", "tcp_nopush",
             "gzip", "index", "server_name", "proxy_http_version", "proxy_set_header", "client_max_body_size", "autoindex",
-            "resolver", "proxy_read_timeout", "proxy_connect_timeout", "proxy_send_timeout", "proxy_buffering", "charset"}
+            "resolver", "proxy_read_timeout", "proxy_connect_timeout", "proxy_send_timeout", "proxy_buffering", "charset",
+            "client_body_timeout", "client_body_temp_path", "client_header_timeout", "proxy_request_buffering",
+            "limit_req_zone", "limit_conn_zone", "limit_req", "limit_req_status", "limit_conn", "limit_conn_status"}
     def walk(nodes, in_types=False):
         nonlocal unknown
         for name, args, children in nodes:
             if name == "map":
+                # Unknown maps never constitute routing/privacy evidence.
+                supported = (args == ["$request_method", "$privacy_method"] and children == [
+                    ('default',['OTHER'],[]),('GET',['GET'],[]),('POST',['POST'],[]),
+                    ('HEAD',['HEAD'],[]),('OPTIONS',['OPTIONS'],[])]) or (
+                    args == ["$uri", "$privacy_route"] and children == [
+                    ('default',['other'],[]),('~^/bot[^/]+/',['api'],[]),('~^/file/bot[^/]+/',['file'],[])])
                 # Only the shipped URI redaction map is understood. Its entries
                 # are logging values, never nested routing directives.
-                supported = (args == ["$uri", "$uri_redacted"] and bool(children)
+                supported |= (args == ["$uri", "$uri_redacted"] and bool(children)
                              and all(not nested and len(values) == 1
                                      and (key == "default" or key.startswith("~"))
                                      for key, values, nested in children))
+                supported |= (args == ["$request_uri", "$legacy_file_request"] and children == [
+                    ("default", ["0"], []), (r"~^/file(?:/|%2[fF]|%25|\?|$)", ["1"], [])])
+                supported |= (args == ['$server_port', '$upload_global_key'] and children == [('default', ['uploads'], [])])
+                supported |= (args == ['$server_port:$http_transfer_encoding', '$reject_public_chunked'] and children == [
+                    ('default', ['0'], []), ('~*^80:.+', ['1'], [])])
+                supported |= (args == ['$request_method:$http_content_length:$http_transfer_encoding', '$reject_get_body'] and children == [
+                    ('default', ['0'], []), ('~*^(GET|HEAD):0*[1-9][0-9]*:', ['1'], []),
+                    ('~*^(GET|HEAD):[^:]*:.+', ['1'], [])])
                 unknown |= not supported
                 continue
             if name in {"root", "alias"}:
@@ -296,8 +312,39 @@ def nginx_routes(tree):
                     unknown = True
                 else:
                     roots.append(args[0])
+            elif name == 'proxy_next_upstream':
+                unknown |= args != ['off'] or bool(children)
+                continue
+            elif name == 'set':
+                if len(args) != 2 or not ((args[0] == '$botapi_upstream' and re.fullmatch(r'http://botapi:[0-9]+', args[1])) or args == ['$observer_upstream', 'http://botapi:8090']):
+                    unknown = True
+            elif name == 'if':
+                if not ((args == ['($legacy_file_request)'] and children == [('return', ['404'], [])]) or
+                        (args == ['($reject_public_chunked)'] and children == [('return', ['411'], [])]) or
+                        (args == ['($reject_get_body)'] and children == [('return', ['400'], [])]) or
+                        (args in [['($args)'], ['($http_content_length)'], ['($http_transfer_encoding)']] and children == [('return', ['400'], [])])):
+                    unknown = True
+                continue
+            elif name == 'limit_except':
+                if args not in (['GET'], ['GET', 'POST']) or children != [('deny', ['all'], [])]: unknown = True
+                continue
+            elif name == 'return':
+                if children or args not in [['404'], ['503', '{"error":"observer_unavailable"}'], ['404', '{"error":"not_found"}']]: unknown = True
+                continue
+            elif name == 'proxy_pass_request_body':
+                unknown |= args != ['off']
+            elif name == 'proxy_intercept_errors':
+                unknown |= args != ['on']
+            elif name == 'error_page':
+                unknown |= args != ['502', '504', '=503', '@unavailable']
             elif name == "proxy_pass":
-                if len(args) != 1 or not re.fullmatch(r"http://[a-zA-Z0-9_.-]+:[0-9]+/?", args[0]):
+                if args == ['$botapi_upstream$request_uri']:
+                    targets = [a[1] for n, a, _ in flatten_nginx(tree) if n == 'set' and len(a) == 2 and a[0] == '$botapi_upstream']
+                    if len(targets) != 1: unknown = True
+                    else: proxies.append(targets[0])
+                elif args == ['$observer_upstream$uri']:
+                    proxies.append('http://botapi:8090')
+                elif len(args) != 1 or not re.fullmatch(r"http://[a-zA-Z0-9_.-]+:[0-9]+/?", args[0]):
                     unknown = True
                 else:
                     proxies.append(args[0])
@@ -317,6 +364,92 @@ def nginx_routes(tree):
     return roots, proxies, listens, unknown
 
 
+def nginx_privacy(tree):
+    """Recognize only the shipped policy across all effective contexts."""
+    errors=[]; accesses=[]; formats=[]; maps=[]
+    def visit(nodes):
+        for name,args,children in nodes:
+            if name=='error_log': errors.append(args)
+            if name=='access_log': accesses.append(args)
+            if name=='log_format': formats.append(args)
+            if name=='map': maps.append((name,args,children))
+            if name!='map': visit(children)
+    visit(tree)
+    root_null=any(name=='error_log' and args==['/dev/null'] for name,args,_ in tree)
+    return (root_null and bool(errors) and all(args==['/dev/null'] for args in errors)
+            and bool(accesses) and all(args in (['/var/log/nginx/access.log','privacy'], ['off']) for args in accesses)
+            and formats==[['privacy','$privacy_method $privacy_route $status $body_bytes_sent $request_time']]
+            and not nginx_routes(maps)[-1]
+            and {tuple(args) for _,args,_ in maps} in (
+                {('$request_method','$privacy_method'),('$uri','$privacy_route')},
+                {('$request_method','$privacy_method'),('$uri','$privacy_route'),('$request_uri','$legacy_file_request')},
+                {('$request_method','$privacy_method'),('$uri','$privacy_route'),('$request_uri','$legacy_file_request'),
+                 ('$server_port','$upload_global_key'),('$server_port:$http_transfer_encoding','$reject_public_chunked'),
+                 ('$request_method:$http_content_length:$http_transfer_encoding','$reject_get_body')})
+            and len(maps) == len({tuple(args) for _,args,_ in maps}))
+
+def flatten_nginx(nodes):
+    for node in nodes:
+        yield node
+        yield from flatten_nginx(node[2])
+
+
+def nginx_route_contract(tree, api_port):
+    """Match listeners, exact paths and fixed variable targets as one recipe."""
+    _, proxies, listens, unknown = nginx_routes(tree)
+    expected = 'http://botapi:' + str(api_port)
+    if unknown: return False
+    has_management = 81 in listens
+    servers = [children for name, _, children in flatten_nginx(tree) if name == 'server']
+    resolvers = [args for name,args,_ in flatten_nginx(tree) if name == 'resolver']
+    if resolvers != [['127.0.0.11', 'valid=5s', 'ipv6=off']]: return False
+    if len(proxies) != (6 if has_management else 3): return False
+    if len(servers) != (2 if has_management else 1): return False
+    for nodes in servers:
+        ports = [args for name, args, _ in nodes if name == 'listen']
+        locations = {tuple(args): children for name, args, children in nodes if name == 'location'}
+        all_locations = [1 for name, _, _ in nodes if name == 'location']
+        if len(locations) != len(all_locations): return False
+        if ports == [['80'], ['82']]:
+            if ('set', ['$botapi_upstream', expected], []) not in nodes: return False
+            if ('if', ['($legacy_file_request)'], [('return', ['404'], [])]) not in nodes: return False
+            fixed = {('=', '/health/live'), ('=', '/health/ready'), ('=', '/status'), ('=', '/selfz'), ('=', '/file'), ('/file/',)}
+            regex = [path for path in locations if len(path) == 2 and path[0] == '~*']
+            if len(regex) != 2 or set(locations) != fixed | {('/',)} | set(regex): return False
+            if any(locations[path] != [('return', ['404'], [])] for path in fixed): return False
+            upload = next((path for path in regex if re.fullmatch(
+                r'\^/bot\[\^/\]\+/\(\?:sendPhoto(?:\|[A-Za-z][A-Za-z0-9]*)+\)\(\?:/\|\$\)', path[1])), None)
+            polling = ('~*', '^/bot[^/]+/getUpdates$')
+            if upload is None or polling not in regex: return False
+            for path in [('/',), upload, polling]:
+                children = locations[path]
+                if ('limit_except', ['GET', 'POST'], [('deny', ['all'], [])]) not in children: return False
+                routes = [args for name,args,_ in flatten_nginx(children) if name == 'proxy_pass']
+                if routes != [['$botapi_upstream$request_uri']]: return False
+        elif ports == [['81']]:
+            if ('set', ['$observer_upstream', 'http://botapi:8090'], []) not in nodes: return False
+            exact = {('=', '/health/live'), ('=', '/health/ready'), ('=', '/status')}
+            if set(locations) != exact | {('/',), ('@unavailable',)}: return False
+            for path in exact:
+                if locations[path] != [('limit_except', ['GET'], [('deny', ['all'], [])]), ('proxy_pass', ['$observer_upstream$uri'], [])]: return False
+            required = [('proxy_pass_request_body', ['off'], []), ('proxy_set_header', ['Authorization', ''], []),
+                        ('proxy_set_header', ['Content-Length', ''], []), ('proxy_set_header', ['Cookie', ''], []),
+                        ('proxy_set_header', ['Host', 'localhost'], []), ('proxy_intercept_errors', ['on'], []),
+                        ('error_page', ['502', '504', '=503', '@unavailable'], []),
+                        ('proxy_connect_timeout', ['1s'], []), ('proxy_read_timeout', ['3s'], []), ('access_log', ['off'], [])]
+            if any(node not in nodes for node in required): return False
+            for condition in ['($args)', '($http_content_length)', '($http_transfer_encoding)']:
+                if ('if', [condition], [('return', ['400'], [])]) not in nodes: return False
+            if locations[('/',)] != [('return', ['404', '{"error":"not_found"}'], [])]: return False
+            if locations[('@unavailable',)] != [('return', ['503', '{"error":"observer_unavailable"}'], [])]: return False
+        else: return False
+    # Nested overrides must not change either fixed target or escape route context.
+    sets = [(args[0], args[1]) for name,args,_ in flatten_nginx(tree) if name == 'set']
+    expected_sets = [('$botapi_upstream', expected)]
+    if has_management: expected_sets.append(('$observer_upstream', 'http://botapi:8090'))
+    return sorted(sets) == sorted(expected_sets)
+
+
 def overlaps(a, b):
     import posixpath
     a, b = posixpath.normpath(a), posixpath.normpath(b)
@@ -329,6 +462,15 @@ def backing(path, mounts):
     if not mount or not mount.get("Source"):
         return None
     return posixpath.normpath(mount["Source"] + "/" + posixpath.relpath(path, mount["Destination"]))
+
+
+def media_conflicts(media, private, mounts):
+    """Compare both namespace paths and their resolved Docker backings."""
+    if not media or not private or not all(isinstance(p, str) and p.startswith('/') for p in [media, *private]):
+        return None
+    source = backing(media, mounts)
+    return any(overlaps(media, p) or (source and backing(p, mounts)
+               and overlaps(source, backing(p, mounts))) for p in private)
 
 
 INPUT_BOOLS = {"workflow_prepared", "webhook_profile_prepared", "drop_pending_updates", "source_backup_prepared"}
@@ -394,7 +536,7 @@ def migration_checks(scenario, data):
     access = data.get("file_access")
     if access == "remote_authenticated":
         result.append(check("migration.file_access", "unknown", "file_contract_unverified", "Remote authenticated file access requires an independently verified contract at the boundary of issue #5.",
-                            provenance="declared", remediation="Verify the authenticated file workflow separately; doctor v1 does not implement or certify a download service."))
+                            provenance="declared", remediation="Run tools/check_file_contract.py independently; doctor does not certify remote auth from a declaration or receipt."))
     else:
         add("file_access", True if access else None)
     # False is a valid explicit queue decision, not a rejected plan.
@@ -422,3 +564,24 @@ def migration_checks(scenario, data):
             for field in ("dedicated_source", "target_empty_prepared"):
                 add("transfer." + field, transfer.get(field))
     return result
+
+
+def qualification_metadata_checks(image, prefix, *, apk=False):
+    """Safe metadata checks; labels alone never qualify native runtime or packages."""
+    labels=(image.get('Config') or {}).get('Labels') or {}
+    architecture=image.get('Architecture')
+    findings=[check(prefix+'.native_runtime','unknown','native_receipt_required',
+                    'Image architecture metadata does not attest native runtime or openat2 confinement.',
+                    required=False,severity='warning')]
+    if architecture is not None and (image.get('Os')!='linux' or architecture not in ('amd64','arm64')):
+        findings.append(check(prefix+'.platform','fail','unsupported_platform','Only qualified Linux amd64/arm64 candidates are supported.'))
+    revision=labels.get('org.opencontainers.image.revision')
+    valid=isinstance(revision,str) and bool(re.fullmatch('[0-9a-f]{40}',revision))
+    findings.append(check(prefix+'.wrapper_revision','pass' if valid else 'unknown','revision_present' if valid else 'revision_unverified',
+                          'Wrapper revision metadata inspected; the actual image ID remains authoritative.',required=False,severity='warning'))
+    if apk:
+        refresh=labels.get('io.tg-selfhost.apk-refresh')
+        valid=isinstance(refresh,str) and bool(re.fullmatch(r'v[1-9][0-9]*-[0-9]{4}-[0-9]{2}-[0-9]{2}-g[0-9]+',refresh))
+        findings.append(check(prefix+'.apk_generation','pass' if valid else 'unknown','refresh_present' if valid else 'refresh_unverified',
+                              'APK generation metadata inspected; inventory and freshness require exact-image receipts.',required=False,severity='warning'))
+    return findings

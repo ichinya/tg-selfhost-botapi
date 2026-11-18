@@ -1,0 +1,18 @@
+services:
+  botapi:
+    build:
+      context: .
+    volumes:
+      - state:/private-state
+      - temp:/private-temp
+      - secret:/private-secret
+  gateway:
+    image: ${FILE_NGINX_IMAGE:?Pinned fixture nginx image required}
+    volumes:
+      - ${FIXTURE_NGINX}:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - botapi
+volumes:
+  state:
+  temp:
+  secret:

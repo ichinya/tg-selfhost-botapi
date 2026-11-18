@@ -1,0 +1,120 @@
+# Disposable named volumes only. Never merge with production Compose.
+x-bounds: &bounds
+  cpus: 1.0
+  mem_limit: 256m
+  pids_limit: 128
+services:
+  setup:
+    <<: *bounds
+    image: ${FILE_FIXTURE_IMAGE}
+    command: [setup]
+    network_mode: none
+    volumes: [media:/media, secret:/secret, tls:/tls, state:/private-state]
+  botapi:
+    <<: *bounds
+    image: ${FILE_FIXTURE_IMAGE}
+    command: [upstream]
+  gateway:
+    <<: *bounds
+    image: ${FILE_NGINX_IMAGE:?Pinned fixture nginx image required}
+    volumes:
+      - ${FIXTURE_NGINX}:/etc/nginx/conf.d/default.conf:ro
+  downloads:
+    image: ${DOWNLOADS_TEST_IMAGE}
+    user: '101:101'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 0.5
+    mem_limit: 128m
+    pids_limit: 32
+    environment:
+      DOWNLOAD_BOT_ROOT: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
+      DOWNLOAD_BOT_TOKEN_FILE: /run/secrets/bot-token
+      DOWNLOAD_AUTH_TOKEN_FILE: /run/secrets/auth
+    volumes:
+      - type: volume
+        source: media
+        target: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
+        read_only: true
+        volume: {subpath: '12345:SYNTHETIC_A'}
+      - type: volume
+        source: secret
+        target: /run/secrets/bot-token
+        read_only: true
+        volume: {subpath: bot-token}
+      - type: volume
+        source: secret
+        target: /run/secrets/auth
+        read_only: true
+        volume: {subpath: auth}
+  reader:
+    <<: *bounds
+    image: ${FILE_FIXTURE_IMAGE}
+    user: '101:101'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: [local]
+    environment:
+      BOT_TOKEN_FILE: /run/secrets/bot-token
+      BOTAPI_ENDPOINT: http://botapi:8081
+      BOT_MEDIA_ROOT: /var/lib/telegram-bot-api-files
+      BOT_ROOT: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
+    volumes:
+      - type: volume
+        source: media
+        target: /var/lib/telegram-bot-api-files/12345:SYNTHETIC_A
+        read_only: true
+        volume: {subpath: '12345:SYNTHETIC_A'}
+      - type: volume
+        source: secret
+        target: /run/secrets/bot-token
+        read_only: true
+        volume: {subpath: bot-token}
+  tls:
+    <<: *bounds
+    image: ${FILE_NGINX_IMAGE:?Pinned fixture nginx image required}
+    volumes:
+      - ${FIXTURE_TLS_CONFIG}:/etc/nginx/conf.d/default.conf:ro
+      - tls:/tls:ro
+  client:
+    <<: *bounds
+    image: ${FILE_FIXTURE_IMAGE}
+    command: [remote]
+    volumes: [tls:/tls:ro]
+  kernel:
+    <<: *bounds
+    image: ${FILE_FIXTURE_IMAGE}
+    user: '101:101'
+    network_mode: none
+    command: [kernel]
+  mountcheck:
+    <<: *bounds
+    image: ${FILE_FIXTURE_IMAGE}
+    privileged: true
+    network_mode: none
+    command: [mountcheck]
+    volumes: [media:/media]
+  actual:
+    <<: *bounds
+    mem_limit: 512m
+    image: ${BOTAPI_TEST_IMAGE}
+    network_mode: none
+    environment:
+      TELEGRAM_API_ID: '12345'
+      # Syntactically valid synthetic placeholder; no Telegram connection allowed.
+      TELEGRAM_API_HASH: '00000000000000000000000000000000'
+      TELEGRAM_LOCAL: 'true'
+      TELEGRAM_FILES_DIR: /var/lib/telegram-bot-api-files
+      TELEGRAM_LOG_FILE: /var/lib/telegram-bot-api/synthetic.log
+    volumes:
+      - actual-state:/var/lib/telegram-bot-api
+      - actual-media:/var/lib/telegram-bot-api-files
+volumes:
+  media:
+  secret:
+  tls:
+  state:
+  actual-state:
+  actual-media:
